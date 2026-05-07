@@ -354,7 +354,7 @@ namespace components::table {
         // segments). They are read-only; appending to them would trip the assert in
         // column_segment_t::append. Create a fresh in-memory segment positioned just
         // after the last loaded segment so new rows land in appendable storage.
-        if (segment->block_offset() != 0) {
+        if (segment && segment->block_offset() != 0) {
             apend_transient_segment(l, segment->start + static_cast<int64_t>(segment->count));
             segment = data_.last_segment(l);
         }

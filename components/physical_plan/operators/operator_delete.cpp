@@ -6,6 +6,9 @@
 #include <services/disk/manager_disk.hpp>
 #include <services/index/manager_index.hpp>
 #include <services/wal/manager_wal_replicate.hpp>
+#include <components/vector/vector_operations.hpp>
+
+#include <unordered_map>
 
 namespace components::operators {
 
@@ -180,20 +183,42 @@ namespace components::operators {
         if (ctx->index_address != actor_zeta::address_t::empty_address()) {
             if (auto scan_out = left_ ? left_->output() : nullptr) {
                 auto& sc = scan_out->data_chunk();
-                auto idx_data = std::make_unique<data_chunk_t>(resource_, sc.types(), sc.size());
-                sc.copy(*idx_data, 0);
+                auto idx_data = std::make_unique<data_chunk_t>(resource_, sc.types(), modified_size);
                 auto idx_ids = std::pmr::vector<int64_t>(resource_);
                 idx_ids.reserve(modified_size);
-                for (size_t i = 0; i < modified_size; i++) {
-                    idx_ids.emplace_back(sc.row_ids.data<int64_t>()[i]);
+
+                std::unordered_map<int64_t, uint64_t> row_positions;
+                row_positions.reserve(sc.size());
+                for (uint64_t i = 0; i < sc.size(); i++) {
+                    row_positions.emplace(sc.row_ids.data<int64_t>()[i], i);
                 }
-                auto [_ix, ixf] = actor_zeta::send(ctx->index_address,
-                                                   &services::index::manager_index_t::delete_rows,
-                                                   exec_ctx,
-                                                   table_oid_,
-                                                   std::move(idx_data),
-                                                   std::move(idx_ids));
-                co_await std::move(ixf);
+
+                for (size_t i = 0; i < modified_size; i++) {
+                    auto row_id = static_cast<int64_t>(ids[i]);
+                    auto pos = row_positions.find(row_id);
+                    if (pos == row_positions.end()) {
+                        continue;
+                    }
+
+                    for (size_t col = 0; col < sc.column_count(); col++) {
+                        components::vector::vector_ops::copy(sc.data[col],
+                                                             idx_data->data[col],
+                                                             pos->second + 1,
+                                                             pos->second,
+                                                             idx_ids.size());
+                    }
+                    idx_ids.emplace_back(row_id);
+                }
+                if (!idx_ids.empty()) {
+                    idx_data->set_cardinality(idx_ids.size());
+                    auto [_ix, ixf] = actor_zeta::send(ctx->index_address,
+                                                       &services::index::manager_index_t::delete_rows,
+                                                       exec_ctx,
+                                                       table_oid_,
+                                                       std::move(idx_data),
+                                                       std::move(idx_ids));
+                    co_await std::move(ixf);
+                }
             }
         }
 
