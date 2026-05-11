@@ -193,7 +193,10 @@ namespace services::disk {
                          std::to_string(static_cast<unsigned>(table_oid)) / "table.otbx";
         std::filesystem::create_directories(otbx_path.parent_path());
         storages_.emplace(table_oid,
-                          std::make_unique<collection_storage_entry_t>(resource(), std::move(columns), otbx_path));
+                          std::make_unique<collection_storage_entry_t>(resource(),
+                                                                       std::move(columns),
+                                                                       otbx_path,
+                                                                       config_.layout_policy));
         co_return;
     }
 

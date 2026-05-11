@@ -66,10 +66,15 @@ namespace services::disk {
         /// Disk mode: create new table.otbx
         table_storage_t(std::pmr::memory_resource* resource,
                         std::vector<components::table::column_definition_t> columns,
-                        const std::filesystem::path& otbx_path);
+                        const std::filesystem::path& otbx_path,
+                        configuration::disk_layout_policy layout_policy =
+                            configuration::disk_layout_policy::auto_select);
 
         /// Disk mode: load existing table.otbx
-        table_storage_t(std::pmr::memory_resource* resource, const std::filesystem::path& otbx_path);
+        table_storage_t(std::pmr::memory_resource* resource,
+                        const std::filesystem::path& otbx_path,
+                        configuration::disk_layout_policy layout_policy =
+                            configuration::disk_layout_policy::auto_select);
 
         components::table::data_table_t& table() { return *table_; }
         storage_mode_t mode() const { return mode_; }
@@ -498,15 +503,20 @@ namespace services::disk {
             /// Disk: create new table.otbx
             collection_storage_entry_t(std::pmr::memory_resource* resource,
                                        std::vector<components::table::column_definition_t> columns,
-                                       const std::filesystem::path& otbx_path_in)
-                : table_storage(resource, std::move(columns), otbx_path_in)
+                                       const std::filesystem::path& otbx_path_in,
+                                       configuration::disk_layout_policy layout_policy =
+                                           configuration::disk_layout_policy::auto_select)
+                : table_storage(resource, std::move(columns), otbx_path_in, layout_policy)
                 , storage(
                       std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), resource))
                 , otbx_path(otbx_path_in) {}
 
             /// Disk: load existing table.otbx
-            collection_storage_entry_t(std::pmr::memory_resource* resource, const std::filesystem::path& otbx_path_in)
-                : table_storage(resource, otbx_path_in)
+            collection_storage_entry_t(std::pmr::memory_resource* resource,
+                                       const std::filesystem::path& otbx_path_in,
+                                       configuration::disk_layout_policy layout_policy =
+                                           configuration::disk_layout_policy::auto_select)
+                : table_storage(resource, otbx_path_in, layout_policy)
                 , storage(
                       std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), resource))
                 , otbx_path(otbx_path_in) {}

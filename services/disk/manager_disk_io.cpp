@@ -233,7 +233,10 @@ namespace services::disk {
               static_cast<unsigned>(table_oid),
               otbx_path.string());
         storages_.emplace(table_oid,
-                          std::make_unique<collection_storage_entry_t>(resource(), std::move(columns), otbx_path));
+                          std::make_unique<collection_storage_entry_t>(resource(),
+                                                                       std::move(columns),
+                                                                       otbx_path,
+                                                                       config_.layout_policy));
     }
 
     void manager_disk_t::load_storage_disk_sync(components::catalog::oid_t table_oid,
@@ -255,12 +258,18 @@ namespace services::disk {
             if (ec) {
                 throw std::runtime_error("W-TORN promote .prev failed: " + ec.message());
             }
-            storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource(), otbx_path));
+            storages_.emplace(table_oid,
+                              std::make_unique<collection_storage_entry_t>(resource(),
+                                                                           otbx_path,
+                                                                           config_.layout_policy));
             return;
         }
 
         try {
-            storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource(), otbx_path));
+            storages_.emplace(table_oid,
+                              std::make_unique<collection_storage_entry_t>(resource(),
+                                                                           otbx_path,
+                                                                           config_.layout_policy));
         } catch (const std::exception& e) {
             warn(log_, "load_storage_disk_sync: failed to load {} : {}", otbx_path.string(), e.what());
             if (!prev_exists) {
@@ -280,7 +289,10 @@ namespace services::disk {
             warn(log_,
                  "load_storage_disk_sync: recovered {} from .prev (corrupt original kept as .broken)",
                  otbx_path.string());
-            storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource(), otbx_path));
+            storages_.emplace(table_oid,
+                              std::make_unique<collection_storage_entry_t>(resource(),
+                                                                           otbx_path,
+                                                                           config_.layout_policy));
             return;
         }
 

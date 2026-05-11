@@ -91,6 +91,13 @@ namespace services::disk {
         static_assert(behavior_covers_all_implements(),
                       "behavior() is out of sync with dispatch_traits: "
                       "add a case to behavior() AND an entry to kBehaviorHandledIds");
+
+        components::table::storage::row_group_layout_policy
+        to_storage_layout_policy(configuration::disk_layout_policy policy) {
+            return policy == configuration::disk_layout_policy::columnar_only
+                       ? components::table::storage::row_group_layout_policy::COLUMNAR_ONLY
+                       : components::table::storage::row_group_layout_policy::AUTO;
+        }
     } // namespace
 
     // ---- table_storage_t implementations ----
@@ -119,25 +126,30 @@ namespace services::disk {
 
     table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
                                      std::vector<components::table::column_definition_t> columns,
-                                     const std::filesystem::path& otbx_path)
+                                     const std::filesystem::path& otbx_path,
+                                     configuration::disk_layout_policy layout_policy)
         : mode_(storage_mode_t::DISK)
         , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_) {
         auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
                                                                                             fs_,
                                                                                             otbx_path.string());
+        bm->set_layout_policy(to_storage_layout_policy(layout_policy));
         bm->create_new_database();
         block_manager_ = std::move(bm);
         table_ = std::make_unique<components::table::data_table_t>(resource, *block_manager_, std::move(columns));
     }
 
-    table_storage_t::table_storage_t(std::pmr::memory_resource* resource, const std::filesystem::path& otbx_path)
+    table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
+                                     const std::filesystem::path& otbx_path,
+                                     configuration::disk_layout_policy layout_policy)
         : mode_(storage_mode_t::DISK)
         , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_) {
         auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
                                                                                             fs_,
                                                                                             otbx_path.string());
+        bm->set_layout_policy(to_storage_layout_policy(layout_policy));
         bm->load_existing_database();
         block_manager_ = std::move(bm);
 
