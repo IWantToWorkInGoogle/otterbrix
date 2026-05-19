@@ -1,6 +1,7 @@
 #pragma once
 #include "column_data.hpp"
 #include "row_version_manager.hpp"
+#include "storage/block_manager.hpp"
 #include "storage/data_pointer.hpp"
 #include <optional>
 
@@ -42,6 +43,9 @@ namespace components::table {
         storage::row_group_layout_kind layout_kind_ = storage::row_group_layout_kind::COLUMNAR;
         std::optional<storage::pax_fixed_row_group_layout_t> pax_fixed_layout_;
         std::optional<storage::pax_generic_row_group_layout_t> pax_generic_layout_;
+        std::optional<storage::row_group_pointer_t> persisted_pointer_;
+        storage::row_group_layout_policy persisted_layout_policy_{storage::row_group_layout_policy::AUTO};
+        bool is_dirty_{true};
 
     public:
         void move_to_collection(collection_t* collection, int64_t new_start);
@@ -142,6 +146,9 @@ namespace components::table {
         void templated_scan(collection_scan_state& state, vector::data_chunk_t& result);
 
         bool has_unloaded_deletes() const;
+        void mark_dirty();
+        bool can_reuse_persisted_pointer();
+        storage::row_group_pointer_t remember_persisted_pointer(storage::row_group_pointer_t pointer);
 
         std::mutex row_group_lock_;
         std::vector<storage::meta_block_pointer_t> column_pointers_;

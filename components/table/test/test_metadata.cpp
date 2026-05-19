@@ -68,6 +68,48 @@ TEST_CASE("metadata: write and read small data") {
     cleanup_test_file();
 }
 
+TEST_CASE("metadata: long chain stays within persisted block payload") {
+    using namespace components::table::storage;
+    cleanup_test_file();
+
+    test_env_t env;
+    meta_block_pointer_t pointer;
+    std::vector<std::byte> test_data;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.create_new_database();
+
+        metadata_manager_t manager(bm);
+        constexpr uint64_t sub_block_header_size = sizeof(uint64_t) + sizeof(uint32_t);
+        REQUIRE(manager.sub_block_size() * META_SUB_BLOCKS_PER_BLOCK <= bm.block_size());
+
+        const auto payload_per_sub_block = manager.sub_block_size() - sub_block_header_size;
+        test_data.resize(payload_per_sub_block * (META_SUB_BLOCKS_PER_BLOCK + 6) + 31);
+        for (size_t i = 0; i < test_data.size(); i++) {
+            test_data[i] = static_cast<std::byte>((i * 131U + 17U) & 0xFFU);
+        }
+
+        metadata_writer_t writer(manager);
+        writer.write_data(test_data.data(), test_data.size());
+        pointer = writer.get_block_pointer();
+        writer.flush();
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.load_existing_database();
+
+        metadata_manager_t manager(bm);
+        std::vector<std::byte> read_data(test_data.size());
+        metadata_reader_t reader(manager, pointer);
+        reader.read_data(read_data.data(), read_data.size());
+        REQUIRE(std::memcmp(test_data.data(), read_data.data(), test_data.size()) == 0);
+    }
+
+    cleanup_test_file();
+}
+
 TEST_CASE("metadata: write and read typed data") {
     using namespace components::table::storage;
     cleanup_test_file();

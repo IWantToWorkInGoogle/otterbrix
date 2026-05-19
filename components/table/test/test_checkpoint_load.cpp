@@ -1498,6 +1498,201 @@ TEST_CASE("checkpoint_load: pax generic string scan preserves null validity acro
     cleanup_test_file();
 }
 
+TEST_CASE("checkpoint_load: clean restored row group checkpoint reuses persisted blocks") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 300;
+    const auto table_path = test_db_path() + ".clean_reuse";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+    uint64_t blocks_after_first_checkpoint = 0;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "clean_reuse");
+        append_nullable_string_data(*table, &env.resource, NUM_ROWS, [](uint64_t row) {
+            return std::string("name_") + std::to_string(row);
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        blocks_after_first_checkpoint = bm.total_blocks();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        loaded->compact();
+
+        metadata_writer_t writer(meta_mgr);
+        loaded->checkpoint(writer);
+
+        REQUIRE(bm.total_blocks() <= blocks_after_first_checkpoint + 1);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: restored row group dirty append is persisted") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 129;
+    const auto table_path = test_db_path() + ".dirty_append";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "dirty_append");
+        append_nullable_string_data(*table, &env.resource, NUM_ROWS, [](uint64_t row) {
+            return std::string("before_") + std::to_string(row);
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        append_nullable_string_data(*loaded, &env.resource, 1, [](uint64_t) {
+            return std::string("after_reload");
+        });
+
+        metadata_writer_t writer(meta_mgr);
+        loaded->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        uint64_t scanned = 0;
+        loaded->scan_table_segment(0, NUM_ROWS + 1, [&](data_chunk_t& chunk) {
+            for (uint64_t i = 0; i < chunk.size(); i++) {
+                const auto row = scanned + i;
+                if (row < NUM_ROWS) {
+                    REQUIRE(*chunk.data[0].value(i).value<std::string*>() ==
+                            std::string("before_") + std::to_string(row));
+                } else {
+                    REQUIRE(*chunk.data[0].value(i).value<std::string*>() == "after_reload");
+                }
+            }
+            scanned += chunk.size();
+        });
+        REQUIRE(scanned == NUM_ROWS + 1);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: columnar-only policy rewrites restored pax row group") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 260;
+    const auto table_path = test_db_path() + ".policy_mismatch";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "policy_mismatch");
+        append_nullable_string_data(*table, &env.resource, NUM_ROWS, [](uint64_t row) {
+            return std::string("name_") + std::to_string(row);
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.set_layout_policy(row_group_layout_policy::COLUMNAR_ONLY);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        metadata_writer_t writer(meta_mgr);
+        loaded->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        auto metadata = read_persisted_table_metadata(meta_mgr, table_pointer);
+        REQUIRE(metadata.row_groups.size() == 1);
+        REQUIRE(metadata.row_groups[0].layout_kind == row_group_layout_kind::COLUMNAR);
+        REQUIRE_FALSE(metadata.row_groups[0].pax_generic_layout.has_value());
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: pax generic string scan restores overflow strings") {
     using namespace components::table;
     using namespace components::table::storage;

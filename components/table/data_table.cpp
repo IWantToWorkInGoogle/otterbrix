@@ -168,6 +168,9 @@ namespace components::table {
         if (total == 0) {
             return;
         }
+        if (row_groups_->committed_row_count() == total) {
+            return;
+        }
 
         auto types = row_groups_->types();
         auto new_collection = std::make_shared<collection_t>(

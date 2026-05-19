@@ -1420,6 +1420,7 @@ namespace components::table {
     void row_group_t::move_to_collection(collection_t* collection, int64_t new_start) {
         collection_ = collection;
         start = new_start;
+        mark_dirty();
         for (auto& column : columns()) {
             column->set_start(new_start);
         }
@@ -1546,6 +1547,7 @@ namespace components::table {
         row_group->current_version_ = current_version_;
         row_group->columns_ = columns();
         row_group->columns_.push_back(std::move(added_column));
+        row_group->mark_dirty();
 
         return row_group;
     }
@@ -1562,6 +1564,7 @@ namespace components::table {
                 row_group->columns_.push_back(cols[i]);
             }
         }
+        row_group->mark_dirty();
 
         return row_group;
     }
@@ -2400,6 +2403,9 @@ namespace components::table {
     }
 
     void row_group_t::append_version_info(transaction_data txn, uint64_t count) {
+        if (count > 0) {
+            mark_dirty();
+        }
         uint64_t row_group_start = this->count.load();
         uint64_t row_group_end = row_group_start + count;
         if (row_group_end > row_group_size()) {
@@ -2421,6 +2427,7 @@ namespace components::table {
     }
 
     void row_group_t::revert_append(uint64_t row_group_start) {
+        mark_dirty();
         auto vinfo = version_info();
         if (vinfo) {
             vinfo->revert_append(row_group_start);
@@ -2442,6 +2449,9 @@ namespace components::table {
 
     void row_group_t::append(row_group_append_state& state, vector::data_chunk_t& chunk, uint64_t append_count) {
         assert(chunk.column_count() == get_column_count());
+        if (append_count > 0) {
+            mark_dirty();
+        }
         for (uint64_t i = 0; i < get_column_count(); i++) {
             auto& col_data = get_column(i);
             auto prev_allocation_size = col_data.allocation_size();
@@ -2456,6 +2466,9 @@ namespace components::table {
                              uint64_t offset,
                              uint64_t count,
                              const std::vector<uint64_t>& column_ids) {
+        if (count > 0 && !column_ids.empty()) {
+            mark_dirty();
+        }
         for (uint64_t i = 0; i < column_ids.size(); i++) {
             auto column = column_ids[i];
             assert(column != std::numeric_limits<uint64_t>::max());
@@ -2480,6 +2493,9 @@ namespace components::table {
         auto primary_column_idx = column_path[0];
         assert(primary_column_idx != std::numeric_limits<uint64_t>::max());
         assert(primary_column_idx < columns_.size());
+        if (updates.size() > 0) {
+            mark_dirty();
+        }
         auto& col_data = get_column(primary_column_idx);
         col_data.update_column(column_path, updates.data[0], ids, updates.size(), 1);
     }
@@ -2540,6 +2556,9 @@ namespace components::table {
     uint64_t row_group_t::delete_rows(uint64_t vector_idx, int64_t rows[], uint64_t count) {
         const auto delete_id = ++current_version_;
         auto deleted = get_or_create_version_info().delete_rows(vector_idx, delete_id, rows, count);
+        if (deleted > 0) {
+            mark_dirty();
+        }
         ++current_version_;
         return deleted;
     }
@@ -2554,6 +2573,9 @@ namespace components::table {
             del_state.delete_row(ids[i]);
         }
         del_state.flush();
+        if (del_state.delete_count > 0) {
+            mark_dirty();
+        }
         return del_state.delete_count;
     }
 
@@ -2658,6 +2680,36 @@ namespace components::table {
         version_info_ = owned_version_info_.get();
     }
 
+    void row_group_t::mark_dirty() {
+        is_dirty_ = true;
+        persisted_pointer_.reset();
+    }
+
+    bool row_group_t::can_reuse_persisted_pointer() {
+        if (is_dirty_ || !persisted_pointer_.has_value()) {
+            return false;
+        }
+        if (persisted_pointer_->row_start != static_cast<uint64_t>(start) || persisted_pointer_->tuple_count != count) {
+            return false;
+        }
+        const auto current_policy = block_manager().layout_policy();
+        if (persisted_layout_policy_ != current_policy) {
+            return false;
+        }
+        if (current_policy == storage::row_group_layout_policy::COLUMNAR_ONLY &&
+            persisted_pointer_->layout_kind != storage::row_group_layout_kind::COLUMNAR) {
+            return false;
+        }
+        return true;
+    }
+
+    storage::row_group_pointer_t row_group_t::remember_persisted_pointer(storage::row_group_pointer_t pointer) {
+        persisted_layout_policy_ = block_manager().layout_policy();
+        persisted_pointer_ = pointer;
+        is_dirty_ = false;
+        return pointer;
+    }
+
     void version_delete_state::delete_row(int64_t row_id) {
         assert(row_id >= 0);
         uint64_t vector_idx = static_cast<uint64_t>(row_id) / vector::DEFAULT_VECTOR_CAPACITY;
@@ -2687,6 +2739,10 @@ namespace components::table {
     }
 
     storage::row_group_pointer_t row_group_t::write_to_disk(storage::partial_block_manager_t& partial_block_manager) {
+        if (can_reuse_persisted_pointer()) {
+            return *persisted_pointer_;
+        }
+
         storage::row_group_pointer_t pointer;
         pointer.row_start = static_cast<uint64_t>(start);
         pointer.tuple_count = count;
@@ -2799,7 +2855,7 @@ namespace components::table {
             layout_kind_ = pointer.layout_kind;
             pax_fixed_layout_.reset();
             pax_generic_layout_ = std::move(pax_layout);
-            return pointer;
+            return remember_persisted_pointer(std::move(pointer));
         }
 
         if (pax_fixed_columns.empty() || pointer.tuple_count == 0) {
@@ -2814,7 +2870,7 @@ namespace components::table {
             pax_fixed_layout_.reset();
             pax_generic_layout_.reset();
             layout_kind_ = pointer.layout_kind;
-            return pointer;
+            return remember_persisted_pointer(std::move(pointer));
         }
 
         storage::pax_fixed_row_group_layout_t pax_layout;
@@ -2848,7 +2904,7 @@ namespace components::table {
         layout_kind_ = pointer.layout_kind;
         pax_fixed_layout_ = std::move(pax_layout);
         pax_generic_layout_.reset();
-        return pointer;
+        return remember_persisted_pointer(std::move(pointer));
     }
 
     void row_group_t::create_from_pointer(const storage::row_group_pointer_t& pointer) {
@@ -2856,6 +2912,9 @@ namespace components::table {
         layout_kind_ = pointer.layout_kind;
         pax_fixed_layout_ = pointer.pax_fixed_layout;
         pax_generic_layout_ = pointer.pax_generic_layout;
+        persisted_pointer_ = pointer;
+        persisted_layout_policy_ = block_manager().layout_policy();
+        is_dirty_ = false;
         auto col_count = get_column_count();
         auto ptrs_count = pointer.columnar_data_pointers.size();
         auto min_count = std::min(col_count, static_cast<uint64_t>(ptrs_count));
