@@ -43,8 +43,8 @@ namespace components::table::detail {
 
 namespace {
 
-    constexpr uint16_t PAX_FIXED_ROWS_PER_PAGE = 128;
-    constexpr uint16_t PAX_GENERIC_ROWS_PER_PAGE = 128;
+    constexpr uint16_t PAX_FIXED_ROWS_PER_PAGE = 256;
+    constexpr uint16_t PAX_GENERIC_ROWS_PER_PAGE = 256;
     constexpr uint32_t PAX_STRING_DICTIONARY_HEADER_SIZE = sizeof(uint32_t) * 5;
     constexpr uint32_t PAX_STRING_BIG_MARKER_SIZE = sizeof(uint32_t) + sizeof(int32_t);
     constexpr uint64_t PAX_STRING_DEFAULT_BLOCK_LIMIT = 4096;

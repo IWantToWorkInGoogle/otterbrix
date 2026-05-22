@@ -259,7 +259,7 @@ TEST_CASE("metadata: pax_fixed layout round trip") {
 
     pax_fixed_row_group_layout_t layout;
     layout.version = 2;
-    layout.rows_per_page = 128;
+    layout.rows_per_page = 256;
 
     pax_fixed_page_t first_page;
     first_page.row_offset_in_group = 0;
@@ -306,7 +306,7 @@ TEST_CASE("metadata: pax_fixed layout round trip") {
         metadata_reader_t reader(manager, pointer);
         auto restored = pax_fixed_row_group_layout_t::deserialize(reader);
         REQUIRE(restored.version == 2);
-        REQUIRE(restored.rows_per_page == 128);
+        REQUIRE(restored.rows_per_page == 256);
         REQUIRE(restored.pages.size() == 1);
         REQUIRE(restored.pages[0].tuple_count == 128);
         REQUIRE(restored.pages[0].slices.size() == 2);
@@ -336,7 +336,7 @@ TEST_CASE("metadata: pax_fixed v1 layout defaults to all valid validity") {
 
     pax_fixed_row_group_layout_t layout;
     layout.version = 1;
-    layout.rows_per_page = 128;
+    layout.rows_per_page = 256;
 
     pax_fixed_page_t page;
     page.row_offset_in_group = 0;
@@ -385,7 +385,7 @@ TEST_CASE("metadata: pax_generic layout round trip") {
 
     pax_generic_row_group_layout_t layout;
     layout.version = 1;
-    layout.rows_per_page = 128;
+    layout.rows_per_page = 256;
 
     pax_generic_page_t first_page;
     first_page.row_offset_in_group = 0;
@@ -454,7 +454,7 @@ TEST_CASE("metadata: pax_generic layout round trip") {
         metadata_reader_t reader(manager, pointer);
         auto restored = pax_generic_row_group_layout_t::deserialize(reader);
         REQUIRE(restored.version == 1);
-        REQUIRE(restored.rows_per_page == 128);
+        REQUIRE(restored.rows_per_page == 256);
         REQUIRE(restored.pages.size() == 2);
         REQUIRE(restored.pages[0].slices.size() == 2);
         REQUIRE(restored.pages[0].slices[0].slice_kind == pax_generic_slice_kind::STRING_VALUES);
@@ -487,7 +487,7 @@ TEST_CASE("metadata: pax_generic v2 struct layout round trip") {
 
     pax_generic_row_group_layout_t layout;
     layout.version = 2;
-    layout.rows_per_page = 128;
+    layout.rows_per_page = 256;
 
     pax_generic_page_t page;
     page.row_offset_in_group = 0;

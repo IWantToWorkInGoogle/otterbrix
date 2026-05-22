@@ -792,8 +792,8 @@ TEST_CASE("checkpoint_load: fixed integer columns are written as pax") {
 
         auto row_group = row_group_pointer_t::deserialize(reader);
         REQUIRE(row_group.columnar_data_pointers.size() == 2);
-        REQUIRE(row_group.columnar_data_pointers[0].size() == 3);
-        REQUIRE(row_group.columnar_data_pointers[1].size() == 3);
+        REQUIRE(row_group.columnar_data_pointers[0].size() == 2);
+        REQUIRE(row_group.columnar_data_pointers[1].size() == 2);
 
         REQUIRE(reader.read<uint32_t>() == ROW_GROUP_LAYOUTS_MAGIC);
         REQUIRE(reader.read<uint32_t>() == 1);
@@ -801,8 +801,8 @@ TEST_CASE("checkpoint_load: fixed integer columns are written as pax") {
         REQUIRE(layout_kind == row_group_layout_kind::PAX_FIXED);
 
         auto pax_layout = pax_fixed_row_group_layout_t::deserialize(reader);
-        REQUIRE(pax_layout.rows_per_page == 128);
-        REQUIRE(pax_layout.pages.size() == 3);
+        REQUIRE(pax_layout.rows_per_page == 256);
+        REQUIRE(pax_layout.pages.size() == 2);
         REQUIRE(pax_layout.pages[0].slices.size() == 2);
         REQUIRE(pax_layout.pages[0].slices[0].data_pointer.block_pointer.block_id ==
                 pax_layout.pages[0].slices[1].data_pointer.block_pointer.block_id);
@@ -1206,7 +1206,7 @@ TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax
         auto row_group = row_group_pointer_t::deserialize(reader);
         REQUIRE(row_group.columnar_data_pointers.size() == 15);
         for (const auto& pointers : row_group.columnar_data_pointers) {
-            REQUIRE(pointers.size() == 3);
+            REQUIRE(pointers.size() == 2);
         }
 
         REQUIRE(reader.read<uint32_t>() == ROW_GROUP_LAYOUTS_MAGIC);
@@ -1214,8 +1214,8 @@ TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax
         REQUIRE(static_cast<row_group_layout_kind>(reader.read<uint8_t>()) == row_group_layout_kind::PAX_FIXED);
         auto pax_layout = pax_fixed_row_group_layout_t::deserialize(reader);
         REQUIRE(pax_layout.version == 3);
-        REQUIRE(pax_layout.rows_per_page == 128);
-        REQUIRE(pax_layout.pages.size() == 3);
+        REQUIRE(pax_layout.rows_per_page == 256);
+        REQUIRE(pax_layout.pages.size() == 2);
 
         const auto require_slice_type = [&](uint32_t column_index, pax_fixed_column_type expected_type) {
             for (const auto& page : pax_layout.pages) {
@@ -1385,7 +1385,7 @@ TEST_CASE("checkpoint_load: string columns are written as pax generic") {
 
         auto row_group = row_group_pointer_t::deserialize(reader);
         REQUIRE(row_group.columnar_data_pointers.size() == 2);
-        REQUIRE(row_group.columnar_data_pointers[0].size() == 3);
+        REQUIRE(row_group.columnar_data_pointers[0].size() == 2);
         REQUIRE_FALSE(row_group.columnar_data_pointers[1].empty());
 
         REQUIRE(reader.read<uint32_t>() == ROW_GROUP_LAYOUTS_MAGIC);
@@ -1394,8 +1394,8 @@ TEST_CASE("checkpoint_load: string columns are written as pax generic") {
         REQUIRE(layout_kind == row_group_layout_kind::PAX_GENERIC);
 
         auto pax_layout = pax_generic_row_group_layout_t::deserialize(reader);
-        REQUIRE(pax_layout.rows_per_page == 128);
-        REQUIRE(pax_layout.pages.size() == 3);
+        REQUIRE(pax_layout.rows_per_page == 256);
+        REQUIRE(pax_layout.pages.size() == 2);
         REQUIRE(pax_layout.pages[0].slices.size() == 2);
         REQUIRE(pax_layout.pages[0].slices[0].slice_kind == pax_generic_slice_kind::STRING_VALUES);
         REQUIRE(pax_layout.pages[0].slices[0].codec_kind == pax_generic_codec_kind::STRING_SEGMENT);
