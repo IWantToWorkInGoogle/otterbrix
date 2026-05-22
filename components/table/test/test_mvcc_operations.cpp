@@ -1,10 +1,13 @@
 #include <catch2/catch.hpp>
+#include <components/storage/table_storage_adapter.hpp>
 #include <components/table/data_table.hpp>
 #include <components/table/storage/buffer_pool.hpp>
 #include <components/table/storage/in_memory_block_manager.hpp>
 #include <components/table/storage/standard_buffer_manager.hpp>
 #include <components/table/transaction_manager.hpp>
 #include <core/file/local_file_system.hpp>
+
+#include <algorithm>
 
 using namespace components::types;
 using namespace components::vector;
@@ -90,6 +93,32 @@ namespace {
         table.scan(result, scan_state);
         total += result.size();
         return total;
+    }
+
+    std::vector<int64_t> scan_values_txn(data_table_t& table, test_env& env, transaction_data txn) {
+        std::vector<storage_index_t> column_ids;
+        column_ids.emplace_back(0);
+
+        table_scan_state scan_state(&env.resource);
+        table.initialize_scan(scan_state, column_ids);
+        scan_state.table_state.txn = txn;
+
+        auto types = table.copy_types();
+        auto result = data_chunk_t(&env.resource, types, DEFAULT_VECTOR_CAPACITY);
+        table.scan(result, scan_state);
+        result.flatten();
+
+        std::vector<int64_t> values;
+        values.reserve(result.size());
+        auto* data = result.data[0].data<int64_t>();
+        for (uint64_t i = 0; i < result.size(); i++) {
+            values.push_back(data[i]);
+        }
+        return values;
+    }
+
+    bool contains_value(const std::vector<int64_t>& values, int64_t expected) {
+        return std::find(values.begin(), values.end(), expected) != values.end();
     }
 
 } // anonymous namespace
@@ -465,4 +494,121 @@ TEST_CASE("components::table::mvcc::txn_sees_own_writes") {
     mgr.abort(s1);
     table->revert_append(0, 5);
     mgr.abort(s2);
+}
+
+TEST_CASE("components::table::mvcc::snapshot_does_not_see_later_insert_commit") {
+    test_env env;
+    auto table = make_int_table(env);
+
+    append_rows(*table, env, 0, 5);
+    REQUIRE(scan_count(*table, env) == 5);
+
+    transaction_manager_t mgr;
+
+    auto reader_session = components::session::session_id_t::generate_uid();
+    auto& reader_txn = mgr.begin_transaction(reader_session);
+    auto reader_snapshot = reader_txn.data();
+
+    auto writer_session = components::session::session_id_t::generate_uid();
+    auto& writer_txn = mgr.begin_transaction(writer_session);
+    append_rows_txn(*table, env, 100, 3, writer_txn.data());
+    auto writer_commit_id = mgr.commit(writer_session);
+    table->commit_append(writer_commit_id, 5, 3);
+
+    REQUIRE(scan_count_txn(*table, env, reader_snapshot) == 5);
+
+    auto fresh_session = components::session::session_id_t::generate_uid();
+    auto& fresh_txn = mgr.begin_transaction(fresh_session);
+    REQUIRE(scan_count_txn(*table, env, fresh_txn.data()) == 8);
+
+    mgr.abort(reader_session);
+    mgr.abort(fresh_session);
+}
+
+TEST_CASE("components::table::mvcc::snapshot_keeps_rows_deleted_after_start") {
+    test_env env;
+    auto table = make_int_table(env);
+
+    append_rows(*table, env, 0, 10);
+    REQUIRE(scan_count(*table, env) == 10);
+
+    transaction_manager_t mgr;
+
+    auto reader_session = components::session::session_id_t::generate_uid();
+    auto& reader_txn = mgr.begin_transaction(reader_session);
+    auto reader_snapshot = reader_txn.data();
+
+    auto writer_session = components::session::session_id_t::generate_uid();
+    auto& writer_txn = mgr.begin_transaction(writer_session);
+
+    std::pmr::vector<complex_logical_type> id_type(&env.resource);
+    id_type.emplace_back(logical_type::BIGINT);
+    auto row_ids_chunk = data_chunk_t(&env.resource, id_type, 5);
+    for (uint64_t i = 0; i < 5; i++) {
+        row_ids_chunk.data[0].set_value(i, logical_value_t(&env.resource, static_cast<int64_t>(i)));
+    }
+    row_ids_chunk.set_cardinality(5);
+
+    table_delete_state del_state(&env.resource);
+    auto writer_txn_id = writer_txn.transaction_id();
+    table->delete_rows(del_state, row_ids_chunk.data[0], 5, writer_txn_id);
+    auto writer_commit_id = mgr.commit(writer_session);
+    table->commit_all_deletes(writer_txn_id, writer_commit_id);
+
+    REQUIRE(scan_count_txn(*table, env, reader_snapshot) == 10);
+
+    auto fresh_session = components::session::session_id_t::generate_uid();
+    auto& fresh_txn = mgr.begin_transaction(fresh_session);
+    REQUIRE(scan_count_txn(*table, env, fresh_txn.data()) == 5);
+
+    mgr.abort(reader_session);
+    mgr.abort(fresh_session);
+}
+
+TEST_CASE("components::table::mvcc::snapshot_keeps_old_row_for_later_update_commit") {
+    test_env env;
+    auto table = make_int_table(env);
+
+    append_rows(*table, env, 0, 5);
+    REQUIRE(scan_count(*table, env) == 5);
+
+    transaction_manager_t mgr;
+
+    auto reader_session = components::session::session_id_t::generate_uid();
+    auto& reader_txn = mgr.begin_transaction(reader_session);
+    auto reader_snapshot = reader_txn.data();
+
+    auto writer_session = components::session::session_id_t::generate_uid();
+    auto& writer_txn = mgr.begin_transaction(writer_session);
+
+    vector_t row_ids(&env.resource, logical_type::BIGINT, 1);
+    row_ids.set_value(0, logical_value_t(&env.resource, int64_t{2}));
+
+    auto update_chunk = data_chunk_t(&env.resource, table->copy_types(), 1);
+    update_chunk.data[0].set_value(0, logical_value_t(&env.resource, int64_t{200}));
+    update_chunk.set_cardinality(1);
+
+    components::storage::table_storage_adapter_t storage(*table, &env.resource);
+    auto [append_start, append_count] = storage.update(row_ids, update_chunk, writer_txn.data());
+    REQUIRE(append_count == 1);
+
+    auto writer_txn_id = writer_txn.transaction_id();
+    auto writer_commit_id = mgr.commit(writer_session);
+    table->commit_all_deletes(writer_txn_id, writer_commit_id);
+    table->commit_append(writer_commit_id, append_start, append_count);
+
+    auto reader_values = scan_values_txn(*table, env, reader_snapshot);
+    REQUIRE(reader_values.size() == 5);
+    REQUIRE(contains_value(reader_values, 2));
+    REQUIRE_FALSE(contains_value(reader_values, 200));
+
+    auto fresh_session = components::session::session_id_t::generate_uid();
+    auto& fresh_txn = mgr.begin_transaction(fresh_session);
+    auto fresh_values = scan_values_txn(*table, env, fresh_txn.data());
+    REQUIRE(fresh_values.size() == 5);
+    REQUIRE_FALSE(contains_value(fresh_values, 2));
+    REQUIRE(contains_value(fresh_values, 200));
+
+    mgr.abort(reader_session);
+    mgr.abort(fresh_session);
 }

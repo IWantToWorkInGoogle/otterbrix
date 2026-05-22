@@ -338,6 +338,29 @@ namespace services::dispatcher {
         // existing DDL flows (planner wraps are applied AFTER this line — see notes
         // inside the helper).
         const auto original_type = effective_root_type(plan.get());
+        const bool is_dml_statement = original_type == node_type::insert_t || original_type == node_type::update_t ||
+                                      original_type == node_type::delete_t;
+        const bool is_transaction_control_statement = original_type == node_type::commit_transaction_t ||
+                                                      original_type == node_type::abort_transaction_t;
+        const bool needs_ddl_txn =
+            original_type == node_type::create_collection_t || original_type == node_type::create_constraint_t ||
+            original_type == node_type::create_sequence_t || original_type == node_type::create_view_t ||
+            original_type == node_type::create_macro_t || original_type == node_type::create_type_t ||
+            original_type == node_type::create_index_t || original_type == node_type::drop_index_t ||
+            original_type == node_type::drop_database_t || original_type == node_type::drop_collection_t ||
+            original_type == node_type::drop_type_t || original_type == node_type::drop_sequence_t ||
+            original_type == node_type::drop_view_t || original_type == node_type::drop_macro_t ||
+            original_type == node_type::create_database_t || original_type == node_type::alter_table_t;
+        const bool needs_statement_read_txn =
+            !is_dml_statement && !needs_ddl_txn && !is_transaction_control_statement;
+        const bool had_active_txn_at_entry = txn_manager_.has_active_transaction(session);
+        bool auto_read_txn_started = false;
+        auto close_auto_read_txn = [&]() {
+            if (auto_read_txn_started) {
+                txn_manager_.abort(session);
+                auto_read_txn_started = false;
+            }
+        };
         // Capture the drop target before the planner rewrites it into a
         // node_dynamic_cascade_delete_t (which carries only OIDs, not names).
         // Used after successful execution to clean up the in-memory collections_
@@ -545,6 +568,9 @@ namespace services::dispatcher {
                 // tables (pg_class, pg_namespace, ...) which need MVCC
                 // visibility against the active txn.
                 auto pass1_txn = txn_manager_.begin_transaction(session).data();
+                if (needs_statement_read_txn && !had_active_txn_at_entry) {
+                    auto_read_txn_started = true;
+                }
                 // Build the Pass 1 sub-plan as a sequence_t containing the
                 // resolve front children. operator_resolve_*_t carries a
                 // raw pointer to the logical node — those are the SAME
@@ -564,6 +590,7 @@ namespace services::dispatcher {
                           "manager_dispatcher_t::execute_plan: Pass 1 "
                           "resolve failed: {}",
                           pass1_result.cursor->get_error().what);
+                    close_auto_read_txn();
                     co_return std::move(pass1_result.cursor);
                 }
                 // Propagate the established txn into ctx so validate /
@@ -924,6 +951,7 @@ namespace services::dispatcher {
 
         if (error) {
             trace(log_, "manager_dispatcher_t::execute_plan: validation error: {}", error->get_error().what);
+            close_auto_read_txn();
             co_return std::move(error);
         }
 
@@ -1175,18 +1203,18 @@ namespace services::dispatcher {
             // DDL txn so that append_pg_catalog_row records ranges on
             // txn_t->pg_catalog_appends and storage_commit_appends rebuilds
             // table_to_oid_ on success.
-            const bool needs_ddl_txn =
-                original_type == node_type::create_collection_t || original_type == node_type::create_constraint_t ||
-                original_type == node_type::create_sequence_t || original_type == node_type::create_view_t ||
-                original_type == node_type::create_macro_t || original_type == node_type::create_type_t ||
-                original_type == node_type::create_index_t || original_type == node_type::drop_index_t ||
-                original_type == node_type::drop_database_t || original_type == node_type::drop_collection_t ||
-                original_type == node_type::drop_type_t || original_type == node_type::drop_sequence_t ||
-                original_type == node_type::drop_view_t || original_type == node_type::drop_macro_t ||
-                original_type == node_type::create_database_t || original_type == node_type::alter_table_t;
             if (needs_ddl_txn) {
                 txn_data = txn_manager_.begin_transaction(session).data();
                 trace(log_, "manager_dispatcher_t::execute_plan: DDL began txn {}", txn_data.transaction_id);
+            } else if (needs_statement_read_txn) {
+                if (auto* txn = txn_manager_.find_transaction(session)) {
+                    txn_data = txn->data();
+                } else {
+                    txn_data = txn_manager_.begin_transaction(session).data();
+                    if (!had_active_txn_at_entry) {
+                        auto_read_txn_started = true;
+                    }
+                }
             }
         }
 
@@ -1366,6 +1394,7 @@ namespace services::dispatcher {
             trace(log_, "manager_dispatcher_t::execute_plan: error: \"{}\"", result->get_error().what);
         }
 
+        close_auto_read_txn();
         co_return std::move(result);
     }
 
