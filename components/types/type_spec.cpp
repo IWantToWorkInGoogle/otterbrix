@@ -30,6 +30,10 @@ namespace components::types {
                     return "int8";
                 case logical_type::UBIGINT:
                     return "uint8";
+                case logical_type::HUGEINT:
+                    return "hugeint";
+                case logical_type::UHUGEINT:
+                    return "uhugeint";
                 case logical_type::FLOAT:
                     return "float4";
                 case logical_type::DOUBLE:
@@ -69,6 +73,10 @@ namespace components::types {
                 return logical_type::BIGINT;
             if (name == "uint8")
                 return logical_type::UBIGINT;
+            if (name == "hugeint")
+                return logical_type::HUGEINT;
+            if (name == "uhugeint")
+                return logical_type::UHUGEINT;
             if (name == "float4")
                 return logical_type::FLOAT;
             if (name == "float8")
@@ -128,6 +136,23 @@ namespace components::types {
                 const auto* ext = static_cast<const decimal_logical_type_extension*>(type.extension());
                 return "numeric(" + std::to_string(static_cast<unsigned>(ext->width())) + "," +
                        std::to_string(static_cast<unsigned>(ext->scale())) + ")";
+            }
+            if (type.type() == logical_type::ENUM) {
+                std::string out = "ENUM(";
+                out += type.type_name();
+                const auto* ext = type.extension();
+                if (ext != nullptr) {
+                    const auto* enum_ext = static_cast<const enum_logical_type_extension*>(ext);
+                    for (const auto& entry : enum_ext->entries()) {
+                        out += ',';
+                        const auto& entry_type = entry.type();
+                        out += entry_type.has_alias() ? entry_type.alias() : std::string{};
+                        out += '=';
+                        out += std::to_string(entry.value<std::int32_t>());
+                    }
+                }
+                out += ')';
+                return out;
             }
             if (type.type() == logical_type::UNKNOWN) {
                 return "UNKNOWN(" + type.type_name() + ")";
@@ -218,6 +243,32 @@ namespace components::types {
                 return complex_logical_type::create_decimal(static_cast<uint8_t>(parsed_width),
                                                             static_cast<uint8_t>(parsed_scale));
             }
+            if (name == "ENUM") {
+                std::string enum_name = read_token(spec, pos);
+                std::vector<logical_value_t> entries;
+                while (pos < spec.size() && spec[pos] == ',') {
+                    ++pos;
+                    std::string token = read_token(spec, pos);
+                    auto eq = token.find('=');
+                    if (eq != std::string::npos) {
+                        std::string label = token.substr(0, eq);
+                        auto value_spec = token.substr(eq + 1);
+                        int value{};
+                        auto value_result =
+                            std::from_chars(value_spec.data(), value_spec.data() + value_spec.size(), value);
+                        if (value_result.ec != std::errc{}) {
+                            return complex_logical_type{logical_type::UNKNOWN};
+                        }
+                        logical_value_t logical_value(resource, value);
+                        logical_value.set_alias(label);
+                        entries.push_back(std::move(logical_value));
+                    }
+                }
+                if (pos < spec.size() && spec[pos] == ')') {
+                    ++pos;
+                }
+                return complex_logical_type::create_enum(enum_name, std::move(entries));
+            }
             if (name == "UNKNOWN") {
                 std::string type_name = read_token(spec, pos);
                 ++pos;
@@ -261,7 +312,9 @@ namespace components::types {
                 if (pos < spec.size() && spec[pos] == ')') {
                     ++pos;
                 }
-                return complex_logical_type::create_struct(struct_name, fields);
+                auto struct_type = complex_logical_type::create_struct(struct_name, fields);
+                struct_type.set_alias(struct_name);
+                return struct_type;
             }
             if (name == "UNION") {
                 std::pmr::vector<complex_logical_type> fields(resource);

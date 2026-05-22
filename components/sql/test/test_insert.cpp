@@ -147,7 +147,7 @@ TEST_CASE("components::sql::insert_into") {
                                           "(3, NULL);"));
         auto result = transformer.transform(pg_cell_to_node_cast(select)).finalize();
         REQUIRE(!result.has_error());
-        auto node = result.value().node;
+        auto node = dml_consumer(result.value().node);
         REQUIRE(node->type() == components::logical_plan::node_type::insert_t);
         const auto& chunk =
             reinterpret_cast<components::logical_plan::node_data_ptr&>(node->children().front())->data_chunk();

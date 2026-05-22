@@ -602,10 +602,11 @@ namespace components::table {
             }
             for (uint32_t i = 0; i < type_count; i++) {
                 auto type_spec = reader.read_string();
-                auto full_type = components::types::decode_type_spec(resource, type_spec);
-                if (!full_type.has_alias()) {
-                    full_type.set_alias(columns[i].name());
+                if (type_spec.empty()) {
+                    continue;
                 }
+                auto full_type = components::types::decode_type_spec(resource, type_spec);
+                full_type.set_alias(columns[i].name());
                 columns[i].type() = std::move(full_type);
             }
         }
