@@ -8,10 +8,11 @@
 #include <components/table/storage/metadata_writer.hpp>
 #include <components/table/storage/single_file_block_manager.hpp>
 #include <components/table/storage/standard_buffer_manager.hpp>
-#include <components/serialization/deserializer.hpp>
+#include <components/types/type_spec.hpp>
 #include <core/file/local_file_system.hpp>
 
 #include <functional>
+#include <memory_resource>
 #include <optional>
 #include <unistd.h>
 
@@ -423,7 +424,7 @@ namespace {
     components::types::complex_logical_type make_person_struct_type() {
         using namespace components::types;
 
-        std::vector<complex_logical_type> fields;
+        std::pmr::vector<complex_logical_type> fields;
         fields.emplace_back(logical_type::BOOLEAN, "flag");
         fields.emplace_back(logical_type::BIGINT, "id");
         fields.emplace_back(logical_type::STRING_LITERAL, "name");
@@ -433,12 +434,12 @@ namespace {
     components::types::complex_logical_type make_nested_struct_type() {
         using namespace components::types;
 
-        std::vector<complex_logical_type> nested_fields;
+        std::pmr::vector<complex_logical_type> nested_fields;
         nested_fields.emplace_back(logical_type::STRING_LITERAL, "name");
         nested_fields.emplace_back(logical_type::BIGINT, "score");
         auto meta_type = complex_logical_type::create_struct("meta", nested_fields, "meta_struct");
 
-        std::vector<complex_logical_type> root_fields;
+        std::pmr::vector<complex_logical_type> root_fields;
         root_fields.emplace_back(logical_type::BIGINT, "id");
         root_fields.push_back(meta_type);
         return complex_logical_type::create_struct("entry", root_fields, "entry_struct");
@@ -518,7 +519,7 @@ namespace {
         using namespace components::types;
 
         auto enum_type = make_status_enum_type(resource);
-        std::vector<complex_logical_type> fields;
+        std::pmr::vector<complex_logical_type> fields(resource);
         fields.emplace_back(logical_type::BOOLEAN, "flag");
         fields.emplace_back(logical_type::HUGEINT, "amount");
         fields.emplace_back(logical_type::DOUBLE, "ratio");
@@ -533,7 +534,7 @@ namespace {
     components::types::complex_logical_type make_pax_union_type() {
         using namespace components::types;
 
-        std::vector<complex_logical_type> fields;
+        std::pmr::vector<complex_logical_type> fields;
         fields.emplace_back(logical_type::BOOLEAN, "flag");
         fields.emplace_back(logical_type::HUGEINT, "amount");
         fields.emplace_back(logical_type::STRING_LITERAL, "label");
@@ -562,7 +563,7 @@ namespace {
     components::types::complex_logical_type make_list_struct_type() {
         using namespace components::types;
 
-        std::vector<complex_logical_type> fields;
+        std::pmr::vector<complex_logical_type> fields;
         fields.emplace_back(logical_type::BIGINT, "id");
         fields.emplace_back(logical_type::STRING_LITERAL, "label");
         return complex_logical_type::create_struct("list_entry", fields, "list_entry_struct");
@@ -843,18 +844,20 @@ TEST_CASE("checkpoint_load: explicit columnar-only root support matrix excludes 
     REQUIRE(components::table::detail::is_explicit_pax_columnar_only_root_type(
         complex_logical_type(logical_type::MAP)));
     REQUIRE(components::table::detail::is_explicit_pax_columnar_only_root_type(
-        complex_logical_type::create_variant("payload")));
+        complex_logical_type::create_variant(std::pmr::get_default_resource(), "payload")));
 
     REQUIRE_FALSE(components::table::detail::is_explicit_pax_columnar_only_root_type(
         complex_logical_type(logical_type::STRING_LITERAL)));
+    std::pmr::vector<complex_logical_type> payload_fields;
+    payload_fields.emplace_back(logical_type::BIGINT, "id");
     REQUIRE_FALSE(components::table::detail::is_explicit_pax_columnar_only_root_type(
-        complex_logical_type::create_struct("payload", {complex_logical_type(logical_type::BIGINT, "id")}, "payload")));
+        complex_logical_type::create_struct("payload", payload_fields, "payload")));
     REQUIRE_FALSE(components::table::detail::is_explicit_pax_columnar_only_root_type(make_pax_union_type()));
     REQUIRE(to_physical_type(logical_type::BLOB) == physical_type::INVALID);
     REQUIRE(to_physical_type(logical_type::INTERVAL) == physical_type::INVALID);
     REQUIRE(to_physical_type(logical_type::MAP) == physical_type::INVALID);
 
-    const auto variant_type = complex_logical_type::create_variant("payload");
+    const auto variant_type = complex_logical_type::create_variant(std::pmr::get_default_resource(), "payload");
     REQUIRE(variant_type.child_types().size() == 4);
     REQUIRE(variant_type.child_types()[0].type() == logical_type::LIST);
     REQUIRE(variant_type.child_types()[1].type() == logical_type::LIST);
@@ -1857,10 +1860,8 @@ TEST_CASE("checkpoint_load: pax generic struct column restores fixed and string 
         REQUIRE(reader.read<uint32_t>() == COLUMN_TYPES_METADATA_MAGIC);
         REQUIRE(reader.read<uint32_t>() == 1);
         {
-            auto serialized_type = reader.read_string();
-            std::pmr::string payload(serialized_type.begin(), serialized_type.end(), &env.resource);
-            components::serializer::msgpack_deserializer_t deserializer(payload);
-            auto persisted_type = complex_logical_type::deserialize(&env.resource, &deserializer);
+            auto type_spec = reader.read_string();
+            auto persisted_type = components::types::decode_type_spec(&env.resource, type_spec);
             REQUIRE(persisted_type.type() == logical_type::STRUCT);
             REQUIRE(persisted_type.child_types().size() == 3);
             REQUIRE(persisted_type.child_types()[0].type() == logical_type::BOOLEAN);

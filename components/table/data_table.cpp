@@ -1,7 +1,7 @@
 #include "data_table.hpp"
 
-#include <components/catalog/system_table_schemas.hpp>
 #include <components/table/storage/partial_block_manager.hpp>
+#include <components/types/type_spec.hpp>
 #include <components/vector/data_chunk.hpp>
 #include <components/vector/vector_operations.hpp>
 #include <unordered_set>
@@ -536,7 +536,7 @@ namespace components::table {
             writer.write<uint32_t>(COLUMN_TYPES_METADATA_MAGIC);
             writer.write<uint32_t>(static_cast<uint32_t>(column_definitions_.size()));
             for (const auto& col : column_definitions_) {
-                writer.write_string(components::catalog::encode_type_spec(col.type()));
+                writer.write_string(components::types::encode_type_spec(col.type()));
             }
         }
 
@@ -602,7 +602,7 @@ namespace components::table {
             }
             for (uint32_t i = 0; i < type_count; i++) {
                 auto type_spec = reader.read_string();
-                auto full_type = components::catalog::decode_type_spec(resource, type_spec);
+                auto full_type = components::types::decode_type_spec(resource, type_spec);
                 if (!full_type.has_alias()) {
                     full_type.set_alias(columns[i].name());
                 }

@@ -2389,7 +2389,7 @@ namespace components::table {
         vector::indexing_vector_t visible_rows(collection().resource(), row_in_vector + 1);
 
         uint64_t visible_count = (txn.transaction_id == 0 && txn.start_time == 0)
-                                     ? commited_indexing_vector(vector_idx, visible_rows, row_in_vector + 1)
+                                     ? committed_indexing_vector(vector_idx, visible_rows, row_in_vector + 1)
                                      : indexing_vector(txn, vector_idx, visible_rows, row_in_vector + 1);
         if (visible_count == row_in_vector + 1) {
             return true;
