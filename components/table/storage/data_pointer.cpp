@@ -1,5 +1,6 @@
 #include "data_pointer.hpp"
 
+#include <memory_resource>
 #include <stdexcept>
 
 #include "metadata_reader.hpp"
@@ -48,6 +49,12 @@ namespace components::table::storage {
                     throw std::logic_error("unknown pax_fixed validity kind");
             }
         }
+        if (version >= 4) {
+            writer.write<uint8_t>(statistics.has_value() ? 1 : 0);
+            if (statistics.has_value()) {
+                statistics->serialize(writer);
+            }
+        }
     }
 
     pax_fixed_slice_t pax_fixed_slice_t::deserialize(metadata_reader_t& reader, uint16_t version) {
@@ -71,6 +78,12 @@ namespace components::table::storage {
         } else {
             result.validity_kind = pax_fixed_validity_kind::ALL_VALID;
             result.validity_data_pointer.reset();
+        }
+        if (version >= 4) {
+            const bool has_statistics = reader.read<uint8_t>() != 0;
+            if (has_statistics) {
+                result.statistics = base_statistics_t::deserialize(std::pmr::get_default_resource(), reader);
+            }
         }
         return result;
     }
@@ -165,6 +178,12 @@ namespace components::table::storage {
             default:
                 throw std::logic_error("unknown pax_generic codec kind");
         }
+        if (version >= 4) {
+            writer.write<uint8_t>(statistics.has_value() ? 1 : 0);
+            if (statistics.has_value()) {
+                statistics->serialize(writer);
+            }
+        }
     }
 
     pax_generic_slice_t pax_generic_slice_t::deserialize(metadata_reader_t& reader, uint16_t version) {
@@ -195,6 +214,12 @@ namespace components::table::storage {
                 break;
             default:
                 throw std::logic_error("unknown pax_generic codec kind");
+        }
+        if (version >= 4) {
+            const bool has_statistics = reader.read<uint8_t>() != 0;
+            if (has_statistics) {
+                result.statistics = base_statistics_t::deserialize(std::pmr::get_default_resource(), reader);
+            }
         }
         return result;
     }

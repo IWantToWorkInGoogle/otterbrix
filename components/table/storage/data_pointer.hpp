@@ -4,14 +4,11 @@
 #include <optional>
 #include <vector>
 
+#include <components/table/base_statistics.hpp>
 #include <components/table/compression/compression_type.hpp>
 #include <components/types/types.hpp>
 
 #include "file_buffer.hpp"
-
-namespace components::table {
-    class base_statistics_t;
-} // namespace components::table
 
 namespace components::table::storage {
 
@@ -83,6 +80,7 @@ namespace components::table::storage {
         data_pointer_t data_pointer;
         pax_fixed_validity_kind validity_kind{pax_fixed_validity_kind::ALL_VALID};
         std::optional<data_pointer_t> validity_data_pointer;
+        std::optional<base_statistics_t> statistics;
 
         void serialize(metadata_writer_t& writer, uint16_t version) const;
         static pax_fixed_slice_t deserialize(metadata_reader_t& reader, uint16_t version);
@@ -98,7 +96,7 @@ namespace components::table::storage {
     };
 
     struct pax_fixed_row_group_layout_t {
-        uint16_t version{3};
+        uint16_t version{4};
         uint16_t rows_per_page{0};
         std::vector<pax_fixed_page_t> pages;
 
@@ -121,6 +119,7 @@ namespace components::table::storage {
         std::vector<uint16_t> field_path;
         types::logical_type fixed_logical_type{types::logical_type::INVALID};
         std::optional<pax_block_payload_t> payload;
+        std::optional<base_statistics_t> statistics;
 
         void serialize(metadata_writer_t& writer, uint16_t version) const;
         static pax_generic_slice_t deserialize(metadata_reader_t& reader, uint16_t version);

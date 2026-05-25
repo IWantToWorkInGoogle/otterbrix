@@ -3,6 +3,7 @@
 #include "row_version_manager.hpp"
 #include "storage/block_manager.hpp"
 #include "storage/data_pointer.hpp"
+#include <atomic>
 #include <optional>
 
 namespace components::vector {
@@ -26,6 +27,14 @@ namespace components::table {
     class column_definition_t;
     class collection_t;
 
+    struct row_group_scan_path_counts_t {
+        uint64_t pax_generic_projected{0};
+        uint64_t pax_generic_pruned_pages{0};
+        uint64_t pax_fixed_projected{0};
+        uint64_t pax_fixed_pruned_pages{0};
+        uint64_t regular{0};
+    };
+
     class row_group_t : public segment_base_t<row_group_t> {
     public:
         friend class column_data_t;
@@ -46,6 +55,12 @@ namespace components::table {
         std::optional<storage::row_group_pointer_t> persisted_pointer_;
         storage::row_group_layout_policy persisted_layout_policy_{storage::row_group_layout_policy::AUTO};
         bool is_dirty_{true};
+        std::atomic<bool> scan_path_counts_enabled_{false};
+        std::atomic<uint64_t> pax_generic_projected_scan_count_{0};
+        std::atomic<uint64_t> pax_generic_pruned_page_count_{0};
+        std::atomic<uint64_t> pax_fixed_projected_scan_count_{0};
+        std::atomic<uint64_t> pax_fixed_pruned_page_count_{0};
+        std::atomic<uint64_t> regular_scan_count_{0};
 
     public:
         void move_to_collection(collection_t* collection, int64_t new_start);
@@ -141,6 +156,8 @@ namespace components::table {
                              uint64_t& approved_tuple_count);
         bool try_scan_pax_generic_projected(collection_scan_state& state, vector::data_chunk_t& result);
         bool try_scan_pax_fixed_projected(collection_scan_state& state, vector::data_chunk_t& result);
+        void reset_scan_path_counts();
+        row_group_scan_path_counts_t scan_path_counts() const;
 
         template<table_scan_type TYPE>
         void templated_scan(collection_scan_state& state, vector::data_chunk_t& result);

@@ -101,6 +101,11 @@ namespace services::disk {
             ids_vec.set_value(i, components::types::logical_value_t(resource(), row_ids[i]));
         }
         s->delete_rows(ids_vec, count, txn.transaction_id);
+        // WAL replay passes a txn id with start_time=0 for records already known
+        // to be committed. Store those tombstones below any future snapshot.
+        if (txn.transaction_id != 0 && txn.start_time == 0) {
+            s->commit_all_deletes(txn.transaction_id, 0);
+        }
     }
 
     void manager_disk_t::direct_update_sync(catalog::oid_t table_oid,

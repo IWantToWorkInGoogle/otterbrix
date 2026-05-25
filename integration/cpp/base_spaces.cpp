@@ -207,7 +207,14 @@ namespace otterbrix {
                             }
                             break;
                         case services::wal::wal_record_type::PHYSICAL_DELETE: {
-                            disk_ptr->direct_delete_sync(table_oid, r->physical_row_ids, r->physical_row_count);
+                            if (r->transaction_id != 0) {
+                                disk_ptr->direct_delete_sync(table_oid,
+                                                             r->physical_row_ids,
+                                                             r->physical_row_count,
+                                                             components::table::transaction_data{r->transaction_id, 0});
+                            } else {
+                                disk_ptr->direct_delete_sync(table_oid, r->physical_row_ids, r->physical_row_count);
+                            }
                             break;
                         }
                         case services::wal::wal_record_type::PHYSICAL_UPDATE:

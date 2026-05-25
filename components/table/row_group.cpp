@@ -124,11 +124,9 @@ namespace {
         return components::vector::validity_mask_t::validity_mask_size(tuple_count);
     }
 
-    bool is_supported_pax_fixed_layout_version(uint16_t version) {
-        return version == 1 || version == 2 || version == 3;
-    }
+    bool is_supported_pax_fixed_layout_version(uint16_t version) { return version >= 1 && version <= 4; }
 
-    bool is_supported_pax_generic_layout_version(uint16_t version) { return version >= 1 && version <= 3; }
+    bool is_supported_pax_generic_layout_version(uint16_t version) { return version >= 1 && version <= 4; }
 
     void write_pax_fixed_slice(components::table::column_data_t& column,
                                uint64_t row_group_start,
@@ -170,6 +168,9 @@ namespace {
         slice_desc.column_index = column_index;
         slice_desc.column_type = to_pax_fixed_column_type(column.type());
         slice_desc.data_pointer = pointer;
+        components::table::base_statistics_t page_stats(column.resource(), column.type().type());
+        page_stats.update(slice, tuple_count);
+        slice_desc.statistics = std::move(page_stats);
 
         const auto valid_count = slice.validity().count_valid(tuple_count);
         if (valid_count == tuple_count) {
@@ -290,6 +291,7 @@ namespace {
         components::table::storage::pax_generic_codec_kind validity_codec{
             components::table::storage::pax_generic_codec_kind::VALIDITY_ALL_VALID};
         std::optional<components::table::storage::data_pointer_t> validity_pointer;
+        std::optional<components::table::base_statistics_t> statistics;
     };
 
     struct pax_generic_fixed_page_write_result_t {
@@ -458,6 +460,9 @@ namespace {
         result.main_pointer.compression = compression_type::UNCOMPRESSED;
         result.main_pointer.segment_size = payload.size();
         result.extra_block_ids = std::move(extra_block_ids);
+        components::table::base_statistics_t page_stats(column.resource(), column.type().type());
+        page_stats.update(slice, tuple_count);
+        result.statistics = std::move(page_stats);
 
         const auto valid_count = slice.validity().count_valid(tuple_count);
         if (valid_count == tuple_count) {
@@ -726,6 +731,7 @@ namespace {
             value_slice.codec_kind = pax_generic_codec_kind::STRING_SEGMENT;
             value_slice.field_path = field_path;
             value_slice.payload = pax_block_payload_t{page_result.main_pointer, page_result.extra_block_ids};
+            value_slice.statistics = std::move(page_result.statistics);
             page.slices.push_back(std::move(value_slice));
 
             append_pax_generic_validity_slice(page,
@@ -1092,6 +1098,131 @@ namespace {
             default:
                 return false;
         }
+    }
+
+    components::table::filter_propagate_result_t
+    check_pax_statistics(const std::optional<components::table::base_statistics_t>& statistics,
+                         uint32_t tuple_count,
+                         const components::table::table_filter_t& filter) {
+        using components::expressions::compare_type;
+        using components::table::filter_propagate_result_t;
+
+        if (!statistics.has_value()) {
+            return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+
+        const auto& stats = *statistics;
+        if (filter.filter_type == compare_type::is_null) {
+            if (stats.null_count() == 0) {
+                return filter_propagate_result_t::ALWAYS_FALSE;
+            }
+            if (stats.null_count() == tuple_count) {
+                return filter_propagate_result_t::ALWAYS_TRUE;
+            }
+            return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+        if (filter.filter_type == compare_type::is_not_null) {
+            if (stats.null_count() == tuple_count) {
+                return filter_propagate_result_t::ALWAYS_FALSE;
+            }
+            if (stats.null_count() == 0) {
+                return filter_propagate_result_t::ALWAYS_TRUE;
+            }
+            return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+
+        if (stats.null_count() == tuple_count) {
+            return filter_propagate_result_t::ALWAYS_FALSE;
+        }
+        if (!stats.has_stats() || stats.min_value().is_null() || stats.max_value().is_null()) {
+            return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+
+        if (filter.filter_type != compare_type::eq && filter.filter_type != compare_type::ne &&
+            filter.filter_type != compare_type::gt && filter.filter_type != compare_type::gte &&
+            filter.filter_type != compare_type::lt && filter.filter_type != compare_type::lte) {
+            return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+
+        const auto& constant_filter = filter.cast<components::table::constant_filter_t>();
+        const auto& constant = constant_filter.constant;
+        const auto& min = stats.min_value();
+        const auto& max = stats.max_value();
+
+        switch (filter.filter_type) {
+            case compare_type::eq:
+                if (constant < min || constant > max) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                if (stats.null_count() == 0 && min == constant && max == constant) {
+                    return filter_propagate_result_t::ALWAYS_TRUE;
+                }
+                break;
+            case compare_type::ne:
+                if (min == constant && max == constant) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                break;
+            case compare_type::gt:
+                if (max <= constant) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                if (stats.null_count() == 0 && min > constant) {
+                    return filter_propagate_result_t::ALWAYS_TRUE;
+                }
+                break;
+            case compare_type::gte:
+                if (max < constant) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                if (stats.null_count() == 0 && min >= constant) {
+                    return filter_propagate_result_t::ALWAYS_TRUE;
+                }
+                break;
+            case compare_type::lt:
+                if (min >= constant) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                if (stats.null_count() == 0 && max < constant) {
+                    return filter_propagate_result_t::ALWAYS_TRUE;
+                }
+                break;
+            case compare_type::lte:
+                if (min > constant) {
+                    return filter_propagate_result_t::ALWAYS_FALSE;
+                }
+                if (stats.null_count() == 0 && max <= constant) {
+                    return filter_propagate_result_t::ALWAYS_TRUE;
+                }
+                break;
+            default:
+                break;
+        }
+
+        return filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+    }
+
+    components::table::filter_propagate_result_t
+    check_pax_fixed_page_statistics(const components::table::storage::pax_fixed_page_t& page,
+                                    uint32_t column_index,
+                                    const components::table::table_filter_t& filter) {
+        const auto* slice = find_pax_fixed_slice(page, column_index);
+        if (!slice) {
+            return components::table::filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+        return check_pax_statistics(slice->statistics, page.tuple_count, filter);
+    }
+
+    components::table::filter_propagate_result_t
+    check_pax_generic_page_statistics(const components::table::storage::pax_generic_page_t& page,
+                                      uint32_t column_index,
+                                      const components::table::table_filter_t& filter) {
+        const auto* slice =
+            find_pax_generic_slice(page, column_index, components::table::storage::pax_generic_slice_kind::STRING_VALUES);
+        if (!slice) {
+            return components::table::filter_propagate_result_t::NO_PRUNING_POSSIBLE;
+        }
+        return check_pax_statistics(slice->statistics, page.tuple_count, filter);
     }
 
     template<typename T>
@@ -1847,85 +1978,119 @@ namespace components::table {
                 return true;
             }
 
-            vector::vector_t filter_values(result.resource(), get_column(filter_column_index).type(), max_count);
-            if (!decode_pax_generic_string_window(*this,
-                                                  layout,
-                                                  filter_column_index,
-                                                  current_row,
-                                                  max_count,
-                                                  filter_values,
-                                                  0,
-                                                  block_cache)) {
-                return false;
-            }
-
             vector::indexing_vector_t indexing(result.resource(), max_count);
-            auto approved_count = constant_filter
-                                      ? apply_pax_generic_string_constant_filter(filter_values,
-                                                                                 *constant_filter,
-                                                                                 max_count,
-                                                                                 indexing)
-                                      : apply_pax_validity_filter(filter_values, null_filter->filter_type, max_count, indexing);
-            if (approved_count == 0) {
-                state.vector_index++;
-                for (auto& column_state : state.column_scans) {
-                    advance_pax_fixed_scan_state(column_state, max_count);
-                }
-                continue;
-            }
+            uint64_t approved_count = 0;
+            const auto window_end = current_row + max_count;
 
-            validate_chunk_capacity(result, result_offset + approved_count);
-            for (uint64_t i = 0; i < column_ids.size(); i++) {
-                const auto& column = column_ids[i];
-                const auto out_idx = column.primary_index();
-                if (out_idx >= result.data.size() || !result.data[out_idx].data() ||
-                    result.data[out_idx].type().to_physical_type() != types::physical_type::STRING) {
-                    return false;
-                }
-
-                if (constant_filter && static_cast<int64_t>(i) == filter_scan_index) {
-                    vector::vector_ops::copy(filter_values,
-                                             result.data[out_idx],
-                                             indexing,
-                                             approved_count,
-                                             0,
-                                             result_offset);
+            for (const auto& page : layout.pages) {
+                const auto page_start = static_cast<uint64_t>(page.row_offset_in_group);
+                const auto page_end = page_start + static_cast<uint64_t>(page.tuple_count);
+                if (page_end <= current_row || page_start >= window_end) {
                     continue;
                 }
 
-                vector::vector_t temp_values(result.resource(), get_column(column).type(), max_count);
+                const auto page_filter_result =
+                    check_pax_generic_page_statistics(page, filter_column_index, *filter);
+                if (page_filter_result == filter_propagate_result_t::ALWAYS_FALSE) {
+                    if (scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+                        pax_generic_pruned_page_count_.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    continue;
+                }
+
+                const auto overlap_start = std::max(current_row, page_start);
+                const auto overlap_end = std::min(window_end, page_end);
+                const auto page_count = overlap_end - overlap_start;
+                const auto page_offset_in_window = overlap_start - current_row;
+
+                vector::vector_t filter_values(result.resource(), get_column(filter_column_index).type(), page_count);
                 if (!decode_pax_generic_string_window(*this,
                                                       layout,
-                                                      static_cast<uint32_t>(column.primary_index()),
-                                                      current_row,
-                                                      max_count,
-                                                      temp_values,
+                                                      filter_column_index,
+                                                      overlap_start,
+                                                      page_count,
+                                                      filter_values,
                                                       0,
                                                       block_cache)) {
                     return false;
                 }
-                vector::vector_ops::copy(temp_values,
-                                         result.data[out_idx],
-                                         indexing,
-                                         approved_count,
-                                         0,
-                                         result_offset);
+
+                vector::indexing_vector_t page_indexing(result.resource(), page_count);
+                const auto page_approved_count =
+                    constant_filter ? apply_pax_generic_string_constant_filter(filter_values,
+                                                                                *constant_filter,
+                                                                                page_count,
+                                                                                page_indexing)
+                                    : apply_pax_validity_filter(filter_values,
+                                                                null_filter->filter_type,
+                                                                page_count,
+                                                                page_indexing);
+                if (page_approved_count == 0) {
+                    continue;
+                }
+
+                validate_chunk_capacity(result, result_offset + approved_count + page_approved_count);
+                for (uint64_t i = 0; i < column_ids.size(); i++) {
+                    const auto& column = column_ids[i];
+                    const auto out_idx = column.primary_index();
+                    if (out_idx >= result.data.size() || !result.data[out_idx].data() ||
+                        result.data[out_idx].type().to_physical_type() != types::physical_type::STRING) {
+                        return false;
+                    }
+
+                    if (constant_filter && static_cast<int64_t>(i) == filter_scan_index) {
+                        vector::vector_ops::copy(filter_values,
+                                                 result.data[out_idx],
+                                                 page_indexing,
+                                                 page_approved_count,
+                                                 0,
+                                                 result_offset + approved_count);
+                        continue;
+                    }
+
+                    vector::vector_t temp_values(result.resource(), get_column(column).type(), page_count);
+                    if (!decode_pax_generic_string_window(*this,
+                                                          layout,
+                                                          static_cast<uint32_t>(column.primary_index()),
+                                                          overlap_start,
+                                                          page_count,
+                                                          temp_values,
+                                                          0,
+                                                          block_cache)) {
+                        return false;
+                    }
+                    vector::vector_ops::copy(temp_values,
+                                             result.data[out_idx],
+                                             page_indexing,
+                                             page_approved_count,
+                                             0,
+                                             result_offset + approved_count);
+                }
+
+                result.row_ids.set_vector_type(vector::vector_type::FLAT);
+                auto* row_ids = result.row_ids.data<int64_t>();
+                for (uint64_t i = 0; i < page_approved_count; i++) {
+                    const auto row_offset = page_offset_in_window + page_indexing.get_index(i);
+                    indexing.set_index(approved_count + i, row_offset);
+                    row_ids[result_offset + approved_count + i] =
+                        start + static_cast<int64_t>(current_row + row_offset);
+                }
+                mark_vector_range_valid(result.row_ids, result_offset + approved_count, page_approved_count);
+
+                approved_count += page_approved_count;
             }
 
-            result.row_ids.set_vector_type(vector::vector_type::FLAT);
-            auto* row_ids = result.row_ids.data<int64_t>();
-            for (uint64_t i = 0; i < approved_count; i++) {
-                row_ids[result_offset + i] = start + static_cast<int64_t>(current_row + indexing.get_index(i));
-            }
-            mark_vector_range_valid(result.row_ids, result_offset, approved_count);
-
-            result.set_cardinality(result_offset + approved_count);
-            state.valid_indexing = indexing;
             state.vector_index++;
             for (auto& column_state : state.column_scans) {
                 advance_pax_fixed_scan_state(column_state, max_count);
                 column_state.result_offset += approved_count;
             }
+            if (approved_count == 0) {
+                continue;
+            }
+
+            result.set_cardinality(result_offset + approved_count);
+            state.valid_indexing = indexing;
             return true;
         }
     }
@@ -2095,83 +2260,115 @@ namespace components::table {
                 return true;
             }
 
-            vector::vector_t filter_values(result.resource(), get_column(filter_column_index).type(), max_count);
-            if (!decode_pax_fixed_window(*this,
-                                         layout,
-                                         filter_column_index,
-                                         get_column(filter_column_index).type(),
-                                         current_row,
-                                         max_count,
-                                         filter_values,
-                                         0,
-                                         block_cache)) {
-                return false;
-            }
-
             vector::indexing_vector_t indexing(result.resource(), max_count);
-            auto approved_count = constant_filter
-                                      ? apply_pax_fixed_constant_filter(filter_values, *constant_filter, max_count, indexing)
-                                      : apply_pax_validity_filter(filter_values, null_filter->filter_type, max_count, indexing);
-            if (approved_count == 0) {
-                state.vector_index++;
-                for (auto& column_state : state.column_scans) {
-                    advance_pax_fixed_scan_state(column_state, max_count);
-                }
-                continue;
-            }
+            uint64_t approved_count = 0;
+            const auto window_end = current_row + max_count;
 
-            validate_chunk_capacity(result, result_offset + approved_count);
-            for (uint64_t i = 0; i < column_ids.size(); i++) {
-                const auto& column = column_ids[i];
-                const auto out_idx = column.primary_index();
-                if (out_idx >= result.data.size() || !result.data[out_idx].data()) {
-                    return false;
-                }
-
-                if (constant_filter && static_cast<int64_t>(i) == filter_scan_index) {
-                    vector::vector_ops::copy(filter_values,
-                                             result.data[out_idx],
-                                             indexing,
-                                             approved_count,
-                                             0,
-                                             result_offset);
+            for (const auto& page : layout.pages) {
+                const auto page_start = static_cast<uint64_t>(page.row_offset_in_group);
+                const auto page_end = page_start + static_cast<uint64_t>(page.tuple_count);
+                if (page_end <= current_row || page_start >= window_end) {
                     continue;
                 }
 
-                vector::vector_t temp_values(result.resource(), get_column(column).type(), max_count);
+                const auto page_filter_result =
+                    check_pax_fixed_page_statistics(page, filter_column_index, *filter);
+                if (page_filter_result == filter_propagate_result_t::ALWAYS_FALSE) {
+                    if (scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+                        pax_fixed_pruned_page_count_.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    continue;
+                }
+
+                const auto overlap_start = std::max(current_row, page_start);
+                const auto overlap_end = std::min(window_end, page_end);
+                const auto page_count = overlap_end - overlap_start;
+                const auto page_offset_in_window = overlap_start - current_row;
+
+                vector::vector_t filter_values(result.resource(), get_column(filter_column_index).type(), page_count);
                 if (!decode_pax_fixed_window(*this,
                                              layout,
-                                             static_cast<uint32_t>(column.primary_index()),
-                                             get_column(column).type(),
-                                             current_row,
-                                             max_count,
-                                             temp_values,
+                                             filter_column_index,
+                                             get_column(filter_column_index).type(),
+                                             overlap_start,
+                                             page_count,
+                                             filter_values,
                                              0,
                                              block_cache)) {
                     return false;
                 }
-                vector::vector_ops::copy(temp_values,
-                                         result.data[out_idx],
-                                         indexing,
-                                         approved_count,
-                                         0,
-                                         result_offset);
+
+                vector::indexing_vector_t page_indexing(result.resource(), page_count);
+                const auto page_approved_count =
+                    constant_filter
+                        ? apply_pax_fixed_constant_filter(filter_values, *constant_filter, page_count, page_indexing)
+                        : apply_pax_validity_filter(filter_values, null_filter->filter_type, page_count, page_indexing);
+                if (page_approved_count == 0) {
+                    continue;
+                }
+
+                validate_chunk_capacity(result, result_offset + approved_count + page_approved_count);
+                for (uint64_t i = 0; i < column_ids.size(); i++) {
+                    const auto& column = column_ids[i];
+                    const auto out_idx = column.primary_index();
+                    if (out_idx >= result.data.size() || !result.data[out_idx].data()) {
+                        return false;
+                    }
+
+                    if (constant_filter && static_cast<int64_t>(i) == filter_scan_index) {
+                        vector::vector_ops::copy(filter_values,
+                                                 result.data[out_idx],
+                                                 page_indexing,
+                                                 page_approved_count,
+                                                 0,
+                                                 result_offset + approved_count);
+                        continue;
+                    }
+
+                    vector::vector_t temp_values(result.resource(), get_column(column).type(), page_count);
+                    if (!decode_pax_fixed_window(*this,
+                                                 layout,
+                                                 static_cast<uint32_t>(column.primary_index()),
+                                                 get_column(column).type(),
+                                                 overlap_start,
+                                                 page_count,
+                                                 temp_values,
+                                                 0,
+                                                 block_cache)) {
+                        return false;
+                    }
+                    vector::vector_ops::copy(temp_values,
+                                             result.data[out_idx],
+                                             page_indexing,
+                                             page_approved_count,
+                                             0,
+                                             result_offset + approved_count);
+                }
+
+                result.row_ids.set_vector_type(vector::vector_type::FLAT);
+                auto* row_ids = result.row_ids.data<int64_t>();
+                for (uint64_t i = 0; i < page_approved_count; i++) {
+                    const auto row_offset = page_offset_in_window + page_indexing.get_index(i);
+                    indexing.set_index(approved_count + i, row_offset);
+                    row_ids[result_offset + approved_count + i] =
+                        start + static_cast<int64_t>(current_row + row_offset);
+                }
+                mark_vector_range_valid(result.row_ids, result_offset + approved_count, page_approved_count);
+
+                approved_count += page_approved_count;
             }
 
-            result.row_ids.set_vector_type(vector::vector_type::FLAT);
-            auto* row_ids = result.row_ids.data<int64_t>();
-            for (uint64_t i = 0; i < approved_count; i++) {
-                row_ids[result_offset + i] = start + static_cast<int64_t>(current_row + indexing.get_index(i));
-            }
-            mark_vector_range_valid(result.row_ids, result_offset, approved_count);
-
-            result.set_cardinality(result_offset + approved_count);
-            state.valid_indexing = indexing;
             state.vector_index++;
             for (auto& column_state : state.column_scans) {
                 advance_pax_fixed_scan_state(column_state, max_count);
                 column_state.result_offset += approved_count;
             }
+            if (approved_count == 0) {
+                continue;
+            }
+
+            result.set_cardinality(result_offset + approved_count);
+            state.valid_indexing = indexing;
             return true;
         }
     }
@@ -2330,12 +2527,38 @@ namespace components::table {
 
     void row_group_t::scan(collection_scan_state& state, vector::data_chunk_t& result) {
         if (try_scan_pax_generic_projected(state, result)) {
+            if (scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+                pax_generic_projected_scan_count_.fetch_add(1, std::memory_order_relaxed);
+            }
             return;
         }
         if (try_scan_pax_fixed_projected(state, result)) {
+            if (scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+                pax_fixed_projected_scan_count_.fetch_add(1, std::memory_order_relaxed);
+            }
             return;
         }
+        if (scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+            regular_scan_count_.fetch_add(1, std::memory_order_relaxed);
+        }
         templated_scan<table_scan_type::REGULAR>(state, result);
+    }
+
+    void row_group_t::reset_scan_path_counts() {
+        scan_path_counts_enabled_.store(true, std::memory_order_relaxed);
+        pax_generic_projected_scan_count_.store(0, std::memory_order_relaxed);
+        pax_generic_pruned_page_count_.store(0, std::memory_order_relaxed);
+        pax_fixed_projected_scan_count_.store(0, std::memory_order_relaxed);
+        pax_fixed_pruned_page_count_.store(0, std::memory_order_relaxed);
+        regular_scan_count_.store(0, std::memory_order_relaxed);
+    }
+
+    row_group_scan_path_counts_t row_group_t::scan_path_counts() const {
+        return {pax_generic_projected_scan_count_.load(std::memory_order_relaxed),
+                pax_generic_pruned_page_count_.load(std::memory_order_relaxed),
+                pax_fixed_projected_scan_count_.load(std::memory_order_relaxed),
+                pax_fixed_pruned_page_count_.load(std::memory_order_relaxed),
+                regular_scan_count_.load(std::memory_order_relaxed)};
     }
 
     void row_group_t::scan_committed(collection_scan_state& state, vector::data_chunk_t& result, table_scan_type type) {
@@ -2757,6 +2980,7 @@ namespace components::table {
         pax_generic_columns.reserve(col_count);
         std::vector<uint64_t> pax_fixed_columns;
         pax_fixed_columns.reserve(col_count);
+        bool pax_generic_requires_v4 = false;
         bool pax_generic_requires_v2 = false;
         bool pax_generic_requires_v3 = false;
         for (uint64_t i = 0; i < col_count; i++) {
@@ -2766,6 +2990,7 @@ namespace components::table {
                 pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
             } else if (is_pax_generic_string_type(column.type())) {
                 pax_generic_columns.push_back(i);
+                pax_generic_requires_v4 = true;
             } else if (is_pax_generic_struct_type(column.type())) {
                 if (!is_supported_pax_generic_column_type(column.type())) {
                     auto persistent = column.checkpoint(partial_block_manager);
@@ -2803,7 +3028,8 @@ namespace components::table {
             }
 
             storage::pax_generic_row_group_layout_t pax_layout;
-            pax_layout.version = pax_generic_requires_v3 ? 3 : (pax_generic_requires_v2 ? 2 : 1);
+            pax_layout.version =
+                pax_generic_requires_v4 ? 4 : (pax_generic_requires_v3 ? 3 : (pax_generic_requires_v2 ? 2 : 1));
             pax_layout.rows_per_page = PAX_GENERIC_ROWS_PER_PAGE;
 
             for (uint64_t row_offset = 0; row_offset < pointer.tuple_count; row_offset += PAX_GENERIC_ROWS_PER_PAGE) {
@@ -2828,6 +3054,7 @@ namespace components::table {
                         value_slice.codec_kind = storage::pax_generic_codec_kind::STRING_SEGMENT;
                         value_slice.payload = storage::pax_block_payload_t{page_result.main_pointer,
                                                                            page_result.extra_block_ids};
+                        value_slice.statistics = std::move(page_result.statistics);
                         page.slices.push_back(std::move(value_slice));
 
                         append_pax_generic_validity_slice(page,
@@ -2874,7 +3101,7 @@ namespace components::table {
         }
 
         storage::pax_fixed_row_group_layout_t pax_layout;
-        pax_layout.version = 3;
+        pax_layout.version = 4;
         pax_layout.rows_per_page = PAX_FIXED_ROWS_PER_PAGE;
 
         for (uint64_t row_offset = 0; row_offset < pointer.tuple_count; row_offset += PAX_FIXED_ROWS_PER_PAGE) {

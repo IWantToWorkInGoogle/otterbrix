@@ -28,6 +28,10 @@ namespace components::table {
                                                  vector::data_chunk_t& result) {
             return row_group.try_scan_pax_fixed_projected(state, result);
         }
+        static void reset_scan_path_counts(row_group_t& row_group) { row_group.reset_scan_path_counts(); }
+        static row_group_scan_path_counts_t scan_path_counts(const row_group_t& row_group) {
+            return row_group.scan_path_counts();
+        }
     };
 } // namespace components::table
 
@@ -1108,7 +1112,7 @@ TEST_CASE("checkpoint_load: pax fixed v2 metadata restores nullable integer root
     cleanup_test_file();
 }
 
-TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax fixed v3") {
+TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax fixed v4") {
     using namespace components::table;
     using namespace components::table::storage;
     using namespace components::types;
@@ -1216,7 +1220,7 @@ TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax
         REQUIRE(reader.read<uint32_t>() == 1);
         REQUIRE(static_cast<row_group_layout_kind>(reader.read<uint8_t>()) == row_group_layout_kind::PAX_FIXED);
         auto pax_layout = pax_fixed_row_group_layout_t::deserialize(reader);
-        REQUIRE(pax_layout.version == 3);
+        REQUIRE(pax_layout.version == 4);
         REQUIRE(pax_layout.rows_per_page == 256);
         REQUIRE(pax_layout.pages.size() == 2);
 
@@ -1225,9 +1229,10 @@ TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax
                 const auto it =
                     std::find_if(page.slices.begin(), page.slices.end(), [&](const pax_fixed_slice_t& slice) {
                         return slice.column_index == column_index;
-                    });
+                });
                 REQUIRE(it != page.slices.end());
                 REQUIRE(it->column_type == expected_type);
+                REQUIRE(it->statistics.has_value());
             }
         };
 
@@ -1397,11 +1402,13 @@ TEST_CASE("checkpoint_load: string columns are written as pax generic") {
         REQUIRE(layout_kind == row_group_layout_kind::PAX_GENERIC);
 
         auto pax_layout = pax_generic_row_group_layout_t::deserialize(reader);
+        REQUIRE(pax_layout.version == 4);
         REQUIRE(pax_layout.rows_per_page == 256);
         REQUIRE(pax_layout.pages.size() == 2);
         REQUIRE(pax_layout.pages[0].slices.size() == 2);
         REQUIRE(pax_layout.pages[0].slices[0].slice_kind == pax_generic_slice_kind::STRING_VALUES);
         REQUIRE(pax_layout.pages[0].slices[0].codec_kind == pax_generic_codec_kind::STRING_SEGMENT);
+        REQUIRE(pax_layout.pages[0].slices[0].statistics.has_value());
         REQUIRE(pax_layout.pages[0].slices[1].slice_kind == pax_generic_slice_kind::VALIDITY);
     }
 
@@ -2675,6 +2682,8 @@ TEST_CASE("checkpoint_load: pax generic projected scan uses fast path") {
             REQUIRE(*first_chunk.data[0].value(i).value<std::string*>() == padded_name(i));
         }
 
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         table_scan_state state(&env.resource);
         loaded->initialize_scan(state, projected_indices, nullptr);
         data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
@@ -2693,6 +2702,11 @@ TEST_CASE("checkpoint_load: pax generic projected scan uses fast path") {
             scanned += result.size();
         }
         REQUIRE(scanned == NUM_ROWS);
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected > 0);
+        REQUIRE(counts.pax_generic_pruned_pages == 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
@@ -2767,6 +2781,8 @@ TEST_CASE("checkpoint_load: pax generic projected scan supports simple filters")
         REQUIRE(eq_chunk.size() == 1);
         REQUIRE(*eq_chunk.data[0].value(0).value<std::string*>() == padded_name(111));
 
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         std::pmr::vector<uint64_t> gt_filter_columns(&env.resource);
         gt_filter_columns.push_back(0);
         constant_filter_t gt_filter(components::expressions::compare_type::gt,
@@ -2801,6 +2817,12 @@ TEST_CASE("checkpoint_load: pax generic projected scan supports simple filters")
         data_chunk_t miss_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
         loaded->scan(miss_result, miss_state);
         REQUIRE(miss_result.size() == 0);
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected > 0);
+        REQUIRE(counts.pax_generic_pruned_pages > 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
@@ -3114,6 +3136,8 @@ TEST_CASE("checkpoint_load: pax generic projected scan falls back for mixed proj
                                                                               helper_state.table_state,
                                                                               helper_chunk));
 
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         table_scan_state state(&env.resource);
         loaded->initialize_scan(state, projected_indices, nullptr);
         data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
@@ -3133,6 +3157,12 @@ TEST_CASE("checkpoint_load: pax generic projected scan falls back for mixed proj
             scanned += result.size();
         }
         REQUIRE(scanned == NUM_ROWS);
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_generic_pruned_pages == 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular > 0);
     }
 
     std::remove(table_path.c_str());
@@ -3202,6 +3232,8 @@ TEST_CASE("checkpoint_load: pax fixed projected scan uses fast path") {
             REQUIRE(first_chunk.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(i * 3));
         }
 
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         table_scan_state state(&env.resource);
         loaded->initialize_scan(state, projected_indices, nullptr);
         data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
@@ -3222,6 +3254,11 @@ TEST_CASE("checkpoint_load: pax fixed projected scan uses fast path") {
             scanned += result.size();
         }
         REQUIRE(scanned == NUM_ROWS);
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_pruned_pages == 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
@@ -3272,6 +3309,9 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports simple filters") {
         metadata_manager_t meta_mgr(bm);
         metadata_reader_t reader(meta_mgr, table_pointer);
         auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
 
         std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
         std::vector<size_t> projected_cols{0, 1};
@@ -3318,6 +3358,12 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports simple filters") {
         data_chunk_t miss_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
         loaded->scan(miss_result, miss_state);
         REQUIRE(miss_result.size() == 0);
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_pruned_pages > 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
