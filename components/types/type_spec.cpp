@@ -40,11 +40,18 @@ namespace components::types {
                     return "float8";
                 case logical_type::STRING_LITERAL:
                     return "text";
-                case logical_type::TIMESTAMP_SEC:
-                case logical_type::TIMESTAMP_MS:
-                case logical_type::TIMESTAMP_US:
-                case logical_type::TIMESTAMP_NS:
+                case logical_type::TIMESTAMP:
                     return "timestamp";
+                case logical_type::TIMESTAMP_TZ:
+                    return "timestamp with time zone";
+                case logical_type::DATE:
+                    return "date";
+                case logical_type::TIME:
+                    return "time";
+                case logical_type::TIME_TZ:
+                    return "time with time zone";
+                case logical_type::INTERVAL:
+                    return "interval";
                 case logical_type::BLOB:
                     return "bytea";
                 case logical_type::UUID:
@@ -84,7 +91,17 @@ namespace components::types {
             if (name == "text")
                 return logical_type::STRING_LITERAL;
             if (name == "timestamp")
-                return logical_type::TIMESTAMP_MS;
+                return logical_type::TIMESTAMP;
+            if (name == "timestamp with time zone")
+                return logical_type::TIMESTAMP_TZ;
+            if (name == "date")
+                return logical_type::DATE;
+            if (name == "time")
+                return logical_type::TIME;
+            if (name == "time with time zone")
+                return logical_type::TIME_TZ;
+            if (name == "interval")
+                return logical_type::INTERVAL;
             if (name == "bytea")
                 return logical_type::BLOB;
             if (name == "uuid")
@@ -367,10 +384,12 @@ namespace components::types {
             case logical_type::FLOAT:
             case logical_type::DOUBLE:
             case logical_type::STRING_LITERAL:
-            case logical_type::TIMESTAMP_SEC:
-            case logical_type::TIMESTAMP_MS:
-            case logical_type::TIMESTAMP_US:
-            case logical_type::TIMESTAMP_NS:
+            case logical_type::TIMESTAMP:
+            case logical_type::TIMESTAMP_TZ:
+            case logical_type::DATE:
+            case logical_type::TIME:
+            case logical_type::TIME_TZ:
+            case logical_type::INTERVAL:
             case logical_type::BLOB:
             case logical_type::UUID:
                 return "";

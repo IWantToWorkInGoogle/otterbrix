@@ -26,6 +26,7 @@ set(${PROJECT_NAME}_SOURCES
        dispatcher/validate_logical_plan.cpp
 
     # index
+        index/bitcask_task_executor.cpp
         index/bitcask_index_disk.cpp
         index/btree_index_disk.cpp
         index/index_agent_disk.cpp
@@ -52,6 +53,7 @@ set_property(TARGET otterbrix_${PROJECT_NAME} PROPERTY EXPORT_NAME ${PROJECT_NAM
 
 target_link_libraries(
         otterbrix_${PROJECT_NAME} PRIVATE
+        otterbrix::date
         otterbrix::file
         otterbrix::table
         otterbrix::types

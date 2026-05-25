@@ -17,6 +17,7 @@
 #include "plan_resolve_index.hpp"
 #include "resolve_type.hpp"
 
+#include <components/expressions/scalar_expression.hpp>
 #include <components/logical_plan/node_aggregate.hpp>
 #include <components/logical_plan/node_alter_column_add.hpp>
 #include <components/logical_plan/node_alter_column_drop.hpp>
@@ -30,6 +31,7 @@
 #include <components/logical_plan/node_create_constraint.hpp>
 #include <components/logical_plan/node_create_index.hpp>
 #include <components/logical_plan/node_create_macro.hpp>
+#include <components/logical_plan/node_create_matview.hpp>
 #include <components/logical_plan/node_create_sequence.hpp>
 #include <components/logical_plan/node_create_view.hpp>
 #include <components/logical_plan/node_data.hpp>
@@ -47,6 +49,7 @@
 #include <components/logical_plan/node_join.hpp>
 #include <components/logical_plan/node_limit.hpp>
 #include <components/logical_plan/node_match.hpp>
+#include <components/logical_plan/node_refresh_matview.hpp>
 #include <components/logical_plan/node_sort.hpp>
 #include <components/logical_plan/node_update.hpp>
 
@@ -92,7 +95,9 @@ namespace services::dispatcher {
             }
         }
 
-        void enrich_insert_sync(components::logical_plan::node_insert_t* node, const enrich_resolve_idx_t* idx) {
+        void enrich_insert_sync(components::logical_plan::node_insert_t* node,
+                                const enrich_resolve_idx_t* idx,
+                                core::date::timezone_offset_t session_tz) {
             // Insert node carries only its table_oid (stamped by
             // stamp_drop_oids_from_resolves from the sibling resolve_table);
             // look up table metadata by OID rather than (db, rel) strings.
@@ -160,7 +165,7 @@ namespace services::dispatcher {
                     for (std::uint64_t row = 0; row < rows; ++row) {
                         auto v = col.value(row);
                         if (!v.is_null() && v.type() != *target_type) {
-                            v = v.cast_as(*target_type);
+                            v = v.cast_as(*target_type, session_tz);
                         }
                         replacement.set_value(row, v);
                     }
@@ -286,6 +291,71 @@ namespace services::dispatcher {
             key.append(rel);
             auto it = idx->tbl_oid_by_qname.find(key);
             return it != idx->tbl_oid_by_qname.end() ? it->second : components::catalog::INVALID_OID;
+        }
+
+        // Derive a materialized view's output schema from its body plan +
+        // the source table's Pass 1-stamped resolved_metadata. First iteration
+        // supports single-table FROM with scalar_type::get_field expressions
+        // (i.e. plain column references). Returns empty on unsupported shapes
+        // — the planner will surface this as an error (no fallback).
+        std::vector<components::table::column_definition_t>
+        derive_matview_output_schema(const components::logical_plan::node_t* body_plan,
+                                     const components::logical_plan::resolved_table_metadata_t* source_md) {
+            using namespace components::logical_plan;
+            std::vector<components::table::column_definition_t> out;
+            if (!body_plan || !source_md) {
+                return out;
+            }
+            if (body_plan->type() != node_type::aggregate_t) {
+                return out;
+            }
+            // Find the node_select_t child holding the SELECT-list expressions.
+            const node_t* select_node = nullptr;
+            for (const auto& c : body_plan->children()) {
+                if (c && c->type() == node_type::select_t) {
+                    select_node = c.get();
+                    break;
+                }
+            }
+            if (!select_node) {
+                return out;
+            }
+            const auto& exprs = select_node->expressions();
+            out.reserve(exprs.size());
+            for (const auto& expr : exprs) {
+                if (!expr) {
+                    return {};
+                }
+                auto* sc = dynamic_cast<components::expressions::scalar_expression_t*>(expr.get());
+                if (!sc) {
+                    return {}; // non-scalar (function/aggregate): out of scope
+                }
+                if (sc->type() != components::expressions::scalar_type::get_field) {
+                    return {}; // arithmetic/case_expr/coalesce/...: out of scope (see followups #2)
+                }
+                const auto& key_storage = sc->key().storage();
+                if (key_storage.empty()) {
+                    return {};
+                }
+                // Use the last path component as the column name (handles
+                // single-table FROM where path is just [col]).
+                const std::string col_name(key_storage.back().c_str(), key_storage.back().size());
+                // Look up the column in the source's stamped pg_attribute.
+                bool found = false;
+                for (const auto& src_col : source_md->columns) {
+                    if (src_col.attname == col_name) {
+                        components::table::column_definition_t def(col_name, src_col.type);
+                        def.set_atttypid(static_cast<std::uint32_t>(src_col.atttypid));
+                        out.emplace_back(std::move(def));
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    return {};
+                }
+            }
+            return out;
         }
 
     } // anonymous namespace
@@ -434,6 +504,35 @@ namespace services::dispatcher {
                             }
                             break;
                         }
+                        case node_type::create_matview_t: {
+                            // Stamp namespace + source oids from sibling resolves.
+                            // derive_matview_output_schema walks body_plan +
+                            // source's Pass 1-stamped resolved_metadata.columns
+                            // to produce the matview's column schema.
+                            auto* d = static_cast<node_create_matview_t*>(c.get());
+                            if (rn && rn->namespace_oid() != components::catalog::INVALID_OID) {
+                                d->set_namespace_oid(rn->namespace_oid());
+                            }
+                            if (rt && rt->table_oid() != components::catalog::INVALID_OID) {
+                                d->set_source_table_oid(rt->table_oid());
+                            }
+                            if (rt && rt->resolved_metadata() && d->body_plan()) {
+                                auto cols = derive_matview_output_schema(d->body_plan().get(),
+                                                                         &rt->resolved_metadata().value());
+                                if (!cols.empty()) {
+                                    d->set_inferred_columns(std::move(cols));
+                                }
+                            }
+                            break;
+                        }
+                        case node_type::refresh_matview_t: {
+                            // refresh: mv_oid comes from sibling rt's resolved_metadata
+                            // (which also carries view_sql via Phase A.A2 since
+                            // operator_resolve_table reads pg_rewrite for relkind='m').
+                            // No fields to stamp here — planner reads from rt directly.
+                            (void) c;
+                            break;
+                        }
                         case node_type::create_index_t: {
                             auto* d = static_cast<node_create_index_t*>(c.get());
                             if (rt && rt->namespace_oid() != components::catalog::INVALID_OID) {
@@ -511,10 +610,10 @@ namespace services::dispatcher {
         }
     }
 
-    actor_zeta::unique_future<void> enrich_plan(components::logical_plan::node_ptr root,
+    actor_zeta::unique_future<void> enrich_plan(std::pmr::memory_resource* resource,
+                                                components::logical_plan::node_ptr root,
                                                 actor_zeta::address_t disk_address,
                                                 components::execution_context_t ctx,
-                                                std::pmr::memory_resource* resource,
                                                 const enrich_resolve_idx_t* idx) {
         using namespace components::logical_plan;
         if (!root)
@@ -529,7 +628,7 @@ namespace services::dispatcher {
             // from their sibling catalog_resolve_* nodes inside each sequence_t
             // before the per-node enrich cases run.
             stamp_oids_from_resolves(root.get());
-            co_await enrich_plan(root, disk_address, ctx, resource, &local_idx);
+            co_await enrich_plan(resource, root, disk_address, ctx, &local_idx);
             co_return;
         }
         // Stamp table_oid for any SELECT-side consumer that still carries
@@ -596,7 +695,7 @@ namespace services::dispatcher {
         switch (root->type()) {
             case node_type::insert_t: {
                 auto* node = static_cast<node_insert_t*>(root.get());
-                enrich_insert_sync(node, idx);
+                enrich_insert_sync(node, idx, ctx.session_tz);
                 const auto tbl_oid = node->table_oid();
                 // FK + CHECK populated by operator_resolve_constraint_t
                 // (Pass 1, direction=outgoing) and gathered into idx. No catalog
@@ -807,7 +906,7 @@ namespace services::dispatcher {
         for (auto& child : root->children()) {
             if (!child)
                 continue;
-            co_await enrich_plan(child, disk_address, ctx, resource, idx);
+            co_await enrich_plan(resource, child, disk_address, ctx, idx);
         }
     }
 

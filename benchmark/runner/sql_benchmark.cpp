@@ -263,7 +263,8 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
                 if (cursor->is_error()) {
                     std::string msg = "SQL error: ";
                     msg += std::string_view(cursor->get_error().what);
-                    throw std::runtime_error(msg);
+                    state.failed = true;
+                    return;
                 }
             }
             current.clear();
@@ -278,7 +279,8 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
         if (cursor->is_error()) {
             std::string msg = "SQL error: ";
             msg += std::string_view(cursor->get_error().what);
-            throw std::runtime_error(msg);
+            state.failed = true;
+            return;
         }
     }
 }
@@ -330,7 +332,8 @@ void sql_benchmark_t::load_csv_file(benchmark_state_t& state, const sql_csv_entr
         if (cursor->is_error()) {
             std::string msg = "CSV load SQL error for " + entry.table + ": ";
             msg += std::string_view(cursor->get_error().what);
-            throw std::runtime_error(msg);
+            state.failed = true;
+            return;
         }
         value_tuples.clear();
     };
@@ -405,22 +408,27 @@ std::string sql_benchmark_t::qualify_sql(const std::string& sql) const {
 }
 
 void sql_benchmark_t::load(benchmark_state_t& state) {
-    // Create database if specified
+    // Create database if specified. IF NOT EXISTS keeps multi-query benchmark
+    // groups (e.g. SSB) idempotent — first sub-query creates the DB, the rest
+    // reuse it without erroring on re-CREATE.
     if (!database_.empty()) {
-        auto create_db = "CREATE DATABASE " + database_;
+        auto create_db = "CREATE DATABASE IF NOT EXISTS " + database_;
         auto cursor = state.dispatcher->execute_sql(state.session, create_db);
         if (cursor->is_error()) {
             std::string msg = "Cannot create database: ";
             msg += std::string_view(cursor->get_error().what);
-            throw std::runtime_error(msg);
+            state.failed = true;
+            return;
         }
     }
 
     if (!setup_sql_.empty()) {
         execute_sql_block(state, qualify_sql(setup_sql_));
+        if (state.failed) return;
     }
     for (const auto& entry : csv_entries_) {
         load_csv_file(state, entry);
+        if (state.failed) return;
     }
 }
 
@@ -430,11 +438,14 @@ void sql_benchmark_t::run(benchmark_state_t& state) {
     if (cursor->is_error()) {
         std::string msg = "SQL error: ";
         msg += std::string_view(cursor->get_error().what);
-        throw std::runtime_error(msg);
+        state.failed = true;
+        return;
     }
     if (expected_rows_.has_value() && cursor->size() != expected_rows_.value()) {
-        throw std::runtime_error("Expected rows mismatch: expected " + std::to_string(expected_rows_.value()) +
-                                 ", got " + std::to_string(cursor->size()));
+        std::cerr << "Expected rows mismatch: expected " << expected_rows_.value() << ", got " << cursor->size()
+                  << "\n";
+        state.failed = true;
+        return;
     }
 }
 

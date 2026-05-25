@@ -11,6 +11,7 @@
 #include "impl/create_plan_commit_transaction.hpp"
 #include "impl/create_plan_computed_field_register.hpp"
 #include "impl/create_plan_computed_field_unregister.hpp"
+#include "impl/create_plan_create_matview.hpp"
 #include "impl/create_plan_data.hpp"
 #include "impl/create_plan_delete.hpp"
 #include "impl/create_plan_dynamic_cascade_delete.hpp"
@@ -91,6 +92,8 @@ namespace services::planner {
                 return impl::create_plan_checkpoint(context, node);
             case node_type::vacuum_t:
                 return impl::create_plan_vacuum(context, node);
+            case node_type::create_matview_t:
+                return impl::create_plan_create_matview(context, function_registry, node, params);
             case node_type::get_schema_t:
                 return impl::create_plan_get_schema(context, node);
             case node_type::unregister_udf_t:

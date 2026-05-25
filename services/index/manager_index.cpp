@@ -4,6 +4,7 @@
 #include "btree_index_disk.hpp"
 
 #include <actor-zeta/spawn.hpp>
+#include <components/index/hash_single_field_index.hpp>
 #include <components/index/index_engine.hpp>
 #include <components/index/single_field_index.hpp>
 #include <core/b_plus_tree/b_plus_tree.hpp>
@@ -92,6 +93,9 @@ namespace services::index {
                                      actor_zeta::scheduler_raw scheduler,
                                      log_t& log,
                                      std::filesystem::path path_db,
+                                     uint64_t bitcask_flush_threshold,
+                                     uint64_t bitcask_segment_record_limit,
+                                     uint64_t btree_flush_threshold,
                                      run_fn_t run_fn)
         : actor_zeta::actor::actor_mixin<manager_index_t>()
         , resource_(resource)
@@ -99,6 +103,9 @@ namespace services::index {
         , run_fn_(std::move(run_fn))
         , log_(log)
         , path_db_(std::move(path_db))
+        , bitcask_flush_threshold_(bitcask_flush_threshold)
+        , bitcask_segment_record_limit_(bitcask_segment_record_limit)
+        , btree_flush_threshold_(btree_flush_threshold)
         , engines_(resource)
         , pending_void_(resource) {
         if (!path_db_.empty()) {
@@ -253,7 +260,8 @@ namespace services::index {
                                                                            components::catalog::oid_t table_oid,
                                                                            index_name_t index_name,
                                                                            components::index::keys_base_storage_t keys,
-                                                                           components::logical_plan::index_type type) {
+                                                                           components::logical_plan::index_type type,
+                                                                           core::date::timezone_offset_t session_tz) {
         trace(log_, "manager_index_t::create_index: {} on oid={}", index_name, static_cast<unsigned>(table_oid));
 
         auto it = engines_.find(table_oid);
@@ -272,6 +280,12 @@ namespace services::index {
             case components::logical_plan::index_type::single: {
                 id_index =
                     components::index::make_index<components::index::single_field_index_t>(engine, index_name, keys);
+                break;
+            }
+            case components::logical_plan::index_type::hashed: {
+                id_index = components::index::make_index<components::index::hash_single_field_index_t>(engine,
+                                                                                                       index_name,
+                                                                                                       keys);
                 break;
             }
             default:
@@ -312,11 +326,7 @@ namespace services::index {
                                 seen_row_ids.reserve(raw.size());
                                 size_t loaded_count = 0;
                                 for (auto& e : raw) {
-                                    if (!seen_row_ids.emplace(e.row_id).second) {
-                                        continue;
-                                    }
-                                    idx->insert(reverse_convert(resource_, e.key), e.row_id);
-                                    loaded_count++;
+                                    idx->insert(reverse_convert(resource_, e.key), e.row_id, session_tz);
                                 }
                                 trace(log_,
                                       "create_index: loaded {} unique entries from btree ({} raw)",
@@ -426,7 +436,7 @@ namespace services::index {
 
         auto& engine = it->second;
         for (uint64_t i = 0; i < count; i++) {
-            engine->insert_row(*data, i, static_cast<int64_t>(start_row_id + i), txn_id);
+            engine->insert_row(*data, i, static_cast<int64_t>(start_row_id + i), txn_id, ctx.session_tz);
         }
         // No disk mirroring — uncommitted entries don't go to disk
 
@@ -448,7 +458,7 @@ namespace services::index {
 
         auto& engine = it->second;
         for (size_t i = 0; i < row_ids.size(); i++) {
-            engine->mark_delete_row(*data, i, row_ids[i], txn_id);
+            engine->mark_delete_row(*data, i, row_ids[i], txn_id, ctx.session_tz);
         }
         // No disk mirroring — uncommitted deletes don't go to disk
 
@@ -474,12 +484,12 @@ namespace services::index {
 
         // Mark old entries as deleted
         for (size_t i = 0; i < row_ids.size(); i++) {
-            engine->mark_delete_row(*old_data, i, row_ids[i], txn_id);
+            engine->mark_delete_row(*old_data, i, row_ids[i], txn_id, ctx.session_tz);
         }
 
         // Insert new entries
         for (size_t i = 0; i < row_ids.size(); i++) {
-            engine->insert_row(*new_data, i, new_start_row_id + static_cast<int64_t>(i), txn_id);
+            engine->insert_row(*new_data, i, new_start_row_id + static_cast<int64_t>(i), txn_id, ctx.session_tz);
         }
 
         co_return;
@@ -607,7 +617,8 @@ namespace services::index {
                             components::types::logical_value_t value,
                             components::expressions::compare_type compare,
                             uint64_t start_time,
-                            uint64_t txn_id) {
+                            uint64_t txn_id,
+                            core::date::timezone_offset_t session_tz) {
         std::pmr::vector<int64_t> result(resource_);
 
         auto it = engines_.find(table_oid);
@@ -618,25 +629,7 @@ namespace services::index {
         if (!index)
             co_return result;
 
-        result = index->search(compare, value, start_time, txn_id);
-        if (result.size() < 2) {
-            co_return result;
-        }
-
-        // Persisted index state may contain duplicate row ids after restart/reload cycles.
-        // Keep query results functionally correct even if the backing index is not perfectly deduplicated.
-        std::unordered_set<int64_t> seen;
-        seen.reserve(result.size());
-
-        std::pmr::vector<int64_t> deduplicated(resource_);
-        deduplicated.reserve(result.size());
-        for (auto row_id : result) {
-            if (seen.emplace(row_id).second) {
-                deduplicated.emplace_back(row_id);
-            }
-        }
-
-        co_return deduplicated;
+        co_return index->search(compare, value, start_time, txn_id, session_tz);
     }
 
     manager_index_t::unique_future<std::pmr::vector<components::index::keys_base_storage_t>>

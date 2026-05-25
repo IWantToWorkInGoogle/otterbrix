@@ -4,6 +4,7 @@
 #include <components/catalog/dependency_walker.hpp>
 #include <components/cursor/cursor.hpp>
 #include <components/expressions/compare_expression.hpp>
+#include <components/expressions/forward.hpp>
 #include <components/logical_plan/node.hpp>
 #include <components/logical_plan/param_storage.hpp>
 #include <components/types/types.hpp>
@@ -26,6 +27,7 @@ namespace services::dispatcher {
     struct type_from_t {
         std::string result_alias;
         components::types::complex_logical_type type;
+        components::expressions::side_t side = components::expressions::side_t::undefined;
     };
     struct type_path_t {
         column_path path;
@@ -56,7 +58,8 @@ namespace services::dispatcher {
     // Validate plan node types against the plan-tree idx (populated by Pass 1).
     [[nodiscard]] core::error_t validate_types(std::pmr::memory_resource* resource,
                                                const impl::plan_resolve_index_t* idx,
-                                               components::logical_plan::node_t* node);
+                                               components::logical_plan::node_t* node,
+                                               core::date::timezone_offset_t session_tz);
 
     [[nodiscard]] core::result_wrapper_t<named_schema>
     validate_schema(std::pmr::memory_resource* resource,

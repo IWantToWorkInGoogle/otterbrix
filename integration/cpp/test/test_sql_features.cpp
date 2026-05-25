@@ -3,6 +3,8 @@
 
 #include <catch2/catch.hpp>
 #include <chrono>
+#include <core/date/date_parse.hpp>
+#include <core/date/timezones.hpp>
 #include <random>
 #include <set>
 #include <string>
@@ -1067,6 +1069,352 @@ TEST_CASE("integration::cpp::test_sql_features::update_with_is_null") {
             REQUIRE(cur->is_success());
             REQUIRE(cur->size() == 2);
         }
+    }
+}
+
+TEST_CASE("integration::cpp::test_sql_features::datetime") {
+    auto config = test_create_config("/tmp/test_sql_features/datetime");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    {
+        auto session = otterbrix::session_id_t();
+        dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase;");
+    }
+    {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "CREATE TABLE TestDatabase.TestCollection ("
+                                           "  d DATE,"
+                                           "  ts TIMESTAMP,"
+                                           "  tstz TIMESTAMP WITH TIME ZONE,"
+                                           "  t TIME,"
+                                           "  tz TIME WITH TIME ZONE,"
+                                           "  iv INTERVAL"
+                                           ");");
+        REQUIRE(cur->is_success());
+    }
+
+    {
+        auto session = otterbrix::session_id_t();
+        dispatcher->execute_sql(session,
+                                "INSERT INTO TestDatabase.TestCollection (d, ts, tstz, t, tz, iv) VALUES ("
+                                "  DATE '2024-01-01',"
+                                "  TIMESTAMP '2024-01-01 08:00:00',"
+                                "  TIMESTAMPTZ '2024-01-01 08:00:00+00:00',"
+                                "  TIME '08:00:00',"
+                                "  TIMETZ '08:00:00+00:00',"
+                                "  INTERVAL '1 day'"
+                                ");");
+    }
+    {
+        auto session = otterbrix::session_id_t();
+        dispatcher->execute_sql(session,
+                                "INSERT INTO TestDatabase.TestCollection (d, ts, tstz, t, tz, iv) VALUES ("
+                                "  DATE '2024-03-15',"
+                                "  TIMESTAMP '2024-03-15 12:30:45',"
+                                "  TIMESTAMPTZ '2024-03-15 12:30:45+00:00',"
+                                "  TIME '12:30:00',"
+                                "  TIMETZ '12:30:00+00:00',"
+                                "  INTERVAL '7 day'"
+                                ");");
+    }
+    {
+        auto session = otterbrix::session_id_t();
+        dispatcher->execute_sql(session,
+                                "INSERT INTO TestDatabase.TestCollection (d, ts, tstz, t, tz, iv) VALUES ("
+                                "  DATE '2024-12-31',"
+                                "  TIMESTAMP '2024-12-31 23:59:59',"
+                                "  TIMESTAMPTZ '2024-12-31 23:59:59+00:00',"
+                                "  TIME '23:59:59',"
+                                "  TIMETZ '23:59:59+00:00',"
+                                "  INTERVAL '30 day'"
+                                ");");
+    }
+
+    INFO("WHERE equality on DATE") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d = DATE '2024-03-15';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(0, 0).value<core::date::date_t>() == *core::date::parse_date("2024-03-15"));
+    }
+
+    INFO("WHERE less than on DATE") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d < DATE '2024-06-01';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("WHERE greater than on DATE") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d > DATE '2024-06-01';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(0, 0).value<core::date::date_t>() == *core::date::parse_date("2024-12-31"));
+    }
+
+    INFO("ORDER BY DATE ASC") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection ORDER BY d;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+        auto d0 = cur->chunk_data().value(0, 0).value<core::date::date_t>();
+        auto d1 = cur->chunk_data().value(0, 1).value<core::date::date_t>();
+        auto d2 = cur->chunk_data().value(0, 2).value<core::date::date_t>();
+        REQUIRE(d0 == *core::date::parse_date("2024-01-01"));
+        REQUIRE(d1 == *core::date::parse_date("2024-03-15"));
+        REQUIRE(d2 == *core::date::parse_date("2024-12-31"));
+    }
+
+    INFO("ORDER BY DATE DESC") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection ORDER BY d DESC;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+        auto d0 = cur->chunk_data().value(0, 0).value<core::date::date_t>();
+        auto d1 = cur->chunk_data().value(0, 1).value<core::date::date_t>();
+        auto d2 = cur->chunk_data().value(0, 2).value<core::date::date_t>();
+        REQUIRE(d0 == *core::date::parse_date("2024-12-31"));
+        REQUIRE(d1 == *core::date::parse_date("2024-03-15"));
+        REQUIRE(d2 == *core::date::parse_date("2024-01-01"));
+    }
+
+    INFO("WHERE equality on TIMESTAMP") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE ts = TIMESTAMP '2024-03-15 12:30:45';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(1, 0).value<core::date::timestamp_t>() ==
+                *core::date::parse_timestamp("2024-03-15 12:30:45"));
+    }
+
+    INFO("WHERE less than on TIMESTAMP") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE ts < TIMESTAMP '2024-06-01 00:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("ORDER BY TIMESTAMP DESC") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection ORDER BY ts DESC;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+        auto t0 = cur->chunk_data().value(1, 0).value<core::date::timestamp_t>();
+        auto t1 = cur->chunk_data().value(1, 1).value<core::date::timestamp_t>();
+        auto t2 = cur->chunk_data().value(1, 2).value<core::date::timestamp_t>();
+        REQUIRE(t0 == *core::date::parse_timestamp("2024-12-31 23:59:59"));
+        REQUIRE(t1 == *core::date::parse_timestamp("2024-03-15 12:30:45"));
+        REQUIRE(t2 == *core::date::parse_timestamp("2024-01-01 08:00:00"));
+    }
+
+    INFO("WHERE equality on TIMESTAMP WITH TIME ZONE") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE tstz = TIMESTAMPTZ '2024-03-15 12:30:45+00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+    }
+
+    INFO("WHERE equality on TIME") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE t = TIME '12:30:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(3, 0).value<core::date::time_t>() == *core::date::parse_time("12:30:00"));
+    }
+
+    INFO("WHERE less than on TIME") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE t < TIME '18:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("ORDER BY TIME ASC") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection ORDER BY t;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+        auto t0 = cur->chunk_data().value(3, 0).value<core::date::time_t>();
+        auto t1 = cur->chunk_data().value(3, 1).value<core::date::time_t>();
+        auto t2 = cur->chunk_data().value(3, 2).value<core::date::time_t>();
+        REQUIRE(t0 == *core::date::parse_time("08:00:00"));
+        REQUIRE(t1 == *core::date::parse_time("12:30:00"));
+        REQUIRE(t2 == *core::date::parse_time("23:59:59"));
+    }
+
+    INFO("WHERE equality on TIME WITH TIME ZONE") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session,
+                                    "SELECT * FROM TestDatabase.TestCollection WHERE tz = TIMETZ '12:30:00+00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(4, 0).value<core::date::timetz_t>() ==
+                *core::date::parse_timetz("12:30:00+00:00"));
+    }
+
+    INFO("WHERE greater than on TIME WITH TIME ZONE") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session,
+                                    "SELECT * FROM TestDatabase.TestCollection WHERE tz > TIMETZ '10:00:00+00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("WHERE greater than on INTERVAL") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE iv > INTERVAL '5 day';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("ORDER BY INTERVAL ASC") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection ORDER BY iv;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+        auto i0 = cur->chunk_data().value(5, 0).value<core::date::interval_t>();
+        auto i1 = cur->chunk_data().value(5, 1).value<core::date::interval_t>();
+        auto i2 = cur->chunk_data().value(5, 2).value<core::date::interval_t>();
+        REQUIRE(i0 == *core::date::parse_interval("1 day"));
+        REQUIRE(i1 == *core::date::parse_interval("7 day"));
+        REQUIRE(i2 == *core::date::parse_interval("30 day"));
+    }
+
+    INFO("DATE column equals TIMESTAMP literal (DATE implicit widening to TIMESTAMP)") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE d = TIMESTAMP '2024-03-15 00:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(0, 0).value<core::date::date_t>() == *core::date::parse_date("2024-03-15"));
+    }
+
+    INFO("DATE column less than TIMESTAMP literal") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE d < TIMESTAMP '2024-06-01 00:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("TIMESTAMP column less than DATE literal (DATE implicit widening to TIMESTAMP)") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE ts < DATE '2024-06-01';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("TIMESTAMP column greater than DATE literal") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE ts > DATE '2024-06-01';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(1, 0).value<core::date::timestamp_t>() ==
+                *core::date::parse_timestamp("2024-12-31 23:59:59"));
+    }
+
+    INFO("TIMESTAMP_TZ column equals TIMESTAMP literal (TIMESTAMP implicit widening to TIMESTAMP_TZ)") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE tstz = TIMESTAMP '2024-03-15 12:30:45';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+    }
+
+    INFO("TIMESTAMP_TZ column less than TIMESTAMP literal") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(
+            session,
+            "SELECT * FROM TestDatabase.TestCollection WHERE tstz < TIMESTAMP '2024-06-01 00:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("TIME_TZ column equals TIME literal (TIME implicit widening to TIME_TZ)") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE tz = TIME '12:30:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(4, 0).value<core::date::timetz_t>() ==
+                *core::date::parse_timetz("12:30:00+00:00"));
+    }
+
+    INFO("TIME_TZ column greater than TIME literal") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE tz > TIME '08:00:00';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 2);
+    }
+
+    INFO("INSERT: DATE into TIMESTAMP, TIMESTAMP into TIMESTAMPTZ, TIME into TIME_TZ") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "INSERT INTO TestDatabase.TestCollection (d, ts, tstz, t, tz, iv) VALUES ("
+                                           "  DATE '2024-06-15',"
+                                           "  DATE '2024-06-15',"
+                                           "  TIMESTAMP '2024-06-15 06:00:00',"
+                                           "  TIME '15:30:00',"
+                                           "  TIME '15:30:00',"
+                                           "  INTERVAL '5 day'"
+                                           ");");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("INSERT: DATE widened to TIMESTAMP midnight") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d = DATE '2024-06-15';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(1, 0).value<core::date::timestamp_t>() ==
+                *core::date::parse_timestamp("2024-06-15 00:00:00"));
+    }
+
+    INFO("INSERT: TIMESTAMP widened to TIMESTAMPTZ") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d = DATE '2024-06-15';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(2, 0).value<core::date::timestamptz_t>() ==
+                *core::date::parse_timestamptz("2024-06-15 06:00:00+00:00"));
+    }
+
+    INFO("INSERT: TIME widened to TIME_TZ with zero offset") {
+        auto session = otterbrix::session_id_t();
+        auto cur =
+            dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.TestCollection WHERE d = DATE '2024-06-15';");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().value(4, 0).value<core::date::timetz_t>() ==
+                *core::date::parse_timetz("15:30:00+00:00"));
     }
 }
 
@@ -2960,4 +3308,249 @@ TEST_CASE("integration::cpp::test_sql_features::dynamic_schema_stress_1000_rando
         REQUIRE(cur->is_success());
         REQUIRE(cur->size() == static_cast<std::size_t>(kRowCount));
     }
+}
+
+TEST_CASE("integration::cpp::test_sql_features::set_timezone") {
+    auto config = test_create_config("/tmp/test_sql_features/set_timezone");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    INFO("valid timezone via SQL") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SET TIMEZONE TO 'utc';");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("valid timezone with mixed case via SQL is accepted") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SET TIMEZONE TO 'UTC';");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("valid IANA timezone via SQL") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SET TIMEZONE TO 'america/new_york';");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("unknown timezone via SQL returns error") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "SET TIMEZONE TO 'not_a_real_timezone';");
+        REQUIRE_FALSE(cur->is_success());
+    }
+
+    INFO("valid timezone via direct API") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->set_timezone(session, "Europe/London");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("valid timezone with mixed case via direct API is lowercased and accepted") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->set_timezone(session, "America/New_York");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("unknown timezone via direct API returns error") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->set_timezone(session, "Not/A/Timezone");
+        REQUIRE_FALSE(cur->is_success());
+    }
+}
+
+// End-to-end coverage for SQL-89 comma-join (FROM a, b WHERE a.x = b.y).
+// libpg_query parses each comma-separated table as an independent fromClause
+// entry; the SELECT transformer synthesizes a left-deep cross JoinExpr tree
+// out of them so the existing join lowering picks the multi-table FROM up,
+// and the user's WHERE filter (lowered into a sibling match_t) recovers
+// inner-join semantics by filtering the cross product. The benchmark
+// reproducer for this gap is SSB's `FROM lineorder, customer, date, part`.
+TEST_CASE("integration::cpp::test_sql_features::comma_join") {
+    auto config = test_create_config("/tmp/test_sql_features/comma_join");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    INFO("initialization") {
+        {
+            auto session = otterbrix::session_id_t();
+            REQUIRE(dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase;")->is_success());
+        }
+        {
+            auto session = otterbrix::session_id_t();
+            REQUIRE(
+                dispatcher->execute_sql(session, "CREATE TABLE TestDatabase.orders (id bigint, customer_id bigint);")
+                    ->is_success());
+        }
+        {
+            auto session = otterbrix::session_id_t();
+            REQUIRE(dispatcher->execute_sql(session, "CREATE TABLE TestDatabase.customers (id bigint, name string);")
+                        ->is_success());
+        }
+        {
+            // orders: 4 rows; customer_id matches customers.id for rows 1..3,
+            // row 4 (customer_id=99) has no matching customer.
+            auto session = otterbrix::session_id_t();
+            auto cur = dispatcher->execute_sql(session,
+                                               "INSERT INTO TestDatabase.orders (id, customer_id) VALUES "
+                                               "(1, 10), (2, 20), (3, 30), (4, 99);");
+            REQUIRE(cur->is_success());
+            REQUIRE(cur->size() == 4);
+        }
+        {
+            // customers: 3 rows that match orders 1..3.
+            auto session = otterbrix::session_id_t();
+            auto cur = dispatcher->execute_sql(session,
+                                               "INSERT INTO TestDatabase.customers (id, name) VALUES "
+                                               "(10, 'Alice'), (20, 'Bob'), (30, 'Carol');");
+            REQUIRE(cur->is_success());
+            REQUIRE(cur->size() == 3);
+        }
+    }
+
+    INFO("comma-join with equality WHERE returns inner-join rows") {
+        // Three orders (1, 2, 3) have matching customers; order 4 (customer_id=99)
+        // does not, so an inner-join-shaped result has exactly 3 rows.
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT * FROM TestDatabase.orders, TestDatabase.customers "
+                                           "WHERE orders.customer_id = customers.id;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 3);
+    }
+}
+
+// CREATE VIEW e2e — verifies SELECT * FROM v expands through the pipeline.
+// Pass 1 stamps view_sql on the resolve_table metadata (from pg_rewrite.ev_action),
+// Phase 1.5 in the dispatcher re-parses + transforms the body and splices the
+// sub-plan in. First iteration handles top-level `SELECT * FROM v` only — see
+// docs/pr496-followups.md #1 for composition-on-top-of-view followup.
+TEST_CASE("integration::cpp::test_sql_features::create_view_e2e") {
+    auto config = test_create_config("/tmp/test_sql_features/create_view_e2e");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+    auto session = otterbrix::session_id_t();
+
+    REQUIRE(dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase")->is_success());
+    REQUIRE(dispatcher->execute_sql(session, "CREATE TABLE TestDatabase.t (col_a STRING, col_b BIGINT)")->is_success());
+    REQUIRE(dispatcher
+                ->execute_sql(session,
+                              "INSERT INTO TestDatabase.t (col_a, col_b) VALUES "
+                              "('a', 5), ('b', 15), ('c', 20), ('d', 8)")
+                ->is_success());
+    REQUIRE(dispatcher
+                ->execute_sql(session,
+                              "CREATE VIEW TestDatabase.v AS "
+                              "SELECT col_a FROM TestDatabase.t WHERE col_b > 10")
+                ->is_success());
+
+    INFO("SELECT * FROM v expands through the pipeline to view's body");
+    auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.v");
+    REQUIRE(cur->is_success());
+    REQUIRE(cur->size() == 2); // col_b > 10 filters to ('b', 15) and ('c', 20)
+}
+
+// CREATE MATERIALIZED VIEW e2e — verifies the matview is a real physical
+// table (relkind='m') with pg_class+pg_attribute+pg_rewrite rows, created
+// through the pipeline-canonical path (logical_plan → planner → composite
+// operator_create_matview_t → executor → disk). First-iteration semantics
+// follow PostgreSQL's `WITH NO DATA` default — initial population from body
+// SELECT is deferred to REFRESH MATERIALIZED VIEW (followup #2). After CREATE,
+// the matview exists as an empty table; `SELECT * FROM mv` returns 0 rows
+// without view expansion (relkind='m' falls through to the regular scan
+// pipeline via operator_resolve_table else-branch).
+TEST_CASE("integration::cpp::test_sql_features::create_matview_e2e") {
+    auto config = test_create_config("/tmp/test_sql_features/create_matview_e2e");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+    auto session = otterbrix::session_id_t();
+
+    REQUIRE(dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase")->is_success());
+    REQUIRE(dispatcher->execute_sql(session, "CREATE TABLE TestDatabase.t (col_a STRING, col_b BIGINT)")->is_success());
+    REQUIRE(dispatcher
+                ->execute_sql(session,
+                              "INSERT INTO TestDatabase.t (col_a, col_b) VALUES "
+                              "('a', 5), ('b', 15), ('c', 20), ('d', 8)")
+                ->is_success());
+    REQUIRE(dispatcher
+                ->execute_sql(session,
+                              "CREATE MATERIALIZED VIEW TestDatabase.mv AS "
+                              "SELECT col_a FROM TestDatabase.t WHERE col_b > 10")
+                ->is_success());
+
+    INFO("SELECT * FROM mv reads the matview's empty heap (WITH NO DATA semantics)");
+    auto cur = dispatcher->execute_sql(session, "SELECT * FROM TestDatabase.mv");
+    REQUIRE(cur->is_success());
+    REQUIRE(cur->size() == 0); // empty until REFRESH populates (followup #2)
+}
+
+// PostgreSQL CREATE DATABASE / CREATE TABLE IF NOT EXISTS — second CREATE on the same
+// name must succeed as a no-op (no error). Dispatcher short-circuits on existing
+// namespace / collection when the create node carries if_not_exists=true.
+TEST_CASE("integration::cpp::test_sql_features::create_database_if_not_exists") {
+    auto config = test_create_config("/tmp/test_sql_features/create_db_if_not_exists");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    INFO("first CREATE creates the DB") {
+        auto session = otterbrix::session_id_t();
+        REQUIRE(dispatcher->execute_sql(session, "CREATE DATABASE IF NOT EXISTS TestDatabase;")->is_success());
+    }
+
+    INFO("second CREATE IF NOT EXISTS succeeds as a no-op") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "CREATE DATABASE IF NOT EXISTS TestDatabase;");
+        REQUIRE(cur->is_success());
+    }
+
+    INFO("CREATE DATABASE without IF NOT EXISTS on existing name still errors") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase;");
+        REQUIRE_FALSE(cur->is_success());
+    }
+}
+
+TEST_CASE("integration::cpp::test_sql_features::create_table_if_not_exists") {
+    auto config = test_create_config("/tmp/test_sql_features/create_tbl_if_not_exists");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    INFO("setup DB") {
+        auto session = otterbrix::session_id_t();
+        REQUIRE(dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase;")->is_success());
+    }
+
+    INFO("first CREATE TABLE creates it") {
+        auto session = otterbrix::session_id_t();
+        REQUIRE(dispatcher->execute_sql(session, "CREATE TABLE IF NOT EXISTS TestDatabase.t();")->is_success());
+    }
+
+    INFO("second CREATE TABLE IF NOT EXISTS succeeds as a no-op") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session, "CREATE TABLE IF NOT EXISTS TestDatabase.t();");
+        REQUIRE(cur->is_success());
+    }
+
+    // Note: CREATE TABLE without IF NOT EXISTS on an existing relation is rejected
+    // later in the execution pipeline (storage layer), not at the dispatcher's
+    // pre-validate step — dispatcher_idx for CREATE TABLE has the namespace but not
+    // the target relation (no resolve_table sibling). The IF NOT EXISTS short-circuit
+    // is what matters for benchmark idempotency, and step 2 above covers it.
 }

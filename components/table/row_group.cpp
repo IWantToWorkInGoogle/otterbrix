@@ -64,10 +64,8 @@ namespace {
             case logical_type::UBIGINT:
             case logical_type::HUGEINT:
             case logical_type::UHUGEINT:
-            case logical_type::TIMESTAMP_SEC:
-            case logical_type::TIMESTAMP_MS:
-            case logical_type::TIMESTAMP_US:
-            case logical_type::TIMESTAMP_NS:
+            case logical_type::TIMESTAMP:
+            case logical_type::TIMESTAMP_TZ:
             case logical_type::DECIMAL:
             case logical_type::FLOAT:
             case logical_type::DOUBLE:
@@ -1302,28 +1300,16 @@ namespace {
                 return apply_pax_fixed_constant_filter_typed<float>(values, filter, count, indexing);
             case logical_type::DOUBLE:
                 return apply_pax_fixed_constant_filter_typed<double>(values, filter, count, indexing);
-            case logical_type::TIMESTAMP_SEC:
+            case logical_type::TIMESTAMP:
                 return apply_pax_fixed_constant_filter_value(values,
                                                              filter.filter_type,
-                                                             filter.constant.value<std::chrono::seconds>().count(),
+                                                             filter.constant.value<core::date::timestamp_t>().value.count(),
                                                              count,
                                                              indexing);
-            case logical_type::TIMESTAMP_MS:
+            case logical_type::TIMESTAMP_TZ:
                 return apply_pax_fixed_constant_filter_value(values,
                                                              filter.filter_type,
-                                                             filter.constant.value<std::chrono::milliseconds>().count(),
-                                                             count,
-                                                             indexing);
-            case logical_type::TIMESTAMP_US:
-                return apply_pax_fixed_constant_filter_value(values,
-                                                             filter.filter_type,
-                                                             filter.constant.value<std::chrono::microseconds>().count(),
-                                                             count,
-                                                             indexing);
-            case logical_type::TIMESTAMP_NS:
-                return apply_pax_fixed_constant_filter_value(values,
-                                                             filter.filter_type,
-                                                             filter.constant.value<std::chrono::nanoseconds>().count(),
+                                                             filter.constant.value<core::date::timestamptz_t>().value.count(),
                                                              count,
                                                              indexing);
             case logical_type::DECIMAL:

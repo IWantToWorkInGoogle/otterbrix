@@ -42,6 +42,7 @@ set(${PROJECT_NAME}_SOURCES
         operators/operator_primitive_write.cpp
         operators/operator_primitive_delete.cpp
         operators/operator_create_collection.cpp
+        operators/operator_create_matview.cpp
         operators/operator_create_index_metadata.cpp
         operators/operator_create_index_backfill.cpp
         operators/operator_drop_index.cpp
@@ -81,6 +82,7 @@ set_property(TARGET otterbrix_${PROJECT_NAME} PROPERTY EXPORT_NAME ${PROJECT_NAM
 
 target_link_libraries(
         otterbrix_${PROJECT_NAME} PUBLIC
+        otterbrix::date
         otterbrix::types
         otterbrix::vector
         otterbrix::cursor

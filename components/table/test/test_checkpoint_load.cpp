@@ -528,7 +528,7 @@ namespace {
         fields.emplace_back(logical_type::HUGEINT, "amount");
         fields.emplace_back(logical_type::DOUBLE, "ratio");
         fields.emplace_back(logical_type::STRING_LITERAL, "name");
-        fields.emplace_back(logical_type::TIMESTAMP_MS, "event_ts");
+        fields.emplace_back(logical_type::TIMESTAMP, "event_ts");
         fields.emplace_back(complex_logical_type::create_decimal(20, 4, "price"));
         fields.emplace_back(enum_type);
         fields.back().set_alias("status");
@@ -858,7 +858,7 @@ TEST_CASE("checkpoint_load: explicit columnar-only root support matrix excludes 
         complex_logical_type::create_struct("payload", payload_fields, "payload")));
     REQUIRE_FALSE(components::table::detail::is_explicit_pax_columnar_only_root_type(make_pax_union_type()));
     REQUIRE(to_physical_type(logical_type::BLOB) == physical_type::INVALID);
-    REQUIRE(to_physical_type(logical_type::INTERVAL) == physical_type::INVALID);
+    REQUIRE(to_physical_type(logical_type::INTERVAL) == physical_type::STRUCT);
     REQUIRE(to_physical_type(logical_type::MAP) == physical_type::INVALID);
 
     const auto variant_type = complex_logical_type::create_variant(std::pmr::get_default_resource(), "payload");
@@ -1137,10 +1137,10 @@ TEST_CASE("checkpoint_load: extended fixed-width scalar roots are written as pax
         columns.emplace_back("unsigned_big", logical_type::UHUGEINT);
         columns.emplace_back("score_f", logical_type::FLOAT);
         columns.emplace_back("score_d", logical_type::DOUBLE);
-        columns.emplace_back("ts_sec", logical_type::TIMESTAMP_SEC);
-        columns.emplace_back("ts_ms", logical_type::TIMESTAMP_MS);
-        columns.emplace_back("ts_us", logical_type::TIMESTAMP_US);
-        columns.emplace_back("ts_ns", logical_type::TIMESTAMP_NS);
+        columns.emplace_back("ts_sec", logical_type::TIMESTAMP);
+        columns.emplace_back("ts_ms", logical_type::TIMESTAMP);
+        columns.emplace_back("ts_us", logical_type::TIMESTAMP);
+        columns.emplace_back("ts_ns", logical_type::TIMESTAMP);
         columns.emplace_back("small_dec", complex_logical_type::create_decimal(4, 1, "small_dec"));
         columns.emplace_back("medium_dec", complex_logical_type::create_decimal(9, 2, "medium_dec"));
         columns.emplace_back("large_dec", complex_logical_type::create_decimal(18, 3, "large_dec"));
@@ -2071,7 +2071,8 @@ TEST_CASE("checkpoint_load: pax generic struct column restores extended fixed ch
         } else {
             fields.emplace_back(&env.resource, padded_name(row));
         }
-        fields.emplace_back(&env.resource, std::chrono::milliseconds{static_cast<int64_t>(5000 + row * 9)});
+        fields.emplace_back(&env.resource,
+                            core::date::timestamp_t{core::date::microseconds{static_cast<int64_t>(5000 + row * 9)}});
         fields.emplace_back(logical_value_t::create_decimal(&env.resource,
                                                             decimal_type,
                                                             (int128_t{1} << 80) + static_cast<int64_t>(row * 29)));
@@ -2154,7 +2155,7 @@ TEST_CASE("checkpoint_load: pax generic struct column restores extended fixed ch
                     found_name = true;
                 } else if (slice.slice_kind == pax_generic_slice_kind::FIXED_VALUES &&
                            slice.field_path == std::vector<uint16_t>{4} &&
-                           slice.fixed_logical_type == logical_type::TIMESTAMP_MS) {
+                           slice.fixed_logical_type == logical_type::TIMESTAMP) {
                     found_timestamp = true;
                 } else if (slice.slice_kind == pax_generic_slice_kind::FIXED_VALUES &&
                            slice.field_path == std::vector<uint16_t>{5} &&
@@ -2208,7 +2209,8 @@ TEST_CASE("checkpoint_load: pax generic struct column restores extended fixed ch
                 if (!expected.children()[3].is_null()) {
                     REQUIRE(children[3]->data<std::string_view>()[i] == expected.children()[3].value<std::string_view>());
                 }
-                REQUIRE(children[4]->data<int64_t>()[i] == expected.children()[4].value<std::chrono::milliseconds>().count());
+                REQUIRE(children[4]->data<int64_t>()[i] ==
+                        expected.children()[4].value<core::date::timestamp_t>().value.count());
                 REQUIRE(children[5]->data<int128_t>()[i] == expected.children()[5].value<int128_t>());
                 REQUIRE(children[6]->data<int32_t>()[i] == expected.children()[6].value<int32_t>());
             }
@@ -3390,7 +3392,7 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports extended projectio
         std::vector<column_definition_t> columns;
         columns.emplace_back("flag", logical_type::BOOLEAN);
         columns.emplace_back("score", logical_type::DOUBLE);
-        columns.emplace_back("event_ts", logical_type::TIMESTAMP_MS);
+        columns.emplace_back("event_ts", logical_type::TIMESTAMP);
         columns.emplace_back("uuid_col", logical_type::UUID);
         auto table =
             std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_extended_projection");
@@ -3398,8 +3400,11 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports extended projectio
         append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
             chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, row % 2 == 0});
             chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, 10.0 + static_cast<double>(row) / 4.0});
-            chunk.set_value(2, row_in_chunk,
-                            logical_value_t{&env.resource, std::chrono::milliseconds(static_cast<int64_t>(1000 + row * 15))});
+            chunk.set_value(2,
+                            row_in_chunk,
+                            logical_value_t{&env.resource,
+                                            core::date::timestamp_t{core::date::microseconds{
+                                                static_cast<int64_t>(1000 + row * 15)}}});
             chunk.data[3].data<int128_t>()[row_in_chunk] = uuid_like_value(row);
         });
 

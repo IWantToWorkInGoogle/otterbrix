@@ -60,6 +60,10 @@ namespace components::logical_plan {
                 return "create_macro_t";
             case node_type::drop_macro_t:
                 return "drop_macro_t";
+            case node_type::create_matview_t:
+                return "create_matview_t";
+            case node_type::refresh_matview_t:
+                return "refresh_matview_t";
             case node_type::checkpoint_t:
                 return "checkpoint_t";
             case node_type::vacuum_t:
@@ -116,6 +120,8 @@ namespace components::logical_plan {
                 return "catalog_resolve_constraint_t";
             case node_type::allocate_oids_t:
                 return "allocate_oids_t";
+            case node_type::set_timezone_t:
+                return "set_timezone_t";
             default:
                 return "unused";
         }
