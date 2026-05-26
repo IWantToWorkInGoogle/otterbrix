@@ -44,14 +44,7 @@ namespace components::operators {
 
     actor_zeta::unique_future<void> operator_create_collection_t::await_async_and_resume(pipeline::context_t* ctx) {
         // Step 1: Create physical storage
-        if (columns_.empty()) {
-            auto [_, f] = actor_zeta::send(ctx->disk_address,
-                                           &services::disk::manager_disk_t::create_storage,
-                                           ctx->session,
-                                           table_oid_,
-                                           database_oid_);
-            co_await std::move(f);
-        } else if (storage_format_ != components::logical_plan::create_collection_storage_format_t::in_memory) {
+        if (storage_format_ != components::logical_plan::create_collection_storage_format_t::in_memory) {
             auto [_, f] = actor_zeta::send(ctx->disk_address,
                                            &services::disk::manager_disk_t::create_storage_disk,
                                            ctx->session,
@@ -59,6 +52,13 @@ namespace components::operators {
                                            database_oid_,
                                            std::move(columns_),
                                            to_disk_layout_policy(storage_format_));
+            co_await std::move(f);
+        } else if (columns_.empty()) {
+            auto [_, f] = actor_zeta::send(ctx->disk_address,
+                                           &services::disk::manager_disk_t::create_storage,
+                                           ctx->session,
+                                           table_oid_,
+                                           database_oid_);
             co_await std::move(f);
         } else {
             auto [_, f] = actor_zeta::send(ctx->disk_address,

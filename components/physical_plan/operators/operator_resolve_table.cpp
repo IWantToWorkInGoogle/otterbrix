@@ -151,7 +151,7 @@ namespace components::operators {
 
         // Step 1: read pg_class by oid to determine relkind and relnamespace.
         // pg_class layout: [0=oid, 1=relname, 2=relnamespace, 3=relkind,
-        // 4=relstoragemode]. We key by "oid" so we get a single row at most.
+        // 4=relstoragemode, 5=relstorageformat]. We key by "oid" so we get a single row at most.
         {
             types::logical_value_t toid_lv(resource_, table_oid_);
             std::pmr::vector<std::string> pc_keys(resource_);

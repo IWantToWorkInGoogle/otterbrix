@@ -94,7 +94,7 @@ namespace components::operators {
 
             // 2. Resolve table via pg_class.(relname, relnamespace) — capture
             //    relkind so we can pick the correct top-level alias.
-            //    pg_class columns: [oid, relname, relnamespace, relkind, relstoragemode]
+            //    pg_class columns: [oid, relname, relnamespace, relkind, relstoragemode, relstorageformat]
             catalog::oid_t table_oid = catalog::INVALID_OID;
             char relkind = catalog::relkind::regular;
             {

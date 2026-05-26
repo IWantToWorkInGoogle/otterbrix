@@ -2846,6 +2846,20 @@ namespace components::table {
         return count;
     }
 
+#if defined(DEV_MODE)
+    void row_group_t::debug_set_unloaded_deletes_for_test(bool enabled) {
+        if (enabled) {
+            if (deletes_pointers_.empty()) {
+                deletes_pointers_.emplace_back();
+            }
+            deletes_is_loaded_ = false;
+            return;
+        }
+        deletes_pointers_.clear();
+        deletes_is_loaded_ = true;
+    }
+#endif
+
     bool row_group_t::supports_threaded_scan() const {
         if (!deletes_pointers_.empty() || has_unloaded_deletes()) {
             return false;

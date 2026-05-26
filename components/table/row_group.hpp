@@ -146,6 +146,10 @@ namespace components::table {
 
         uint64_t calculate_size();
 
+#if defined(DEV_MODE)
+        void debug_set_unloaded_deletes_for_test(bool enabled);
+#endif
+
     private:
         uint64_t indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count);
         uint64_t indexing_vector(transaction_data txn,

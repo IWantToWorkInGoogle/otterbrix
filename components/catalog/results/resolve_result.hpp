@@ -44,6 +44,7 @@ namespace services::disk {
         components::catalog::oid_t namespace_oid{components::catalog::INVALID_OID};
         char relkind{'r'};
         std::string name;
+        std::string storage_format;
         std::vector<column_info_t> columns;
 
         resolve_table_result_t() = default;

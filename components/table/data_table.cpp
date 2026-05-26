@@ -269,10 +269,6 @@ namespace components::table {
     }
 
     bool data_table_t::supports_threaded_scan() const {
-        if (!row_groups_->block_manager().in_memory()) {
-            return false;
-        }
-
         for (auto* row_group = row_groups_->row_group_tree()->root_segment(); row_group;
              row_group = row_groups_->row_group_tree()->next_segment(row_group)) {
             if (!row_group->supports_threaded_scan()) {

@@ -7,6 +7,7 @@
 #include <components/table/column_definition.hpp>
 #include <components/log/log.hpp>
 #include <components/physical_plan/operators/operator_data.hpp>
+#include <components/table/row_group.hpp>
 #include <components/table/row_version_manager.hpp>
 #include <components/table/table_state.hpp>
 #include <components/types/types.hpp>
@@ -1029,7 +1030,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_with_committed_d
     }
 }
 
-TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_falls_back") {
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_uses_threads") {
     cleanup_test_dir();
     std::filesystem::create_directories(test_dir());
     std::pmr::synchronized_pool_resource resource;
@@ -1056,8 +1057,285 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_falls_
 
             adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
 
+            REQUIRE(adapter.parallel_worker_count() > 0);
             REQUIRE(batches.size() == 2);
             require_ordered_int64_batches(batches, total_rows);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_deletes_falls_back") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_disk_scan_delete.otbx";
+    constexpr uint64_t total_rows = DEFAULT_VECTOR_CAPACITY + 1;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_int64_data(ts.table(), &resource, total_rows);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+
+        std::pmr::vector<complex_logical_type> row_id_types(&resource);
+        row_id_types.emplace_back(logical_type::BIGINT);
+        data_chunk_t row_ids_chunk(&resource, row_id_types, 1);
+        row_ids_chunk.data[0].set_value(0, logical_value_t{&resource, static_cast<int64_t>(DEFAULT_VECTOR_CAPACITY)});
+        row_ids_chunk.set_cardinality(1);
+
+        components::storage::table_storage_adapter_t mutating_adapter(ts.table(), &resource);
+        const auto deleted = mutating_adapter.delete_rows(row_ids_chunk.data[0], 1, TRANSACTION_ID_START);
+        REQUIRE(deleted == 1);
+        mutating_adapter.commit_all_deletes(TRANSACTION_ID_START, 1);
+
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+
+            adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
+
+            REQUIRE(adapter.parallel_worker_count() == 0);
+            uint64_t seen = 0;
+            for (auto& batch : batches) {
+                batch.data[0].flatten(batch.size());
+                for (uint64_t i = 0; i < batch.size(); ++i) {
+                    REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
+                    ++seen;
+                }
+            }
+            REQUIRE(seen == DEFAULT_VECTOR_CAPACITY);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_reader_txn_falls_back") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_disk_scan_reader_txn.otbx";
+    constexpr uint64_t total_rows = 2 * DEFAULT_VECTOR_CAPACITY;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_int64_data(ts.table(), &resource, total_rows);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+
+            adapter.scan_batched(
+                batches,
+                nullptr,
+                -1,
+                nullptr,
+                transaction_data{TRANSACTION_ID_START + 1, TRANSACTION_ID_START + 1});
+
+            REQUIRE(adapter.parallel_worker_count() == 0);
+            require_ordered_int64_batches(batches, total_rows);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_updates_falls_back") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_disk_scan_update.otbx";
+    constexpr uint64_t total_rows = DEFAULT_VECTOR_CAPACITY + 1;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_int64_data(ts.table(), &resource, total_rows);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+
+        std::pmr::vector<complex_logical_type> row_id_types(&resource);
+        row_id_types.emplace_back(logical_type::BIGINT);
+        data_chunk_t row_ids_chunk(&resource, row_id_types, 1);
+        row_ids_chunk.data[0].set_value(0, logical_value_t{&resource, int64_t{0}});
+        row_ids_chunk.set_cardinality(1);
+
+        auto update_types = ts.table().copy_types();
+        data_chunk_t update_chunk(&resource, update_types, 1);
+        update_chunk.data[0].set_value(0, logical_value_t{&resource, int64_t{9999}});
+        update_chunk.set_cardinality(1);
+
+        components::storage::table_storage_adapter_t mutating_adapter(ts.table(), &resource);
+        mutating_adapter.update(row_ids_chunk.data[0], update_chunk);
+
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+
+            adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
+
+            REQUIRE(adapter.parallel_worker_count() == 0);
+            REQUIRE_FALSE(batches.empty());
+            uint64_t seen = 0;
+            for (auto& batch : batches) {
+                batch.data[0].flatten(batch.size());
+                for (uint64_t i = 0; i < batch.size(); ++i) {
+                    if (seen == 0) {
+                        REQUIRE(batch.data[0].value(i).value<int64_t>() == 9999);
+                    } else {
+                        REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
+                    }
+                    ++seen;
+                }
+            }
+            REQUIRE(seen == total_rows);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_uncommitted_versions_falls_back") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_disk_scan_uncommitted_append.otbx";
+    constexpr uint64_t total_rows = 2 * DEFAULT_VECTOR_CAPACITY;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_int64_data(ts.table(), &resource, total_rows);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+
+        auto types = ts.table().copy_types();
+        data_chunk_t append_chunk(&resource, types, 1);
+        append_chunk.data[0].set_value(0, logical_value_t{&resource, int64_t{9999}});
+        append_chunk.set_cardinality(1);
+
+        components::storage::table_storage_adapter_t mutating_adapter(ts.table(), &resource);
+        const auto txn = transaction_data{TRANSACTION_ID_START + 21, TRANSACTION_ID_START + 21};
+        mutating_adapter.append(append_chunk, txn);
+
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+
+            adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
+
+            REQUIRE(adapter.parallel_worker_count() == 0);
+            REQUIRE(batches.size() == 3);
+            uint64_t seen = 0;
+            for (size_t batch_index = 0; batch_index + 1 < batches.size(); ++batch_index) {
+                auto& batch = batches[batch_index];
+                batch.data[0].flatten(batch.size());
+                for (uint64_t i = 0; i < batch.size(); ++i) {
+                    REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
+                    ++seen;
+                }
+            }
+            REQUIRE(seen == total_rows);
+            auto& tail = batches.back();
+            tail.data[0].flatten(tail.size());
+            REQUIRE(tail.size() == 1);
+            REQUIRE(tail.data[0].value(0).value<int64_t>() == 9999);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_unloaded_deletes_falls_back") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_disk_scan_unloaded_deletes.otbx";
+    constexpr uint64_t total_rows = DEFAULT_VECTOR_CAPACITY + 1;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_int64_data(ts.table(), &resource, total_rows);
+
+        std::pmr::vector<complex_logical_type> row_id_types(&resource);
+        row_id_types.emplace_back(logical_type::BIGINT);
+        data_chunk_t row_ids_chunk(&resource, row_id_types, 1);
+        row_ids_chunk.data[0].set_value(0, logical_value_t{&resource, static_cast<int64_t>(DEFAULT_VECTOR_CAPACITY)});
+        row_ids_chunk.set_cardinality(1);
+
+        components::storage::table_storage_adapter_t mutating_adapter(ts.table(), &resource);
+        const auto deleted = mutating_adapter.delete_rows(row_ids_chunk.data[0], 1, TRANSACTION_ID_START);
+        REQUIRE(deleted == 1);
+        mutating_adapter.commit_all_deletes(TRANSACTION_ID_START, 1);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+        auto* root_row_group = ts.table().row_group()->row_group_tree()->root_segment();
+        REQUIRE(root_row_group != nullptr);
+        root_row_group->debug_set_unloaded_deletes_for_test(true);
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+
+            adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
+
+            REQUIRE(adapter.parallel_worker_count() == 0);
+            uint64_t seen = 0;
+            for (auto& batch : batches) {
+                batch.data[0].flatten(batch.size());
+                for (uint64_t i = 0; i < batch.size(); ++i) {
+                    if (seen < DEFAULT_VECTOR_CAPACITY) {
+                        REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
+                    }
+                    ++seen;
+                }
+            }
+            REQUIRE(seen >= DEFAULT_VECTOR_CAPACITY);
         }
     }
 

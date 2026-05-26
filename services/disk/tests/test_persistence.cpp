@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <limits>
+#include <string_view>
 #include <unistd.h>
 
 // Phase-5 persistence tests (catalog-migration-to-postgresql-style.md §9, §14 lines
@@ -202,6 +203,102 @@ TEST_CASE("services::disk::persistence::test_constraint_persistence") {
         REQUIRE(child_oid != INVALID_OID);
         REQUIRE(parent_oid != INVALID_OID);
     }
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
+    auto dir = persist_dir() + "/storage_format_roundtrip";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    auto create_disk_table = [](fresh_disk& fd,
+                                oid_t ns_oid,
+                                const std::string& name,
+                                const std::vector<components::table::column_definition_t>& cols,
+                                configuration::disk_layout_policy layout_policy,
+                                std::string_view storage_format) {
+        auto oids = fd.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{1 + cols.size()});
+        const oid_t table_oid = oids[0];
+
+        fd.invoke(&manager_disk_t::create_storage_disk, session_id_t{}, table_oid, ns_oid, cols, layout_policy);
+
+        catalog::oid_batch_t batch;
+        batch.oids = std::move(oids);
+        auto writes = catalog::build_create_table_writes(&fd.resource,
+                                                         std::string("public"),
+                                                         name,
+                                                         cols,
+                                                         true,
+                                                         ns_oid,
+                                                         batch,
+                                                         catalog::relkind::regular,
+                                                         storage_format);
+        std::vector<components::pg_catalog_append_range_t> appends_local;
+        append_writes(fd, auto_ctx(), writes, appends_local);
+        fd.invoke(&manager_disk_t::storage_commit_appends,
+                  rebuild_ctx(),
+                  std::uint64_t{1000},
+                  std::move(appends_local));
+        return table_oid;
+    };
+
+    {
+        fresh_disk fd(dir);
+        fd.manager->bootstrap_system_tables_sync();
+        const oid_t ns_oid = test_create_namespace(fd, "sf_ns");
+
+        std::vector<components::table::column_definition_t> int_cols;
+        int_cols.emplace_back("id", components::types::complex_logical_type{components::types::logical_type::BIGINT});
+
+        std::vector<components::table::column_definition_t> str_cols;
+        str_cols.emplace_back("name",
+                              components::types::complex_logical_type{components::types::logical_type::STRING_LITERAL});
+
+        create_disk_table(fd,
+                          ns_oid,
+                          "disk_auto_tbl",
+                          int_cols,
+                          configuration::disk_layout_policy::auto_select,
+                          catalog::relstorageformat::disk_auto);
+        create_disk_table(fd,
+                          ns_oid,
+                          "disk_pax_tbl",
+                          int_cols,
+                          configuration::disk_layout_policy::pax_only,
+                          catalog::relstorageformat::disk_pax);
+        create_disk_table(fd,
+                          ns_oid,
+                          "disk_columnar_tbl",
+                          str_cols,
+                          configuration::disk_layout_policy::columnar_only,
+                          catalog::relstorageformat::disk_columnar);
+
+        fd.checkpoint();
+    }
+
+    {
+        fresh_disk fd(dir);
+        fd.manager->load_system_tables_sync();
+        fd.manager->restore_oid_generator_sync();
+        fd.manager->load_user_table_storages_sync();
+
+        auto ns = fd.invoke(&manager_disk_t::resolve_namespace, fd.ctx(), std::string("sf_ns"), std::uint64_t{0});
+        REQUIRE(ns.found);
+        const oid_t ns_oid = ns.oid;
+
+        const std::vector<std::pair<std::string, std::string>> expected{
+            {"disk_auto_tbl", std::string(catalog::relstorageformat::disk_auto)},
+            {"disk_pax_tbl", std::string(catalog::relstorageformat::disk_pax)},
+            {"disk_columnar_tbl", std::string(catalog::relstorageformat::disk_columnar)},
+        };
+
+        for (const auto& [name, expected_format] : expected) {
+            auto rr = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, name, std::uint64_t{0});
+            REQUIRE(rr.found);
+            REQUIRE(rr.storage_format == expected_format);
+        }
+    }
+
     std::filesystem::remove_all(dir);
 }
 

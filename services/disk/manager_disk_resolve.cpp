@@ -41,8 +41,12 @@ namespace services::disk {
 
         if (auto it = storages_.find(pg_class_oid); it != storages_.end()) {
             std::pmr::synchronized_pool_resource scan_resource;
+            std::vector<std::int64_t> pg_class_cols{0, 1, 2, 3};
+            if (it->second->table_storage.table().column_count() > 5) {
+                pg_class_cols = {0, 1, 2, 3, 4, 5};
+            }
             inline_scan(it->second->table_storage.table(),
-                        {0, 1, 2, 3},
+                        pg_class_cols,
                         &scan_resource,
                         [&](components::vector::data_chunk_t& chunk, uint64_t i) {
                             auto ns_v = chunk.value(2, i);
@@ -61,6 +65,12 @@ namespace services::disk {
                                 auto ks = kind_v.value<std::string_view>();
                                 if (!ks.empty())
                                     out.relkind = ks.front();
+                            }
+                            if (chunk.column_count() > 5) {
+                                auto storage_format_v = chunk.value(5, i);
+                                if (!storage_format_v.is_null()) {
+                                    out.storage_format = std::string(storage_format_v.value<std::string_view>());
+                                }
                             }
                             return false;
                         });
