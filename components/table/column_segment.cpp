@@ -273,7 +273,9 @@ namespace components::table {
             auto handle = buffer_manager.pin(segment.block);
 
             auto data_ptr = handle.ptr() + segment.block_offset() + static_cast<uint64_t>(row_id) * sizeof(T);
-            return table_filter_dispatch(filter, *reinterpret_cast<T*>(data_ptr));
+            T value;
+            std::memcpy(&value, data_ptr, sizeof(T));
+            return table_filter_dispatch(filter, value);
         }
 
         bool validity_check_row(column_segment_t& segment, int64_t row_id, const table_filter_t* filter) {
@@ -317,23 +319,23 @@ namespace components::table {
                                uint64_t offset,
                                uint64_t count) {
                 auto sdata = uvf.get_data<T>();
-                auto tdata = reinterpret_cast<T*>(target);
                 if (!uvf.validity.all_valid()) {
                     for (uint64_t i = 0; i < count; i++) {
                         auto source_idx = uvf.referenced_indexing->get_index(offset + i);
                         auto target_idx = target_offset + i;
                         bool is_null = !uvf.validity.row_is_valid(source_idx);
                         if (!is_null) {
-                            tdata[target_idx] = sdata[source_idx];
+                            std::memcpy(target + target_idx * sizeof(T), &sdata[source_idx], sizeof(T));
                         } else {
-                            tdata[target_idx] = T(0);
+                            T zero{};
+                            std::memcpy(target + target_idx * sizeof(T), &zero, sizeof(T));
                         }
                     }
                 } else {
                     for (uint64_t i = 0; i < count; i++) {
                         auto source_idx = uvf.referenced_indexing->get_index(offset + i);
                         auto target_idx = target_offset + i;
-                        tdata[target_idx] = sdata[source_idx];
+                        std::memcpy(target + target_idx * sizeof(T), &sdata[source_idx], sizeof(T));
                     }
                 }
             }
@@ -347,11 +349,10 @@ namespace components::table {
                                uint64_t offset,
                                uint64_t count) {
                 auto sdata = uvf.get_data<uint64_t>();
-                auto tdata = reinterpret_cast<uint64_t*>(target);
                 for (uint64_t i = 0; i < count; i++) {
                     auto source_idx = uvf.referenced_indexing->get_index(offset + i);
                     auto target_idx = target_offset + i;
-                    tdata[target_idx] = sdata[source_idx];
+                    std::memcpy(target + target_idx * sizeof(uint64_t), &sdata[source_idx], sizeof(uint64_t));
                 }
             }
         };
@@ -499,14 +500,11 @@ namespace components::table {
         }
 
         template<typename T>
-        void fixed_size_scan(column_segment_t& segment, column_scan_state& state, uint64_t, vector::vector_t& result) {
-            auto start = segment.relative_index(state.row_index);
-
-            auto data = state.scan_state->ptr() + segment.block_offset();
-            auto source_data = data + static_cast<uint64_t>(start) * sizeof(T);
-
-            result.set_vector_type(vector::vector_type::FLAT);
-            result.set_data(source_data);
+        void fixed_size_scan(column_segment_t& segment,
+                             column_scan_state& state,
+                             uint64_t scan_count,
+                             vector::vector_t& result) {
+            fixed_size_scan_partial<T>(segment, state, scan_count, result, 0);
         }
 
         // --- CONSTANT compression scan helpers (generic, size-based) ---

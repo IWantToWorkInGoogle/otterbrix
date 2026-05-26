@@ -71,6 +71,7 @@ namespace components::table {
             return;
         }
         state.row_groups = row_groups_.get();
+        state.vector_index_relative_to_row_group = false;
         state.max_row = row_start_ + static_cast<int64_t>(total_rows_.load());
         state.initialize(types_);
         while (row_group && !row_group->initialize_scan(state)) {
@@ -89,6 +90,7 @@ namespace components::table {
         auto row_group = row_groups_->get_segment(start_row);
         assert(row_group);
         state.row_groups = row_groups_.get();
+        state.vector_index_relative_to_row_group = true;
         state.max_row = end_row;
         state.initialize(types_);
         uint64_t start_vector = static_cast<uint64_t>(start_row - row_group->start) / vector::DEFAULT_VECTOR_CAPACITY;
@@ -104,6 +106,7 @@ namespace components::table {
                                                     int64_t max_row) {
         state.max_row = max_row;
         state.row_groups = collection.row_groups_.get();
+        state.vector_index_relative_to_row_group = true;
         if (state.column_scans.empty()) {
             state.initialize(collection.types());
         }

@@ -1,9 +1,11 @@
 #include "data_table.hpp"
 
+#include <algorithm>
 #include <components/table/storage/partial_block_manager.hpp>
 #include <components/types/type_spec.hpp>
 #include <components/vector/data_chunk.hpp>
 #include <components/vector/vector_operations.hpp>
+#include <thread>
 #include <unordered_set>
 
 #include "row_group.hpp"
@@ -110,7 +112,12 @@ namespace components::table {
     }
 
     [[nodiscard]] std::pmr::vector<types::complex_logical_type> data_table_t::copy_types() const {
-        std::pmr::vector<types::complex_logical_type> types(resource_);
+        return copy_types(resource_);
+    }
+
+    [[nodiscard]] std::pmr::vector<types::complex_logical_type>
+    data_table_t::copy_types(std::pmr::memory_resource* resource) const {
+        std::pmr::vector<types::complex_logical_type> types(resource);
         types.reserve(column_definitions_.size());
         for (auto& it : column_definitions_) {
             types.push_back(it.type());
@@ -226,6 +233,51 @@ namespace components::table {
                                     table_scan_state& state,
                                     std::pmr::memory_resource* resource) {
         state.table_state.scan_batched(types, projected_cols, batches, resource);
+    }
+
+    bool data_table_t::scan_row_group_batched(uint64_t row_group_idx,
+                                              const std::vector<storage_index_t>& column_ids,
+                                              const table_filter_t* filter,
+                                              const std::pmr::vector<types::complex_logical_type>& types,
+                                              const std::vector<size_t>* projected_cols,
+                                              std::pmr::vector<vector::data_chunk_t>& batches,
+                                              transaction_data txn,
+                                              std::pmr::memory_resource* resource) {
+        auto* rg = row_groups_->row_group_tree()->segment_at(static_cast<int64_t>(row_group_idx));
+        if (!rg) {
+            return false;
+        }
+
+        table_scan_state state(resource);
+        state.initialize(column_ids, filter);
+        state.table_state.txn = txn;
+        state.local_state.txn = txn;
+
+        const int64_t max_row = rg->start + static_cast<int64_t>(rg->count);
+        row_groups_->initialize_scan_with_offset(state.table_state, column_ids, rg->start, max_row);
+        state.table_state.scan_batched(types, projected_cols, batches, resource);
+        return true;
+    }
+
+    uint64_t data_table_t::max_threads() const {
+        const auto total_row_groups = row_groups_->row_group_tree()->segment_count();
+        const auto hardware_threads = std::thread::hardware_concurrency();
+        const uint64_t concurrency = hardware_threads == 0 ? 1 : static_cast<uint64_t>(hardware_threads);
+        return std::max<uint64_t>(1, std::min<uint64_t>(total_row_groups, concurrency));
+    }
+
+    bool data_table_t::supports_threaded_scan() const {
+        if (!row_groups_->block_manager().in_memory()) {
+            return false;
+        }
+
+        for (auto* row_group = row_groups_->row_group_tree()->root_segment(); row_group;
+             row_group = row_groups_->row_group_tree()->next_segment(row_group)) {
+            if (!row_group->supports_threaded_scan()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool data_table_t::create_index_scan(table_scan_state& state, vector::data_chunk_t& result, table_scan_type type) {

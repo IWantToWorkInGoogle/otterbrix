@@ -105,6 +105,7 @@ namespace components::table {
         void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
 
         uint64_t committed_row_count();
+        bool supports_threaded_scan() const;
 
         void initialize_append(row_group_append_state& append_state);
         void append(row_group_append_state& append_state, vector::data_chunk_t& chunk, uint64_t append_count);
@@ -150,7 +151,7 @@ namespace components::table {
         std::vector<std::shared_ptr<column_data_t>>& columns();
 
         void filter_indexing(std::pmr::memory_resource* resource,
-                             uint64_t vector_index,
+                             int64_t row_id_base,
                              vector::indexing_vector_t& indexing,
                              const table_filter_t* filter,
                              uint64_t& approved_tuple_count);

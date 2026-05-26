@@ -263,6 +263,7 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
                 if (cursor->is_error()) {
                     std::string msg = "SQL error: ";
                     msg += std::string_view(cursor->get_error().what);
+                    state.error = std::move(msg);
                     state.failed = true;
                     return;
                 }
@@ -279,6 +280,7 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
         if (cursor->is_error()) {
             std::string msg = "SQL error: ";
             msg += std::string_view(cursor->get_error().what);
+            state.error = std::move(msg);
             state.failed = true;
             return;
         }
@@ -332,6 +334,7 @@ void sql_benchmark_t::load_csv_file(benchmark_state_t& state, const sql_csv_entr
         if (cursor->is_error()) {
             std::string msg = "CSV load SQL error for " + entry.table + ": ";
             msg += std::string_view(cursor->get_error().what);
+            state.error = std::move(msg);
             state.failed = true;
             return;
         }
@@ -417,6 +420,7 @@ void sql_benchmark_t::load(benchmark_state_t& state) {
         if (cursor->is_error()) {
             std::string msg = "Cannot create database: ";
             msg += std::string_view(cursor->get_error().what);
+            state.error = std::move(msg);
             state.failed = true;
             return;
         }
@@ -438,12 +442,13 @@ void sql_benchmark_t::run(benchmark_state_t& state) {
     if (cursor->is_error()) {
         std::string msg = "SQL error: ";
         msg += std::string_view(cursor->get_error().what);
+        state.error = std::move(msg);
         state.failed = true;
         return;
     }
     if (expected_rows_.has_value() && cursor->size() != expected_rows_.value()) {
-        std::cerr << "Expected rows mismatch: expected " << expected_rows_.value() << ", got " << cursor->size()
-                  << "\n";
+        state.error = "Expected rows mismatch: expected " + std::to_string(expected_rows_.value()) + ", got " +
+                      std::to_string(cursor->size());
         state.failed = true;
         return;
     }

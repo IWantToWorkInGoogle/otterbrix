@@ -185,6 +185,7 @@ namespace components::table {
                                            vector::indexing_vector_t& indexing_vector,
                                            uint64_t max_count);
         bool fetch(transaction_data transaction, uint64_t row);
+        bool supports_threaded_scan() const;
 
         void append_version_info(transaction_data transaction,
                                  uint64_t count,
@@ -203,7 +204,7 @@ namespace components::table {
         chunk_vector_info& vector_info(uint64_t vector_idx);
         void fill_vector_info(uint64_t vector_idx);
 
-        std::mutex version_lock_;
+        mutable std::mutex version_lock_;
         int64_t start_;
         std::vector<std::unique_ptr<chunk_info>> vector_info_;
         bool has_changes_;

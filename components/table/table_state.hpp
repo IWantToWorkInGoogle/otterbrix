@@ -160,6 +160,7 @@ namespace components::table {
 
         row_group_t* row_group;
         uint64_t vector_index;
+        bool vector_index_relative_to_row_group;
         int64_t max_row_group_row;
         std::vector<column_scan_state> column_scans;
         row_group_segment_tree_t* row_groups;

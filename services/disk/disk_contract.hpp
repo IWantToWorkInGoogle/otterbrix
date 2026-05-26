@@ -128,7 +128,7 @@ namespace services::disk {
         // Batched + projected variant: returns a vector of chunks (PR #483 multi-chunk)
         // and applies index-based column projection at the disk layer (PR #477).
         // Empty `projected_cols` means "read all columns" (pass-through).
-        actor_zeta::unique_future<std::pmr::vector<components::vector::data_chunk_t>>
+        actor_zeta::unique_future<std::unique_ptr<std::pmr::vector<components::vector::data_chunk_t>>>
         storage_scan_batched(session_id_t session,
                              components::catalog::oid_t table_oid,
                              std::unique_ptr<components::table::table_filter_t> filter,

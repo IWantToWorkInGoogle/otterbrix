@@ -350,6 +350,45 @@ namespace components::table {
         return deleted_count;
     }
 
+    bool row_version_manager_t::supports_threaded_scan() const {
+        std::lock_guard lock(version_lock_);
+        for (const auto& info : vector_info_) {
+            if (!info) {
+                continue;
+            }
+            switch (info->type) {
+                case chunk_info_type::CONSTANT_INFO: {
+                    const auto& constant = info->cast<chunk_constant_info>();
+                    if (constant.insert_id >= TRANSACTION_ID_START || constant.delete_id != NOT_DELETED_ID) {
+                        return false;
+                    }
+                    break;
+                }
+                case chunk_info_type::VECTOR_INFO: {
+                    const auto& vector = info->cast<chunk_vector_info>();
+                    if (vector.any_deleted) {
+                        return false;
+                    }
+                    if (vector.same_inserted_id) {
+                        if (vector.insert_id >= TRANSACTION_ID_START) {
+                            return false;
+                        }
+                        break;
+                    }
+                    for (uint64_t i = 0; i < vector::DEFAULT_VECTOR_CAPACITY; ++i) {
+                        if (vector.inserted[i] >= TRANSACTION_ID_START) {
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                default:
+                    return false;
+            }
+        }
+        return true;
+    }
+
     chunk_info* row_version_manager_t::get_chunk_info(uint64_t vector_idx) {
         if (vector_idx >= vector_info_.size()) {
             return nullptr;

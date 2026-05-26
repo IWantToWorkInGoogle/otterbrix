@@ -1,16 +1,82 @@
 #pragma once
 
 #include "storage.hpp"
+#include <algorithm>
+#include <actor-zeta/actor/basic_actor.hpp>
+#include <actor-zeta/actor/dispatch.hpp>
+#include <actor-zeta/actor/dispatch_traits.hpp>
+#include <actor-zeta/scheduler/sharing_scheduler.hpp>
+#include <actor-zeta/send.hpp>
+#include <actor-zeta/spawn.hpp>
 #include <components/table/data_table.hpp>
 #include <components/table/table_state.hpp>
+#include <memory_resource>
+#include <mutex>
 
 namespace components::storage {
 
+    namespace detail {
+
+        class parallel_scan_worker_t final : public actor_zeta::actor::basic_actor<parallel_scan_worker_t> {
+        public:
+            parallel_scan_worker_t(std::pmr::memory_resource* resource, table::data_table_t* table)
+                : actor_zeta::actor::basic_actor<parallel_scan_worker_t>(resource)
+                , resource_(resource)
+                , table_(table) {}
+
+            std::pmr::memory_resource* resource() const noexcept { return resource_; }
+
+            actor_zeta::unique_future<std::pmr::vector<vector::data_chunk_t>>
+            scan_row_group(std::vector<table::storage_index_t> column_ids,
+                           uint64_t row_group_idx,
+                           const table::table_filter_t* filter,
+                           std::vector<size_t> projected_cols,
+                           table::transaction_data txn) {
+                std::pmr::vector<vector::data_chunk_t> batches{resource_};
+                if (!table_) {
+                    co_return std::move(batches);
+                }
+
+                auto types = table_->copy_types(resource_);
+                const std::vector<size_t>* projected_ptr = projected_cols.empty() ? nullptr : &projected_cols;
+                table_->scan_row_group_batched(row_group_idx,
+                                               column_ids,
+                                               filter,
+                                               types,
+                                               projected_ptr,
+                                               batches,
+                                               txn,
+                                               resource_);
+                co_return std::move(batches);
+            }
+
+            using dispatch_traits = actor_zeta::dispatch_traits<&parallel_scan_worker_t::scan_row_group>;
+
+            actor_zeta::behavior_t behavior(actor_zeta::mailbox::message* msg) {
+                if (msg->command() == actor_zeta::msg_id<parallel_scan_worker_t, &parallel_scan_worker_t::scan_row_group>) {
+                    co_await actor_zeta::dispatch(this, &parallel_scan_worker_t::scan_row_group, msg);
+                }
+            }
+
+        private:
+            std::pmr::memory_resource* resource_;
+            table::data_table_t* table_;
+        };
+
+        using parallel_scan_worker_ptr = std::unique_ptr<parallel_scan_worker_t, actor_zeta::pmr::deleter_t>;
+
+    } // namespace detail
+
     class table_storage_adapter_t final : public storage_t {
     public:
-        explicit table_storage_adapter_t(table::data_table_t& table, std::pmr::memory_resource* resource)
+        explicit table_storage_adapter_t(table::data_table_t& table,
+                                         std::pmr::memory_resource* resource,
+                                         actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+                                         std::function<void()>* progress_fn = nullptr)
             : table_(table)
-            , resource_(resource) {}
+            , resource_(resource)
+            , scheduler_(scheduler)
+            , progress_fn_(progress_fn) {}
 
         std::pmr::vector<types::complex_logical_type> types() const override { return table_.copy_types(); }
 
@@ -107,54 +173,51 @@ namespace components::storage {
                           int64_t limit,
                           const std::vector<size_t>* projected_cols,
                           table::transaction_data txn) override {
-            std::vector<table::storage_index_t> column_indices;
-            if (projected_cols) {
-                column_indices.reserve(projected_cols->size());
-                for (size_t idx : *projected_cols) {
-                    if (idx < table_.column_count()) {
-                        column_indices.emplace_back(static_cast<int64_t>(idx));
+            auto types = table_.copy_types();
+            auto column_indices = build_scan_column_ids(projected_cols);
+            auto total_row_groups = table_.row_group()->row_group_tree()->segment_count();
+            const bool plain_committed_scan = txn.transaction_id == 0 && txn.start_time == 0;
+
+            if (scheduler_ && plain_committed_scan && total_row_groups > 1 && table_.supports_threaded_scan()) {
+                auto workers =
+                    snapshot_parallel_workers(static_cast<size_t>(std::min<uint64_t>(table_.max_threads(),
+                                                                                      total_row_groups)));
+
+                std::vector<actor_zeta::unique_future<std::pmr::vector<vector::data_chunk_t>>> futures;
+                futures.reserve(total_row_groups);
+                std::vector<size_t> projected_copy = projected_cols ? *projected_cols : std::vector<size_t>{};
+
+                for (uint64_t row_group_idx = 0; row_group_idx < total_row_groups; ++row_group_idx) {
+                    auto* worker = workers[row_group_idx % workers.size()];
+                    auto [needs_sched, future] = actor_zeta::send(worker,
+                                                                  &detail::parallel_scan_worker_t::scan_row_group,
+                                                                  column_indices,
+                                                                  row_group_idx,
+                                                                  filter,
+                                                                  projected_copy,
+                                                                  txn);
+                    if (needs_sched) {
+                        scheduler_->enqueue(worker);
+                    }
+                    futures.emplace_back(std::move(future));
+                }
+
+                for (auto& future : futures) {
+                    auto row_group_batches = wait_future(std::move(future));
+                    for (auto& batch : row_group_batches) {
+                        batches.push_back(std::move(batch));
                     }
                 }
             } else {
-                column_indices.reserve(table_.column_count());
-                for (size_t i = 0; i < table_.column_count(); i++) {
-                    column_indices.emplace_back(static_cast<int64_t>(i));
-                }
+                table::table_scan_state state(resource_);
+                table_.initialize_scan(state, column_indices, filter);
+                state.table_state.txn = txn;
+                state.local_state.txn = txn;
+                table_.scan_batched(types, projected_cols, batches, state, resource_);
             }
-            table::table_scan_state state(resource_);
-            table_.initialize_scan(state, column_indices, filter);
-            state.table_state.txn = txn;
-            state.local_state.txn = txn;
-            auto types = table_.copy_types();
-            table_.scan_batched(types, projected_cols, batches, state, resource_);
-            // Always emit at least one (possibly empty) chunk so downstream operators
-            // can read types/column_count from chunks.front().
-            if (batches.empty()) {
-                if (projected_cols) {
-                    batches.emplace_back(resource_, types, *projected_cols, vector::DEFAULT_VECTOR_CAPACITY);
-                } else {
-                    batches.emplace_back(resource_, types, vector::DEFAULT_VECTOR_CAPACITY);
-                }
-                batches.back().set_cardinality(0);
-            }
-            // Apply LIMIT post-hoc by truncating trailing batches and the boundary chunk.
-            if (limit >= 0) {
-                uint64_t budget = static_cast<uint64_t>(limit);
-                size_t keep = 0;
-                for (; keep < batches.size(); ++keep) {
-                    if (batches[keep].size() <= budget) {
-                        budget -= batches[keep].size();
-                    } else {
-                        batches[keep].set_cardinality(budget);
-                        ++keep;
-                        budget = 0;
-                        break;
-                    }
-                }
-                // erase trailing batches; data_chunk_t is non-default-constructible so
-                // resize() doesn't compile.
-                batches.erase(batches.begin() + static_cast<std::ptrdiff_t>(keep), batches.end());
-            }
+
+            ensure_at_least_one_batch(batches, types, projected_cols);
+            apply_limit(batches, limit);
         }
 
         void fetch(vector::data_chunk_t& output, const vector::vector_t& row_ids, uint64_t count) override {
@@ -174,22 +237,15 @@ namespace components::storage {
         }
 
         uint64_t parallel_scan(const std::function<void(vector::data_chunk_t& chunk)>& callback) override {
-            std::vector<table::storage_index_t> column_ids;
-            column_ids.reserve(table_.column_count());
-            for (size_t i = 0; i < table_.column_count(); i++) {
-                column_ids.emplace_back(static_cast<int64_t>(i));
-            }
-            auto parallel_state = table_.create_parallel_scan_state(column_ids);
-            auto types = table_.copy_types();
+            std::pmr::vector<vector::data_chunk_t> batches(resource_);
+            scan_batched(batches, nullptr, -1, nullptr, table::transaction_data{0, 0});
             uint64_t total_rows = 0;
-            while (true) {
-                table::table_scan_state local_state(resource_);
-                vector::data_chunk_t result(resource_, types, vector::DEFAULT_VECTOR_CAPACITY);
-                if (!table_.next_parallel_chunk(*parallel_state, local_state, result)) {
-                    break;
+            for (auto& batch : batches) {
+                if (batch.size() == 0) {
+                    continue;
                 }
-                total_rows += result.size();
-                callback(result);
+                total_rows += batch.size();
+                callback(batch);
             }
             return total_rows;
         }
@@ -264,9 +320,96 @@ namespace components::storage {
 
         table::data_table_t& table() { return table_; }
 
+        size_t parallel_worker_count() const {
+            std::lock_guard<std::mutex> lock(scan_workers_mutex_);
+            return scan_workers_.size();
+        }
+
     private:
+        std::vector<table::storage_index_t> build_scan_column_ids(const std::vector<size_t>* projected_cols) const {
+            std::vector<table::storage_index_t> column_indices;
+            if (projected_cols) {
+                column_indices.reserve(projected_cols->size());
+                for (size_t idx : *projected_cols) {
+                    if (idx < table_.column_count()) {
+                        column_indices.emplace_back(static_cast<int64_t>(idx));
+                    }
+                }
+            } else {
+                column_indices.reserve(table_.column_count());
+                for (size_t i = 0; i < table_.column_count(); i++) {
+                    column_indices.emplace_back(static_cast<int64_t>(i));
+                }
+            }
+            return column_indices;
+        }
+
+        std::vector<detail::parallel_scan_worker_t*> snapshot_parallel_workers(size_t target_count) {
+            std::vector<detail::parallel_scan_worker_t*> workers;
+            std::lock_guard<std::mutex> lock(scan_workers_mutex_);
+            if (scheduler_ && target_count > 0) {
+                while (scan_workers_.size() < target_count) {
+                    scan_workers_.push_back(
+                        actor_zeta::spawn<detail::parallel_scan_worker_t>(std::pmr::new_delete_resource(), &table_));
+                }
+            }
+            workers.reserve(scan_workers_.size());
+            for (auto& worker : scan_workers_) {
+                workers.push_back(worker.get());
+            }
+            return workers;
+        }
+
+        template<typename T>
+        T wait_future(actor_zeta::unique_future<T>&& future) const {
+            if (progress_fn_ && *progress_fn_) {
+                while (!future.is_ready()) {
+                    (*progress_fn_)();
+                }
+            }
+            return std::move(future).get();
+        }
+
+        void ensure_at_least_one_batch(std::pmr::vector<vector::data_chunk_t>& batches,
+                                       const std::pmr::vector<types::complex_logical_type>& types,
+                                       const std::vector<size_t>* projected_cols) const {
+            if (!batches.empty()) {
+                return;
+            }
+
+            if (projected_cols) {
+                batches.emplace_back(resource_, types, *projected_cols, vector::DEFAULT_VECTOR_CAPACITY);
+            } else {
+                batches.emplace_back(resource_, types, vector::DEFAULT_VECTOR_CAPACITY);
+            }
+            batches.back().set_cardinality(0);
+        }
+
+        void apply_limit(std::pmr::vector<vector::data_chunk_t>& batches, int64_t limit) const {
+            if (limit < 0) {
+                return;
+            }
+
+            uint64_t budget = static_cast<uint64_t>(limit);
+            size_t keep = 0;
+            for (; keep < batches.size(); ++keep) {
+                if (batches[keep].size() <= budget) {
+                    budget -= batches[keep].size();
+                } else {
+                    batches[keep].set_cardinality(budget);
+                    ++keep;
+                    break;
+                }
+            }
+            batches.erase(batches.begin() + static_cast<std::ptrdiff_t>(keep), batches.end());
+        }
+
         table::data_table_t& table_;
         std::pmr::memory_resource* resource_;
+        actor_zeta::scheduler::sharing_scheduler* scheduler_;
+        std::function<void()>* progress_fn_;
+        mutable std::mutex scan_workers_mutex_;
+        std::vector<detail::parallel_scan_worker_ptr> scan_workers_;
     };
 
 } // namespace components::storage

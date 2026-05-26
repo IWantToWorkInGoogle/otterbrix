@@ -152,6 +152,7 @@ namespace components::table {
     collection_scan_state::collection_scan_state(std::pmr::memory_resource* resource, table_scan_state& parent)
         : row_group(nullptr)
         , vector_index(0)
+        , vector_index_relative_to_row_group(false)
         , max_row_group_row(0)
         , row_groups(nullptr)
         , max_row(0)

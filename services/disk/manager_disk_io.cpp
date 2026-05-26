@@ -221,7 +221,11 @@ namespace services::disk {
                                                           components::catalog::oid_t /*database_oid*/,
                                                           std::vector<components::table::column_definition_t> columns) {
         trace(log_, "manager_disk_t::create_storage_with_columns_sync , oid : {}", static_cast<unsigned>(table_oid));
-        storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource(), std::move(columns)));
+        storages_.emplace(table_oid,
+                          std::make_unique<collection_storage_entry_t>(resource(),
+                                                                       std::move(columns),
+                                                                       scheduler_disk_,
+                                                                       &run_fn_));
     }
 
     void manager_disk_t::create_storage_disk_sync(components::catalog::oid_t table_oid,
@@ -236,7 +240,9 @@ namespace services::disk {
                           std::make_unique<collection_storage_entry_t>(resource(),
                                                                        std::move(columns),
                                                                        otbx_path,
-                                                                       config_.layout_policy));
+                                                                       config_.layout_policy,
+                                                                       scheduler_disk_,
+                                                                       &run_fn_));
     }
 
     void manager_disk_t::load_storage_disk_sync(components::catalog::oid_t table_oid,
@@ -261,7 +267,9 @@ namespace services::disk {
             storages_.emplace(table_oid,
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
-                                                                           config_.layout_policy));
+                                                                           config_.layout_policy,
+                                                                           scheduler_disk_,
+                                                                           &run_fn_));
             return;
         }
 
@@ -269,7 +277,9 @@ namespace services::disk {
             storages_.emplace(table_oid,
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
-                                                                           config_.layout_policy));
+                                                                           config_.layout_policy,
+                                                                           scheduler_disk_,
+                                                                           &run_fn_));
         } catch (const std::exception& e) {
             warn(log_, "load_storage_disk_sync: failed to load {} : {}", otbx_path.string(), e.what());
             if (!prev_exists) {
@@ -292,7 +302,9 @@ namespace services::disk {
             storages_.emplace(table_oid,
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
-                                                                           config_.layout_policy));
+                                                                           config_.layout_policy,
+                                                                           scheduler_disk_,
+                                                                           &run_fn_));
             return;
         }
 

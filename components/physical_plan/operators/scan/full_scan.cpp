@@ -10,6 +10,10 @@ namespace components::operators {
                         const std::pmr::vector<types::complex_logical_type>& types,
                         const logical_plan::storage_parameters* parameters,
                         core::date::timezone_offset_t session_tz) {
+        // The resulting filter crosses the executor -> disk actor boundary and is
+        // destroyed on the disk thread. Keep all filter-owned allocations on a
+        // thread-safe resource instead of the executor-local pmr arena.
+        auto* filter_resource = std::pmr::new_delete_resource();
         if (!expression || expression->type() == expressions::compare_type::all_true) {
             return std::unique_ptr<table::table_filter_t>{};
         }
@@ -94,14 +98,14 @@ namespace components::operators {
             case expressions::compare_type::is_null:
             case expressions::compare_type::is_not_null: {
                 const auto& path = std::get<expressions::key_t>(expression->left()).path();
-                std::pmr::vector<uint64_t> indices(path.begin(), path.end(), path.get_allocator().resource());
+                std::pmr::vector<uint64_t> indices(path.begin(), path.end(), filter_resource);
                 return std::unique_ptr<table::table_filter_t>(
                     std::make_unique<table::is_null_filter_t>(expression->type(), std::move(indices)));
             }
             default: {
                 const auto& path = std::get<expressions::key_t>(expression->left()).path();
                 auto id = std::get<core::parameter_id_t>(expression->right());
-                std::pmr::vector<uint64_t> indices(path.begin(), path.end(), path.get_allocator().resource());
+                std::pmr::vector<uint64_t> indices(path.begin(), path.end(), filter_resource);
                 auto it = parameters->parameters.find(id);
                 if (it == parameters->parameters.end()) {
                     return core::error_t{
@@ -126,7 +130,7 @@ namespace components::operators {
                     // Storage holds the ordinal as int32 (ENUM physical_type=INT32).
                     // constant_filter_t's compare path doesn't auto-coerce ENUM<->INT32,
                     // so wrap the ordinal as a plain INT32 logical_value_t.
-                    types::logical_value_t ordinal_val{resource, coerced.value<int32_t>()};
+                    types::logical_value_t ordinal_val{filter_resource, coerced.value<int32_t>()};
                     return std::unique_ptr<table::table_filter_t>(
                         std::make_unique<table::constant_filter_t>(expression->type(),
                                                                    std::move(ordinal_val),
@@ -135,14 +139,18 @@ namespace components::operators {
                 if (!param_value.is_null() && param_value.type() != col_type) {
                     auto coerced = param_value.cast_as(col_type, session_tz);
                     if (!coerced.is_null()) {
+                        types::logical_value_t filter_value{filter_resource, coerced};
                         return std::unique_ptr<table::table_filter_t>(
                             std::make_unique<table::constant_filter_t>(expression->type(),
-                                                                       std::move(coerced),
+                                                                       std::move(filter_value),
                                                                        std::move(indices)));
                     }
                 }
+                types::logical_value_t filter_value{filter_resource, it->second};
                 return std::unique_ptr<table::table_filter_t>(
-                    std::make_unique<table::constant_filter_t>(expression->type(), it->second, std::move(indices)));
+                    std::make_unique<table::constant_filter_t>(expression->type(),
+                                                               std::move(filter_value),
+                                                               std::move(indices)));
             }
         }
     }
@@ -166,10 +174,6 @@ namespace components::operators {
     }
 
     actor_zeta::unique_future<void> full_scan::await_async_and_resume(pipeline::context_t* ctx) {
-        if (log_.is_valid()) {
-            trace(log(), "full_scan::await_async_and_resume on oid={}", static_cast<unsigned>(table_oid_));
-        }
-
         // Short-circuit: if expression is all_false, return empty result immediately
         if (expression_ && expression_->type() == expressions::compare_type::all_false) {
             output_ = make_operator_data(resource_, std::pmr::vector<types::complex_logical_type>{resource_});
@@ -205,7 +209,11 @@ namespace components::operators {
                                          scan_limit,
                                          projected_cols_,
                                          ctx->txn);
-        auto batches = co_await std::move(sf);
+        auto batches_ptr = co_await std::move(sf);
+        std::pmr::vector<vector::data_chunk_t> batches(resource_);
+        if (batches_ptr) {
+            batches = std::move(*batches_ptr);
+        }
 
         // Skip offset rows across batches.
         if (offset_val > 0) {
@@ -224,6 +232,13 @@ namespace components::operators {
             if (skip_count > 0) {
                 batches.erase(batches.begin(), batches.begin() + static_cast<std::ptrdiff_t>(skip_count));
             }
+        }
+
+        // storage_scan_batched can return sparse projected chunks with placeholder
+        // vectors for non-projected storage columns. Root scan output should be a
+        // regular compact chunk stream for downstream operators/cursors.
+        for (auto& batch : batches) {
+            batch.drop_unprojected_placeholders();
         }
 
         // Maintain the operator_data_t invariant: at least one (possibly empty)

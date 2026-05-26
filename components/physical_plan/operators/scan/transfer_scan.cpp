@@ -36,7 +36,11 @@ namespace components::operators {
                                          scan_limit,
                                          projected_cols_,
                                          ctx->txn);
-        auto batches = co_await std::move(sf);
+        auto batches_ptr = co_await std::move(sf);
+        std::pmr::vector<vector::data_chunk_t> batches(resource_);
+        if (batches_ptr) {
+            batches = std::move(*batches_ptr);
+        }
 
         // Skip offset rows across batches. Partial-copy the boundary batch.
         if (offset_val > 0) {
@@ -55,6 +59,13 @@ namespace components::operators {
             if (skip_count > 0) {
                 batches.erase(batches.begin(), batches.begin() + static_cast<std::ptrdiff_t>(skip_count));
             }
+        }
+
+        // storage_scan_batched can return sparse projected chunks with placeholder
+        // vectors for non-projected storage columns. Transfer scan publishes a
+        // regular projected rowset, so compact the batches here.
+        for (auto& batch : batches) {
+            batch.drop_unprojected_placeholders();
         }
 
         // Maintain the operator_data_t invariant: at least one (possibly empty)

@@ -18,6 +18,7 @@ struct benchmark_state_t {
     wrapper_dispatcher_t* dispatcher = nullptr;
     session_id_t session;
     bool failed = false;
+    std::string error;
 };
 
 struct benchmark_result_t {

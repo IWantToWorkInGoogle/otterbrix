@@ -20,6 +20,7 @@ namespace components::table {
                      const std::vector<storage_index_t>& bound_columns);
 
         [[nodiscard]] std::pmr::vector<types::complex_logical_type> copy_types() const;
+        [[nodiscard]] std::pmr::vector<types::complex_logical_type> copy_types(std::pmr::memory_resource* resource) const;
         const std::vector<column_definition_t>& columns() const;
         void adopt_schema(const std::pmr::vector<types::complex_logical_type>& types);
         void overlay_not_null(const std::string& col_name);
@@ -29,6 +30,7 @@ namespace components::table {
                              const table_filter_t* filter = nullptr);
 
         uint64_t max_threads() const;
+        bool supports_threaded_scan() const;
 
         void scan(vector::data_chunk_t& result, table_scan_state& state);
         // Emits ≤DEFAULT_VECTOR_CAPACITY chunks straight from the scan, no concat-then-split.
@@ -37,6 +39,14 @@ namespace components::table {
                           std::pmr::vector<vector::data_chunk_t>& batches,
                           table_scan_state& state,
                           std::pmr::memory_resource* resource);
+        bool scan_row_group_batched(uint64_t row_group_idx,
+                                    const std::vector<storage_index_t>& column_ids,
+                                    const table_filter_t* filter,
+                                    const std::pmr::vector<types::complex_logical_type>& types,
+                                    const std::vector<size_t>* projected_cols,
+                                    std::pmr::vector<vector::data_chunk_t>& batches,
+                                    transaction_data txn,
+                                    std::pmr::memory_resource* resource);
 
         // Scan only committed rows via committed_version_operator. Uncommitted deletes
         // from in-flight transactions are NOT visible. Used by resolve_* on pg_catalog.* —

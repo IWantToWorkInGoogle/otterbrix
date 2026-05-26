@@ -195,6 +195,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
                 if (cursor->is_error()) {
                     std::string msg = "SQL error: ";
                     msg += std::string_view(cursor->get_error().what);
+                    state.error = std::move(msg);
                     state.failed = true;
                     return;
                 }
@@ -211,6 +212,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
         if (cursor->is_error()) {
             std::string msg = "SQL error: ";
             msg += std::string_view(cursor->get_error().what);
+            state.error = std::move(msg);
             state.failed = true;
             return;
         }
@@ -262,6 +264,7 @@ void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_
         if (cursor->is_error()) {
             std::string msg = "CSV load SQL error for " + entry.table + ": ";
             msg += std::string_view(cursor->get_error().what);
+            state.error = std::move(msg);
             state.failed = true;
             return;
         }

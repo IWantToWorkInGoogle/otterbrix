@@ -368,9 +368,7 @@ benchmark_result_t benchmark_runner_t::run_single(benchmark_t& bench, const benc
 
         auto bail_on_fail = [&]() {
             result.verified = false;
-            if (result.error.empty()) {
-                result.error = "see stderr";
-            }
+            result.error = !state.error.empty() ? state.error : "see stderr";
         };
 
         if (!config.skip_load) {

@@ -171,7 +171,8 @@ namespace services::disk {
               "manager_disk_t::create_storage , session : {} , oid : {}",
               session.data(),
               static_cast<unsigned>(table_oid));
-        storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource()));
+        storages_.emplace(table_oid,
+                          std::make_unique<collection_storage_entry_t>(resource(), scheduler_disk_, &run_fn_));
         co_return;
     }
 
@@ -184,7 +185,11 @@ namespace services::disk {
               "manager_disk_t::create_storage_with_columns , session : {} , oid : {}",
               session.data(),
               static_cast<unsigned>(table_oid));
-        storages_.emplace(table_oid, std::make_unique<collection_storage_entry_t>(resource(), std::move(columns)));
+        storages_.emplace(table_oid,
+                          std::make_unique<collection_storage_entry_t>(resource(),
+                                                                       std::move(columns),
+                                                                       scheduler_disk_,
+                                                                       &run_fn_));
         co_return;
     }
 
@@ -204,7 +209,9 @@ namespace services::disk {
                           std::make_unique<collection_storage_entry_t>(resource(),
                                                                        std::move(columns),
                                                                        otbx_path,
-                                                                       config_.layout_policy));
+                                                                       config_.layout_policy,
+                                                                       scheduler_disk_,
+                                                                       &run_fn_));
         co_return;
     }
 
@@ -273,20 +280,20 @@ namespace services::disk {
         co_return std::move(result);
     }
 
-    manager_disk_t::unique_future<std::pmr::vector<components::vector::data_chunk_t>>
+    manager_disk_t::unique_future<std::unique_ptr<std::pmr::vector<components::vector::data_chunk_t>>>
     manager_disk_t::storage_scan_batched(session_id_t /*session*/,
                                          catalog::oid_t table_oid,
                                          std::unique_ptr<components::table::table_filter_t> filter,
                                          int64_t limit,
                                          std::vector<size_t> projected_cols,
                                          components::table::transaction_data txn) {
-        std::pmr::vector<components::vector::data_chunk_t> batches{resource()};
+        auto batches = std::make_unique<std::pmr::vector<components::vector::data_chunk_t>>(resource());
         auto* s = get_storage(table_oid);
         if (!s) {
             co_return std::move(batches);
         }
         const std::vector<size_t>* projected_ptr = projected_cols.empty() ? nullptr : &projected_cols;
-        s->scan_batched(batches, filter.get(), limit, projected_ptr, txn);
+        s->scan_batched(*batches, filter.get(), limit, projected_ptr, txn);
         co_return std::move(batches);
     }
 

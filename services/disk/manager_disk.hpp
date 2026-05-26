@@ -369,7 +369,7 @@ namespace services::disk {
         // Batched + projected variant: returns a vector of chunks (PR #483 multi-chunk)
         // and applies index-based column projection at the storage layer (PR #477).
         // Empty `projected_cols` means "read all columns" (pass-through).
-        unique_future<std::pmr::vector<components::vector::data_chunk_t>>
+        unique_future<std::unique_ptr<std::pmr::vector<components::vector::data_chunk_t>>>
         storage_scan_batched(session_id_t session,
                              components::catalog::oid_t table_oid,
                              std::unique_ptr<components::table::table_filter_t> filter,
@@ -496,45 +496,74 @@ namespace services::disk {
             // Used by checkpoint_all (sidecar lands next to .otbx) and drop_storage
             // (physical file removal).
             std::filesystem::path otbx_path;
+            actor_zeta::scheduler::sharing_scheduler* scan_scheduler{nullptr};
+            std::function<void()>* progress_fn{nullptr};
 
             /// In-memory: schema-less
-            explicit collection_storage_entry_t(std::pmr::memory_resource* resource)
+            explicit collection_storage_entry_t(std::pmr::memory_resource* resource,
+                                                actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+                                                std::function<void()>* progress = nullptr)
                 : table_storage(resource)
                 , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
-                                                                                         resource)) {}
+                                                                                         resource,
+                                                                                         scheduler,
+                                                                                         progress))
+                , scan_scheduler(scheduler)
+                , progress_fn(progress) {}
 
             /// In-memory: with columns
             explicit collection_storage_entry_t(std::pmr::memory_resource* resource,
-                                                std::vector<components::table::column_definition_t> columns)
+                                                std::vector<components::table::column_definition_t> columns,
+                                                actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+                                                std::function<void()>* progress = nullptr)
                 : table_storage(resource, std::move(columns))
                 , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
-                                                                                         resource)) {}
+                                                                                         resource,
+                                                                                         scheduler,
+                                                                                         progress))
+                , scan_scheduler(scheduler)
+                , progress_fn(progress) {}
 
             /// Disk: create new table.otbx
             collection_storage_entry_t(std::pmr::memory_resource* resource,
                                        std::vector<components::table::column_definition_t> columns,
                                        const std::filesystem::path& otbx_path_in,
                                        configuration::disk_layout_policy layout_policy =
-                                           configuration::disk_layout_policy::auto_select)
+                                           configuration::disk_layout_policy::auto_select,
+                                       actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+                                       std::function<void()>* progress = nullptr)
                 : table_storage(resource, std::move(columns), otbx_path_in, layout_policy)
-                , storage(
-                      std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), resource))
-                , otbx_path(otbx_path_in) {}
+                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+                                                                                         resource,
+                                                                                         scheduler,
+                                                                                         progress))
+                , otbx_path(otbx_path_in)
+                , scan_scheduler(scheduler)
+                , progress_fn(progress) {}
 
             /// Disk: load existing table.otbx
             collection_storage_entry_t(std::pmr::memory_resource* resource,
                                        const std::filesystem::path& otbx_path_in,
                                        configuration::disk_layout_policy layout_policy =
-                                           configuration::disk_layout_policy::auto_select)
+                                           configuration::disk_layout_policy::auto_select,
+                                       actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+                                       std::function<void()>* progress = nullptr)
                 : table_storage(resource, otbx_path_in, layout_policy)
-                , storage(
-                      std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), resource))
-                , otbx_path(otbx_path_in) {}
+                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+                                                                                         resource,
+                                                                                         scheduler,
+                                                                                         progress))
+                , otbx_path(otbx_path_in)
+                , scan_scheduler(scheduler)
+                , progress_fn(progress) {}
 
             /// Update live in-memory schema: add new column to table_ and recreate the storage adapter.
             void add_column(components::table::column_definition_t& col, std::pmr::memory_resource* res) {
                 table_storage.add_column(col);
-                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), res);
+                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+                                                                                         res,
+                                                                                         scan_scheduler,
+                                                                                         progress_fn);
             }
 
             /// Physical column compaction: drop column from in-memory table_ and
@@ -544,7 +573,10 @@ namespace services::disk {
                 if (!table_storage.drop_column(attname)) {
                     return false;
                 }
-                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(), res);
+                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+                                                                                         res,
+                                                                                         scan_scheduler,
+                                                                                         progress_fn);
                 return true;
             }
         };
