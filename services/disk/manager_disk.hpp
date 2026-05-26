@@ -351,7 +351,9 @@ namespace services::disk {
         unique_future<void> create_storage_disk(session_id_t session,
                                                 components::catalog::oid_t table_oid,
                                                 components::catalog::oid_t database_oid,
-                                                std::vector<components::table::column_definition_t> columns);
+                                                std::vector<components::table::column_definition_t> columns,
+                                                configuration::disk_layout_policy layout_policy =
+                                                    configuration::disk_layout_policy::auto_select);
         unique_future<void> drop_storage(session_id_t session, components::catalog::oid_t table_oid);
 
         // Storage queries
@@ -470,7 +472,9 @@ namespace services::disk {
         void create_storage_disk_sync(components::catalog::oid_t table_oid,
                                       components::catalog::oid_t database_oid,
                                       std::vector<components::table::column_definition_t> columns,
-                                      const std::filesystem::path& otbx_path);
+                                      const std::filesystem::path& otbx_path,
+                                      configuration::disk_layout_policy layout_policy =
+                                          configuration::disk_layout_policy::auto_select);
         void load_storage_disk_sync(components::catalog::oid_t table_oid,
                                     components::catalog::oid_t database_oid,
                                     const std::filesystem::path& otbx_path);

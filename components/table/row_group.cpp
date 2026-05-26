@@ -11,6 +11,7 @@
 #include <components/table/storage/buffer_manager.hpp>
 #include <components/table/storage/block_handle.hpp>
 #include <components/table/storage/partial_block_manager.hpp>
+#include <components/types/type_spec.hpp>
 #include <core/operations_helper.hpp>
 #include <vector/data_chunk.hpp>
 
@@ -79,6 +80,64 @@ namespace {
 
     bool is_pax_fixed_projected_type(const components::types::complex_logical_type& type) {
         return is_pax_fixed_scalar_type(type);
+    }
+
+    std::string describe_pax_root_type(const components::types::complex_logical_type& type) {
+        using components::types::logical_type;
+
+        switch (type.type()) {
+            case logical_type::BOOLEAN:
+                return "boolean";
+            case logical_type::TINYINT:
+                return "tinyint";
+            case logical_type::UTINYINT:
+                return "utinyint";
+            case logical_type::SMALLINT:
+                return "smallint";
+            case logical_type::USMALLINT:
+                return "usmallint";
+            case logical_type::INTEGER:
+                return "integer";
+            case logical_type::UINTEGER:
+                return "uinteger";
+            case logical_type::BIGINT:
+                return "bigint";
+            case logical_type::UBIGINT:
+                return "ubigint";
+            case logical_type::HUGEINT:
+                return "hugeint";
+            case logical_type::UHUGEINT:
+                return "uhugeint";
+            case logical_type::FLOAT:
+                return "float";
+            case logical_type::DOUBLE:
+                return "double";
+            case logical_type::STRING_LITERAL:
+                return "string";
+            case logical_type::TIMESTAMP:
+                return "timestamp";
+            case logical_type::TIMESTAMP_TZ:
+                return "timestamptz";
+            case logical_type::DATE:
+                return "date";
+            case logical_type::TIME:
+                return "time";
+            case logical_type::TIME_TZ:
+                return "timetz";
+            case logical_type::INTERVAL:
+                return "interval";
+            case logical_type::BLOB:
+                return "blob";
+            case logical_type::UUID:
+                return "uuid";
+            default: {
+                auto encoded = components::types::encode_type_spec(type);
+                if (!encoded.empty()) {
+                    return encoded;
+                }
+                return "logical_type#" + std::to_string(static_cast<uint32_t>(type.type()));
+            }
+        }
     }
 
     components::table::storage::pax_fixed_column_type
@@ -267,6 +326,61 @@ namespace {
         }
         return true;
     }
+
+} // namespace
+
+namespace components::table::detail {
+
+    explicit_pax_root_kind classify_explicit_pax_root_type(const components::types::complex_logical_type& type) {
+        if (is_explicit_pax_columnar_only_root_type(type)) {
+            return explicit_pax_root_kind::COLUMNAR_ONLY;
+        }
+        if (is_pax_generic_string_type(type) || is_pax_generic_struct_type(type) || is_pax_generic_collection_type(type)) {
+            return is_supported_pax_generic_column_type(type) ? explicit_pax_root_kind::GENERIC
+                                                              : explicit_pax_root_kind::UNSUPPORTED;
+        }
+        if (is_pax_fixed_scalar_type(type)) {
+            return explicit_pax_root_kind::FIXED;
+        }
+        return explicit_pax_root_kind::UNSUPPORTED;
+    }
+
+    bool supports_explicit_pax_schema(const std::vector<column_definition_t>& columns, std::string* error_message) {
+        if (columns.empty()) {
+            if (error_message) {
+                *error_message = "USING PAX requires a declared schema";
+            }
+            return false;
+        }
+
+        std::optional<explicit_pax_root_kind> expected_kind;
+        for (const auto& column : columns) {
+            const auto kind = classify_explicit_pax_root_type(column.type());
+            if (kind == explicit_pax_root_kind::COLUMNAR_ONLY || kind == explicit_pax_root_kind::UNSUPPORTED) {
+                if (error_message) {
+                    *error_message = "column '" + column.name() + "' of type '" +
+                                     describe_pax_root_type(column.type()) + "' is not supported by USING PAX";
+                }
+                return false;
+            }
+            if (!expected_kind.has_value()) {
+                expected_kind = kind;
+                continue;
+            }
+            if (*expected_kind != kind) {
+                if (error_message) {
+                    *error_message =
+                        "USING PAX does not support mixing fixed-width and generic root columns in the current implementation";
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+} // namespace components::table::detail
+
+namespace {
 
     uint64_t pax_string_block_limit(uint64_t block_size) {
         return std::min((block_size / 4) / 8 * 8, PAX_STRING_DEFAULT_BLOCK_LIMIT);
@@ -2992,6 +3106,7 @@ namespace components::table {
 
         const bool force_columnar =
             block_manager().layout_policy() == storage::row_group_layout_policy::COLUMNAR_ONLY;
+        const bool force_pax = block_manager().layout_policy() == storage::row_group_layout_policy::PAX_ONLY;
 
         std::vector<uint64_t> pax_generic_columns;
         pax_generic_columns.reserve(col_count);
@@ -3000,26 +3115,34 @@ namespace components::table {
         bool pax_generic_requires_v4 = false;
         bool pax_generic_requires_v2 = false;
         bool pax_generic_requires_v3 = false;
+
+        auto checkpoint_columnar_or_throw = [&](uint64_t column_index) {
+            auto& column = get_column(column_index);
+            if (force_pax) {
+                throw std::logic_error("explicit PAX layout cannot persist column '" + column.type().alias() +
+                                       "' through the columnar fallback path");
+            }
+            auto persistent = column.checkpoint(partial_block_manager);
+            pointer.columnar_data_pointers[column_index] = std::move(persistent.data_pointers);
+        };
+
         for (uint64_t i = 0; i < col_count; i++) {
             auto& column = get_column(i);
             if (force_columnar || components::table::detail::is_explicit_pax_columnar_only_root_type(column.type())) {
-                auto persistent = column.checkpoint(partial_block_manager);
-                pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                checkpoint_columnar_or_throw(i);
             } else if (is_pax_generic_string_type(column.type())) {
                 pax_generic_columns.push_back(i);
                 pax_generic_requires_v4 = true;
             } else if (is_pax_generic_struct_type(column.type())) {
                 if (!is_supported_pax_generic_column_type(column.type())) {
-                    auto persistent = column.checkpoint(partial_block_manager);
-                    pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                    checkpoint_columnar_or_throw(i);
                     continue;
                 }
                 pax_generic_columns.push_back(i);
                 pax_generic_requires_v2 = true;
             } else if (is_pax_generic_collection_type(column.type())) {
                 if (!is_supported_pax_generic_column_type(column.type())) {
-                    auto persistent = column.checkpoint(partial_block_manager);
-                    pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                    checkpoint_columnar_or_throw(i);
                     continue;
                 }
                 pax_generic_columns.push_back(i);
@@ -3027,8 +3150,24 @@ namespace components::table {
             } else if (is_pax_fixed_scalar_type(column.type())) {
                 pax_fixed_columns.push_back(i);
             } else {
-                auto persistent = column.checkpoint(partial_block_manager);
-                pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                checkpoint_columnar_or_throw(i);
+            }
+        }
+
+        if (force_pax && !pax_generic_columns.empty() && !pax_fixed_columns.empty()) {
+            throw std::logic_error(
+                "explicit PAX layout does not support mixing fixed-width and generic root columns");
+        }
+
+        if (force_pax && pax_generic_columns.empty() && pax_fixed_columns.empty() && pointer.tuple_count > 0) {
+            throw std::logic_error("explicit PAX layout did not find a supported root-column family");
+        }
+
+        if (force_pax && pointer.tuple_count > 0) {
+            for (uint64_t i = 0; i < col_count; i++) {
+                if (!pointer.columnar_data_pointers[i].empty()) {
+                    throw std::logic_error("explicit PAX layout wrote unexpected columnar fallback metadata");
+                }
             }
         }
 
@@ -3040,8 +3179,7 @@ namespace components::table {
                 if (std::find(pax_generic_columns.begin(), pax_generic_columns.end(), i) != pax_generic_columns.end()) {
                     continue;
                 }
-                auto persistent = get_column(i).checkpoint(partial_block_manager);
-                pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                checkpoint_columnar_or_throw(i);
             }
 
             storage::pax_generic_row_group_layout_t pax_layout;

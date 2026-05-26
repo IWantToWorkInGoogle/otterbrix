@@ -9,7 +9,8 @@ namespace configuration {
     enum class disk_layout_policy : uint8_t
     {
         auto_select = 0,
-        columnar_only = 1
+        columnar_only = 1,
+        pax_only = 2
     };
 
     struct config_log final {

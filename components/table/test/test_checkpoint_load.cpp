@@ -38,8 +38,10 @@ namespace components::table {
 namespace {
     constexpr uint32_t COLUMN_TYPES_METADATA_MAGIC = 0x31484353U; // "SCH1"
     constexpr uint32_t ROW_GROUP_LAYOUTS_MAGIC = 0x31584150U; // "PAX1"
+    constexpr uint32_t TABLE_LAYOUT_POLICY_MAGIC = 0x3159504CU; // "LPY1"
     constexpr uint32_t TABLE_COLUMN_TYPES_METADATA_FLAG = 1U << 31;
     constexpr uint32_t TABLE_LAYOUT_METADATA_FLAG = 1U << 31;
+    constexpr uint32_t TABLE_LAYOUT_POLICY_METADATA_FLAG = 1U << 30;
 
     std::string test_db_path() {
         static std::string path = "/tmp/test_otterbrix_checkpoint_load_" + std::to_string(::getpid()) + ".otbx";
@@ -71,6 +73,9 @@ namespace {
         std::vector<persisted_column_definition_t> columns;
         std::vector<std::string> column_type_payloads;
         bool has_layout_metadata{false};
+        bool has_layout_policy_metadata{false};
+        components::table::storage::row_group_layout_policy layout_policy{
+            components::table::storage::row_group_layout_policy::AUTO};
         std::vector<components::table::storage::row_group_pointer_t> row_groups;
     };
 
@@ -111,7 +116,9 @@ namespace {
 
         const auto row_group_count_value = reader.read<uint32_t>();
         result.has_layout_metadata = (row_group_count_value & TABLE_LAYOUT_METADATA_FLAG) != 0;
-        const auto row_group_count = row_group_count_value & ~TABLE_LAYOUT_METADATA_FLAG;
+        result.has_layout_policy_metadata = (row_group_count_value & TABLE_LAYOUT_POLICY_METADATA_FLAG) != 0;
+        const auto row_group_count =
+            row_group_count_value & ~(TABLE_LAYOUT_METADATA_FLAG | TABLE_LAYOUT_POLICY_METADATA_FLAG);
         result.row_groups.reserve(row_group_count);
         for (uint32_t i = 0; i < row_group_count; i++) {
             result.row_groups.push_back(row_group_pointer_t::deserialize(reader));
@@ -136,6 +143,13 @@ namespace {
                     result.row_groups[i].pax_generic_layout = pax_generic_row_group_layout_t::deserialize(reader);
                 }
             }
+        }
+
+        if (result.has_layout_policy_metadata) {
+            if (reader.read<uint32_t>() != TABLE_LAYOUT_POLICY_MAGIC) {
+                throw std::logic_error("unknown table layout policy metadata extension section");
+            }
+            result.layout_policy = static_cast<row_group_layout_policy>(reader.read<uint8_t>());
         }
 
         return result;
@@ -869,6 +883,39 @@ TEST_CASE("checkpoint_load: explicit columnar-only root support matrix excludes 
     REQUIRE(variant_type.child_types()[3].type() == logical_type::BLOB);
 }
 
+TEST_CASE("checkpoint_load: explicit pax support matrix rejects mixed and fallback root schemas") {
+    using components::table::column_definition_t;
+    using components::table::detail::supports_explicit_pax_schema;
+    using namespace components::types;
+
+    std::vector<column_definition_t> fixed_columns;
+    fixed_columns.emplace_back("id", logical_type::BIGINT);
+    fixed_columns.emplace_back("score", logical_type::DOUBLE);
+    std::string error_message;
+    REQUIRE(supports_explicit_pax_schema(fixed_columns, &error_message));
+
+    std::vector<column_definition_t> generic_columns;
+    generic_columns.emplace_back("name", logical_type::STRING_LITERAL);
+    std::pmr::vector<complex_logical_type> payload_fields;
+    payload_fields.emplace_back(logical_type::BIGINT, "id");
+    generic_columns.emplace_back("payload", complex_logical_type::create_struct("payload", payload_fields, "payload"));
+    error_message.clear();
+    REQUIRE(supports_explicit_pax_schema(generic_columns, &error_message));
+
+    std::vector<column_definition_t> mixed_columns;
+    mixed_columns.emplace_back("name", logical_type::STRING_LITERAL);
+    mixed_columns.emplace_back("count", logical_type::BIGINT);
+    error_message.clear();
+    REQUIRE_FALSE(supports_explicit_pax_schema(mixed_columns, &error_message));
+    REQUIRE(error_message.find("mixing fixed-width and generic root columns") != std::string::npos);
+
+    std::vector<column_definition_t> fallback_columns;
+    fallback_columns.emplace_back("gap", logical_type::INTERVAL);
+    error_message.clear();
+    REQUIRE_FALSE(supports_explicit_pax_schema(fallback_columns, &error_message));
+    REQUIRE(error_message.find("not supported by USING PAX") != std::string::npos);
+}
+
 TEST_CASE("checkpoint_load: columnar-only layout policy disables pax routing") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -906,6 +953,53 @@ TEST_CASE("checkpoint_load: columnar-only layout policy disables pax routing") {
         REQUIRE_FALSE(metadata.row_groups[0].pax_generic_layout.has_value());
         REQUIRE(metadata.row_groups[0].columnar_data_pointers.size() == 1);
         REQUIRE_FALSE(metadata.row_groups[0].columnar_data_pointers[0].empty());
+    }
+
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: explicit layout policy metadata restores pax-only tables") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    cleanup_test_file();
+
+    test_env_t env;
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_only_layout");
+        append_int64_data(*table, &env.resource, 64);
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        auto metadata = read_persisted_table_metadata(meta_mgr, table_pointer);
+
+        REQUIRE(metadata.has_layout_policy_metadata);
+        REQUIRE(metadata.layout_policy == row_group_layout_policy::PAX_ONLY);
+        REQUIRE(metadata.row_groups.size() == 1);
+        REQUIRE(metadata.row_groups[0].layout_kind == row_group_layout_kind::PAX_FIXED);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.set_layout_policy(row_group_layout_policy::AUTO);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        REQUIRE(loaded);
+        REQUIRE(bm.layout_policy() == row_group_layout_policy::PAX_ONLY);
     }
 
     cleanup_test_file();

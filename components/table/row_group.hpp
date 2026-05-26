@@ -5,6 +5,7 @@
 #include "storage/data_pointer.hpp"
 #include <atomic>
 #include <optional>
+#include <string>
 
 namespace components::vector {
     class data_chunk_t;
@@ -13,9 +14,21 @@ namespace components::vector {
 namespace components::table {
     class row_version_manager_t;
     struct row_group_test_access_t;
+    class column_definition_t;
 
     namespace detail {
+        enum class explicit_pax_root_kind : uint8_t
+        {
+            FIXED = 0,
+            GENERIC = 1,
+            COLUMNAR_ONLY = 2,
+            UNSUPPORTED = 3
+        };
+
         bool is_explicit_pax_columnar_only_root_type(const types::complex_logical_type& type);
+        explicit_pax_root_kind classify_explicit_pax_root_type(const types::complex_logical_type& type);
+        bool supports_explicit_pax_schema(const std::vector<column_definition_t>& columns,
+                                          std::string* error_message = nullptr);
     } // namespace detail
 
     constexpr static uint64_t MAX_ROW_GROUP_SIZE = uint64_t(1) << 30;
@@ -24,7 +37,6 @@ namespace components::table {
     enum class table_scan_type : uint8_t;
     class scan_filter_info;
     class collection_scan_state;
-    class column_definition_t;
     class collection_t;
 
     struct row_group_scan_path_counts_t {

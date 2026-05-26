@@ -5,6 +5,7 @@
 #include <components/catalog/catalog_codes.hpp>
 #include <components/catalog/dependency_walker.hpp>
 #include <components/catalog/system_table_schemas.hpp>
+#include <components/table/row_group.hpp>
 #include <fstream>
 #include <limits>
 #include <services/wal/manager_wal_replicate.hpp>
@@ -94,9 +95,15 @@ namespace services::disk {
 
         components::table::storage::row_group_layout_policy
         to_storage_layout_policy(configuration::disk_layout_policy policy) {
-            return policy == configuration::disk_layout_policy::columnar_only
-                       ? components::table::storage::row_group_layout_policy::COLUMNAR_ONLY
-                       : components::table::storage::row_group_layout_policy::AUTO;
+            switch (policy) {
+                case configuration::disk_layout_policy::columnar_only:
+                    return components::table::storage::row_group_layout_policy::COLUMNAR_ONLY;
+                case configuration::disk_layout_policy::pax_only:
+                    return components::table::storage::row_group_layout_policy::PAX_ONLY;
+                case configuration::disk_layout_policy::auto_select:
+                default:
+                    return components::table::storage::row_group_layout_policy::AUTO;
+            }
         }
     } // namespace
 
@@ -131,6 +138,12 @@ namespace services::disk {
         : mode_(storage_mode_t::DISK)
         , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_) {
+        if (layout_policy == configuration::disk_layout_policy::pax_only) {
+            std::string error_message;
+            if (!components::table::detail::supports_explicit_pax_schema(columns, &error_message)) {
+                throw std::logic_error(error_message);
+            }
+        }
         auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
                                                                                             fs_,
                                                                                             otbx_path.string());

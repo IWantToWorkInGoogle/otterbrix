@@ -197,7 +197,8 @@ namespace services::disk {
     manager_disk_t::create_storage_disk(session_id_t session,
                                         catalog::oid_t table_oid,
                                         catalog::oid_t database_oid,
-                                        std::vector<components::table::column_definition_t> columns) {
+                                        std::vector<components::table::column_definition_t> columns,
+                                        configuration::disk_layout_policy layout_policy) {
         trace(log_,
               "manager_disk_t::create_storage_disk , session : {} , oid : {}",
               session.data(),
@@ -209,7 +210,7 @@ namespace services::disk {
                           std::make_unique<collection_storage_entry_t>(resource(),
                                                                        std::move(columns),
                                                                        otbx_path,
-                                                                       config_.layout_policy,
+                                                                       layout_policy,
                                                                        scheduler_disk_,
                                                                        &run_fn_));
         co_return;

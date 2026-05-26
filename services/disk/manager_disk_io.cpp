@@ -231,7 +231,8 @@ namespace services::disk {
     void manager_disk_t::create_storage_disk_sync(components::catalog::oid_t table_oid,
                                                   components::catalog::oid_t /*database_oid*/,
                                                   std::vector<components::table::column_definition_t> columns,
-                                                  const std::filesystem::path& otbx_path) {
+                                                  const std::filesystem::path& otbx_path,
+                                                  configuration::disk_layout_policy layout_policy) {
         trace(log_,
               "manager_disk_t::create_storage_disk_sync , oid : {} , path : {}",
               static_cast<unsigned>(table_oid),
@@ -240,7 +241,7 @@ namespace services::disk {
                           std::make_unique<collection_storage_entry_t>(resource(),
                                                                        std::move(columns),
                                                                        otbx_path,
-                                                                       config_.layout_policy,
+                                                                       layout_policy,
                                                                        scheduler_disk_,
                                                                        &run_fn_));
     }

@@ -11,6 +11,7 @@
 #include <components/base/collection_full_name.hpp>
 #include <components/catalog/catalog_oids.hpp>
 #include <components/catalog/results/ddl_result.hpp>
+#include <components/configuration/configuration.hpp>
 #include <components/catalog/results/resolve_result.hpp>
 #include <components/context/execution_context.hpp>
 #include <components/context/pg_catalog_swap.hpp>
@@ -110,7 +111,9 @@ namespace services::disk {
         create_storage_disk(session_id_t session,
                             components::catalog::oid_t table_oid,
                             components::catalog::oid_t database_oid,
-                            std::vector<components::table::column_definition_t> columns);
+                            std::vector<components::table::column_definition_t> columns,
+                            configuration::disk_layout_policy layout_policy =
+                                configuration::disk_layout_policy::auto_select);
         actor_zeta::unique_future<void> drop_storage(session_id_t session, components::catalog::oid_t table_oid);
 
         // Storage queries

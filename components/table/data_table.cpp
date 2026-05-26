@@ -14,8 +14,10 @@ namespace {
 
     constexpr uint32_t ROW_GROUP_LAYOUTS_MAGIC = 0x31584150U; // "PAX1"
     constexpr uint32_t COLUMN_TYPES_METADATA_MAGIC = 0x31484353U; // "SCH1"
+    constexpr uint32_t TABLE_LAYOUT_POLICY_MAGIC = 0x3159504CU; // "LPY1"
     constexpr uint32_t TABLE_COLUMN_TYPES_METADATA_FLAG = 1U << 31;
     constexpr uint32_t TABLE_LAYOUT_METADATA_FLAG = 1U << 31;
+    constexpr uint32_t TABLE_LAYOUT_POLICY_METADATA_FLAG = 1U << 30;
 
     bool requires_column_type_metadata(const components::types::complex_logical_type& type) {
         if (type.extension() &&
@@ -568,6 +570,7 @@ namespace components::table {
                 break;
             }
         }
+        const bool has_layout_policy_metadata = row_groups_->block_manager().layout_policy() != storage::row_group_layout_policy::AUTO;
 
         // write table metadata
         writer.write_string(name_);
@@ -597,6 +600,9 @@ namespace components::table {
         if (has_layout_metadata) {
             row_group_count |= TABLE_LAYOUT_METADATA_FLAG;
         }
+        if (has_layout_policy_metadata) {
+            row_group_count |= TABLE_LAYOUT_POLICY_METADATA_FLAG;
+        }
         writer.write<uint32_t>(row_group_count);
         for (const auto& rgp : row_group_pointers) {
             rgp.serialize(writer);
@@ -619,6 +625,11 @@ namespace components::table {
                     rgp.pax_generic_layout->serialize(writer);
                 }
             }
+        }
+
+        if (has_layout_policy_metadata) {
+            writer.write<uint32_t>(TABLE_LAYOUT_POLICY_MAGIC);
+            writer.write<uint8_t>(static_cast<uint8_t>(row_groups_->block_manager().layout_policy()));
         }
 
         writer.flush();
@@ -667,7 +678,8 @@ namespace components::table {
 
         auto row_group_count = reader.read<uint32_t>();
         bool has_layout_metadata = (row_group_count & TABLE_LAYOUT_METADATA_FLAG) != 0;
-        auto rg_count = row_group_count & ~TABLE_LAYOUT_METADATA_FLAG;
+        bool has_layout_policy_metadata = (row_group_count & TABLE_LAYOUT_POLICY_METADATA_FLAG) != 0;
+        auto rg_count = row_group_count & ~(TABLE_LAYOUT_METADATA_FLAG | TABLE_LAYOUT_POLICY_METADATA_FLAG);
         std::vector<storage::row_group_pointer_t> row_group_pointers;
         row_group_pointers.reserve(rg_count);
         for (uint32_t i = 0; i < rg_count; i++) {
@@ -698,6 +710,15 @@ namespace components::table {
                     row_group_pointers[i].pax_generic_layout.reset();
                 }
             }
+        }
+
+        if (has_layout_policy_metadata) {
+            auto magic = reader.read<uint32_t>();
+            if (magic != TABLE_LAYOUT_POLICY_MAGIC) {
+                throw std::logic_error("unknown table layout policy metadata extension section");
+            }
+            auto layout_policy = static_cast<storage::row_group_layout_policy>(reader.read<uint8_t>());
+            block_manager.set_layout_policy(layout_policy);
         }
 
         uint64_t total_loaded_rows = 0;

@@ -14,7 +14,8 @@ namespace components::table::storage {
     enum class row_group_layout_policy : uint8_t
     {
         AUTO = 0,
-        COLUMNAR_ONLY = 1
+        COLUMNAR_ONLY = 1,
+        PAX_ONLY = 2
     };
 
     class block_manager_t {
