@@ -874,22 +874,27 @@ namespace components::table {
 
             auto baseptr = state.scan_state->ptr() + segment.block_offset();
             auto dict = dictionary(segment, *state.scan_state);
-            auto base_data = reinterpret_cast<int32_t*>(baseptr + DICTIONARY_HEADER_SIZE);
+            auto base_data = baseptr + DICTIONARY_HEADER_SIZE;
             auto result_data = result.data<std::string_view>();
+            const auto load_string_offset = [base_data](uint64_t index) {
+                return load<int32_t>(base_data + index * sizeof(int32_t));
+            };
 
-            int32_t previous_offset = start > 0 ? base_data[start - 1] : 0;
+            auto start_idx = static_cast<uint64_t>(start);
+            int32_t previous_offset = start > 0 ? load_string_offset(start_idx - 1) : 0;
 
             for (uint64_t i = 0; i < scan_count; i++) {
-                auto string_length = static_cast<uint32_t>(std::abs(base_data[static_cast<uint64_t>(start) + i]) -
+                auto current_offset = load_string_offset(start_idx + i);
+                auto string_length = static_cast<uint32_t>(std::abs(current_offset) -
                                                            std::abs(previous_offset));
                 result_data[result_offset + i] = fetch_string_from_dict(segment,
                                                                         dict,
                                                                         baseptr,
-                                                                        base_data[static_cast<uint64_t>(start) + i],
+                                                                        current_offset,
                                                                         string_length,
                                                                         &state,
                                                                         nullptr);
-                previous_offset = base_data[static_cast<uint64_t>(start) + i];
+                previous_offset = current_offset;
             }
         }
     } // namespace impl

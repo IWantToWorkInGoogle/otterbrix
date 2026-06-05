@@ -36,6 +36,8 @@ namespace components::logical_plan {
         // dispatcher, executor, operators after enrich), always use
         // `table_oid()` from the base class.
         const std::string& result_alias() const;
+        const std::pmr::vector<std::pmr::string>& output_column_aliases() const;
+        std::pmr::vector<std::pmr::string>& output_column_aliases();
         const std::pmr::vector<node_ptr>& children() const;
         std::pmr::vector<node_ptr>& children();
         const std::pmr::vector<expression_ptr>& expressions() const;
@@ -73,6 +75,7 @@ namespace components::logical_plan {
     protected:
         const node_type type_;
         std::string result_alias_;
+        std::pmr::vector<std::pmr::string> output_column_aliases_;
         std::pmr::vector<node_ptr> children_;
         std::pmr::vector<expression_ptr> expressions_;
         // See table_oid()/set_table_oid() above. Default INVALID_OID; enrich

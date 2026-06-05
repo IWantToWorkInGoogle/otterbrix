@@ -919,6 +919,19 @@ TEST_CASE("integration::cpp::test_sql_features::case_when_in_aggregate") {
         REQUIRE(cur->chunk_data().value(0, 0).value<int64_t>() == 3);
     }
 
+    INFO("counter pattern with compound CASE predicate") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT SUM(CASE WHEN score >= 70 OR name = 'Eve' THEN 1 ELSE 0 END) AS wide, "
+                                           "       SUM(CASE WHEN score >= 70 AND name <> 'Bob' THEN 1 ELSE 0 END) AS narrow "
+                                           "FROM TestDatabase.TestCollection;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 1);
+        REQUIRE(cur->chunk_data().column_count() == 2);
+        REQUIRE(cur->chunk_data().value(0, 0).value<int64_t>() == 4);
+        REQUIRE(cur->chunk_data().value(1, 0).value<int64_t>() == 2);
+    }
+
     INFO("multiple branches") {
         // Alice 95→1, Bob 72→2, Charlie 45→3, Dave 88→2, Eve 30→3 — sum 11.
         auto session = otterbrix::session_id_t();

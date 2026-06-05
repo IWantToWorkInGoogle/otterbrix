@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,10 @@ struct benchmark_state_t {
     session_id_t session;
     bool failed = false;
     std::string error;
+    bool result_metadata_valid = false;
+    uint64_t row_count = 0;
+    uint64_t column_count = 0;
+    std::string result_hash;
 };
 
 struct benchmark_result_t {
@@ -28,6 +33,10 @@ struct benchmark_result_t {
     std::vector<double> timings_ms;
     bool verified = true;
     std::string error;
+    bool result_metadata_valid = false;
+    uint64_t row_count = 0;
+    uint64_t column_count = 0;
+    std::string result_hash;
 
     double min_ms() const {
         if (timings_ms.empty()) return 0.0;

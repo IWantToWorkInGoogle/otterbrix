@@ -234,32 +234,18 @@ namespace components::operators {
             }
         }
 
-        // storage_scan_batched can return sparse projected chunks with placeholder
-        // vectors for non-projected storage columns. Root scan output should be a
-        // regular compact chunk stream for downstream operators/cursors.
-        for (auto& batch : batches) {
-            batch.drop_unprojected_placeholders();
-        }
-
         // Maintain the operator_data_t invariant: at least one (possibly empty)
         // chunk. storage_scan_batched can return an empty vector at SSB-scale when
         // the disk service get_storage(table_oid) hits an oid-resolution race with
         // CSV ingest commit. Without this guard, operator_join.cpp:125 asserts.
-        // Schema is taken from the projected scan signature so OUTER joins can
-        // still emit NULL-padded rows from the non-empty side.
+        // Keep the sparse projected shape here: downstream expressions use storage
+        // column indices, and cursor_t is the boundary that compacts placeholders.
         if (batches.empty()) {
-            std::pmr::vector<types::complex_logical_type> projected_types(resource_);
             if (projected_cols_.empty()) {
-                projected_types = types;
+                batches.emplace_back(resource_, types, 0);
             } else {
-                projected_types.reserve(projected_cols_.size());
-                for (auto idx : projected_cols_) {
-                    if (idx < types.size()) {
-                        projected_types.push_back(types[idx]);
-                    }
-                }
+                batches.emplace_back(resource_, types, projected_cols_, 0);
             }
-            batches.emplace_back(resource_, projected_types, 0);
         }
 
         output_ = make_operator_data(resource_, std::move(batches));

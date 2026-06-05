@@ -28,11 +28,7 @@ namespace components::planner {
         }
 
         optimizer::push_down_join_predicates(node);
-        // optimizer::prune_columns(node) is intentionally not enabled here yet:
-        // scan projection currently compacts output chunks while expressions keep
-        // storage-schema paths. Enabling it can make predicate scans read invalid
-        // columns. Keep join predicate pushdown live; re-enable pruning together
-        // with expression path remapping or sparse-chunk propagation.
+        optimizer::prune_columns(node);
 
         return node;
     }

@@ -173,7 +173,7 @@ namespace components::sql::transform {
             case T_FuncCall: {
                 // In SELECT context, FuncCall is an aggregate
                 auto func = pg_ptr_cast<FuncCall>(node);
-                auto funcname = std::string{strVal(linitial(func->funcname))};
+                auto funcname = std::string{strVal(func->funcname->lst.back().data)};
 
                 std::pmr::vector<param_storage> args(resource_);
                 if (!func->agg_star) {
@@ -536,7 +536,7 @@ namespace components::sql::transform {
     expression_ptr transformer::transform_a_expr_func(FuncCall* node,
                                                       const name_collection_t& names,
                                                       logical_plan::parameter_node_t* params) {
-        std::string funcname = strVal(node->funcname->lst.front().data);
+        std::string funcname = strVal(node->funcname->lst.back().data);
         std::pmr::vector<param_storage> args;
         args.reserve(node->args->lst.size());
         // create_value_getter rejects keys whose side is still undefined at runtime.
@@ -604,7 +604,7 @@ namespace components::sql::transform {
     logical_plan::node_ptr transformer::transform_function(FuncCall& node,
                                                            const name_collection_t& names,
                                                            logical_plan::parameter_node_t* params) {
-        std::string funcname = strVal(node.funcname->lst.front().data);
+        std::string funcname = strVal(node.funcname->lst.back().data);
         std::pmr::vector<param_storage> args;
         args.reserve(node.args->lst.size());
         for (const auto& arg : node.args->lst) {
@@ -691,7 +691,7 @@ namespace components::sql::transform {
         switch (nodeTag(node)) {
             case T_FuncCall: {
                 auto func = pg_ptr_cast<FuncCall>(node);
-                auto funcname = std::string{strVal(linitial(func->funcname))};
+                auto funcname = std::string{strVal(func->funcname->lst.back().data)};
                 // Find matching aggregate in group expressions
                 for (const auto& expr : group->expressions()) {
                     if (expr->group() == expression_group::aggregate) {
@@ -733,6 +733,11 @@ namespace components::sql::transform {
                 }
                 return add_param_value(node, params);
             }
+            case T_SubLink:
+                error_ = core::error_t(
+                    core::error_code_t::sql_parse_error,
+                    std::pmr::string{"Unsupported subquery in HAVING operand: scalar subquery", resource_});
+                return nullptr;
             default:
                 return add_param_value(node, params);
         }
@@ -755,6 +760,9 @@ namespace components::sql::transform {
                     }
                     auto left = resolve_having_operand(a_expr->lexpr, names, params, group);
                     auto right = resolve_having_operand(a_expr->rexpr, names, params, group);
+                    if (error_.contains_error()) {
+                        return nullptr;
+                    }
                     return make_compare_expression(params->parameters().resource(), comp_type, left, right);
                 }
             } else if (a_expr->kind == AEXPR_AND || a_expr->kind == AEXPR_OR) {

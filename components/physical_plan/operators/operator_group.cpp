@@ -503,10 +503,16 @@ namespace components::operators {
     vector::data_chunk_t operator_group_t::calc_aggregate_values(pipeline::context_t* pipeline_context,
                                                                  chunks_vector_t& in_chunks) {
         size_t num_groups = group_keys_.size();
-        size_t key_count = num_groups > 0 ? group_keys_[0].size() : 0;
+        size_t key_count = num_groups > 0 ? group_keys_[0].size() : keys_.size();
 
         size_t total_rows = 0;
         for (const auto& c : in_chunks) total_rows += c.size();
+
+        if (num_groups == 0) {
+            std::pmr::vector<std::pmr::vector<types::logical_value_t>> agg_results(resource_);
+            agg_results.resize(values_.size());
+            return build_result_chunk(0, key_count, agg_results, in_chunks);
+        }
 
         // Try vectorized path: check if all aggregators are builtin with simple column args
         bool can_vectorize = num_groups > 0 && total_rows > 0;
@@ -639,7 +645,13 @@ namespace components::operators {
     vector::data_chunk_t operator_group_t::calc_aggregate_values_fallback(pipeline::context_t* pipeline_context,
                                                                           chunks_vector_t& in_chunks) {
         size_t num_groups = group_keys_.size();
-        size_t key_count = num_groups > 0 ? group_keys_[0].size() : 0;
+        size_t key_count = num_groups > 0 ? group_keys_[0].size() : keys_.size();
+
+        if (num_groups == 0) {
+            std::pmr::vector<std::pmr::vector<types::logical_value_t>> agg_results(resource_);
+            agg_results.resize(values_.size());
+            return build_result_chunk(0, key_count, agg_results, in_chunks);
+        }
 
         // All chunks share the same schema — take types from the first one.
         std::pmr::vector<types::complex_logical_type> result_types{resource_};
@@ -750,25 +762,33 @@ namespace components::operators {
         // group with a typed key would trip vector_t::set_value's cast_as path
         // (NA has no cast handler → assert in logical_value.cpp).
         std::pmr::vector<types::complex_logical_type> out_types(resource_);
-        if (num_groups > 0) {
-            for (size_t k = 0; k < key_count; k++) {
-                const auto& key = keys_[k];
-                bool got = false;
-                if (key.type == group_key_t::kind::column && key.full_path.size() == 1 && !in_chunks.empty()) {
-                    const auto col_idx = key.full_path.front();
-                    if (col_idx < in_chunks.front().column_count()) {
-                        out_types.push_back(in_chunks.front().data[col_idx].type());
-                        got = true;
-                    }
+        for (size_t k = 0; k < key_count; k++) {
+            const auto& key = keys_[k];
+            bool got = false;
+            if (key.type == group_key_t::kind::column && key.full_path.size() == 1 && !in_chunks.empty()) {
+                const auto col_idx = key.full_path.front();
+                if (col_idx < in_chunks.front().column_count()) {
+                    out_types.push_back(in_chunks.front().data[col_idx].type());
+                    got = true;
                 }
-                if (!got) {
-                    out_types.push_back(group_keys_[0][k].type());
-                }
+            }
+            if (!got && num_groups > 0) {
+                out_types.push_back(group_keys_[0][k].type());
+                got = true;
+            }
+            if (!got) {
+                types::complex_logical_type t{types::logical_type::NA};
+                t.set_alias(std::string{key.name});
+                out_types.push_back(std::move(t));
             }
         }
         for (size_t a = 0; a < values_.size(); a++) {
             if (!agg_results[a].empty()) {
                 out_types.push_back(agg_results[a][0].type());
+            } else {
+                types::complex_logical_type t{types::logical_type::NA};
+                t.set_alias(std::string{values_[a].name});
+                out_types.push_back(std::move(t));
             }
         }
 

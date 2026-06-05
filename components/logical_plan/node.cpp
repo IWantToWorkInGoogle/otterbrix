@@ -7,12 +7,19 @@ namespace components::logical_plan {
 
     node_t::node_t(std::pmr::memory_resource* resource, node_type type)
         : type_(type)
+        , output_column_aliases_(resource)
         , children_(resource)
         , expressions_(resource) {}
 
     node_type node_t::type() const { return type_; }
 
     const std::string& node_t::result_alias() const { return result_alias_; }
+
+    const std::pmr::vector<std::pmr::string>& node_t::output_column_aliases() const {
+        return output_column_aliases_;
+    }
+
+    std::pmr::vector<std::pmr::string>& node_t::output_column_aliases() { return output_column_aliases_; }
 
     const std::pmr::vector<node_ptr>& node_t::children() const { return children_; }
     std::pmr::vector<node_ptr>& node_t::children() { return children_; }
@@ -55,6 +62,9 @@ namespace components::logical_plan {
     hash_t node_t::hash() const {
         hash_t hash_{0};
         boost::hash_combine(hash_, type_);
+        for (const auto& alias : output_column_aliases_) {
+            boost::hash_combine(hash_, alias);
+        }
         boost::hash_combine(hash_, hash_impl());
         std::for_each(expressions_.cbegin(), expressions_.cend(), [&hash_](const expression_ptr& expression) {
             boost::hash_combine(hash_, expression->hash());
@@ -70,8 +80,8 @@ namespace components::logical_plan {
     std::pmr::memory_resource* node_t::resource() const noexcept { return children_.get_allocator().resource(); }
 
     bool node_t::operator==(const node_t& rhs) const {
-        bool result = type_ == rhs.type_ && children_.size() == rhs.children_.size() &&
-                      expressions_.size() == rhs.expressions_.size();
+        bool result = type_ == rhs.type_ && output_column_aliases_ == rhs.output_column_aliases_ &&
+                      children_.size() == rhs.children_.size() && expressions_.size() == rhs.expressions_.size();
         if (result) {
             for (auto it = children_.cbegin(), it2 = rhs.children_.cbegin(), it_end = children_.cend(); it != it_end;
                  ++it, ++it2) {

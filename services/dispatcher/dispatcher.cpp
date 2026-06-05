@@ -76,6 +76,8 @@
 
 #include <boost/polymorphic_pointer_cast.hpp>
 
+#include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <span>
 #include <string_view>
@@ -1163,6 +1165,18 @@ namespace services::dispatcher {
                 break;
             }
             default: {
+                if (const char* trace_plan = std::getenv("OTTERBRIX_LOGICAL_PLAN_TRACE");
+                    trace_plan && trace_plan[0] != '\0' && trace_plan[0] != '0') {
+                    std::fprintf(stderr, "OTBX_LOGICAL_PLAN %s\n", logic_plan->to_string().c_str());
+                    size_t child_idx = 0;
+                    for (const auto& child : logic_plan->children()) {
+                        std::fprintf(stderr,
+                                     "OTBX_LOGICAL_PLAN_CHILD[%zu] %s\n",
+                                     child_idx++,
+                                     child ? child->to_string().c_str() : "<null>");
+                    }
+                    std::fflush(stderr);
+                }
                 auto vt_err = validate_types(resource(), &dispatcher_idx, logic_plan.get(), session_tz(session));
                 if (vt_err.contains_error()) {
                     error = make_cursor(resource(), vt_err);

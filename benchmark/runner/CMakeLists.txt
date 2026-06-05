@@ -14,6 +14,10 @@ message(STATUS "PROJECT_NAME = ${PROJECT_NAME}")
 
 add_executable(${PROJECT_NAME} ${${PROJECT_NAME}_SOURCES})
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        OTTERBRIX_BENCHMARK_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+)
+
 target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}
 )

@@ -1,6 +1,8 @@
 #include "interpreted_benchmark.hpp"
 
+#include <chrono>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -26,6 +28,15 @@ std::string trim(const std::string& s) {
     if (start == std::string::npos) return "";
     auto end = s.find_last_not_of(" \t\r\n");
     return s.substr(start, end - start + 1);
+}
+
+std::string format_sql_error(const components::cursor::cursor_t_ptr& cursor) {
+    const auto err = cursor->get_error();
+    std::string msg = "SQL error: code=";
+    msg += std::to_string(static_cast<int>(err.type));
+    msg += " what=";
+    msg += std::string_view(err.what);
+    return msg;
 }
 
 std::vector<std::string> split_csv_line(const std::string& line, char delimiter) {
@@ -193,9 +204,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
             if (!stmt.empty()) {
                 auto cursor = state.dispatcher->execute_sql(state.session, stmt);
                 if (cursor->is_error()) {
-                    std::string msg = "SQL error: ";
-                    msg += std::string_view(cursor->get_error().what);
-                    state.error = std::move(msg);
+                    state.error = format_sql_error(cursor);
                     state.failed = true;
                     return;
                 }
@@ -210,9 +219,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
     if (!stmt.empty()) {
         auto cursor = state.dispatcher->execute_sql(state.session, stmt);
         if (cursor->is_error()) {
-            std::string msg = "SQL error: ";
-            msg += std::string_view(cursor->get_error().what);
-            state.error = std::move(msg);
+            state.error = format_sql_error(cursor);
             state.failed = true;
             return;
         }
@@ -220,6 +227,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
 }
 
 void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_load_entry_t& entry) {
+    auto load_start = std::chrono::high_resolution_clock::now();
     auto csv_path = std::filesystem::path(entry.path);
     if (!csv_path.is_absolute()) {
         csv_path = benchmark_dir_ / csv_path;
@@ -300,8 +308,10 @@ void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_
     }
     flush_batch();
 
+    auto load_end = std::chrono::high_resolution_clock::now();
+    auto load_ms = std::chrono::duration<double, std::milli>(load_end - load_start).count();
     std::cout << "  Loaded " << row_num << " rows from " << csv_path.filename().string() << " into " << entry.table
-              << "\n";
+              << " in " << std::fixed << std::setprecision(3) << load_ms << " ms\n";
 }
 
 void interpreted_benchmark_t::load(benchmark_state_t& state) {
@@ -327,7 +337,7 @@ std::string interpreted_benchmark_t::verify(benchmark_state_t& state) {
     auto cursor = state.dispatcher->execute_sql(state.session, run_sql_);
     if (cursor->is_error()) {
         std::ostringstream oss;
-        oss << "Verification SQL error: " << cursor->get_error().what;
+        oss << "Verification " << format_sql_error(cursor);
         return oss.str();
     }
 

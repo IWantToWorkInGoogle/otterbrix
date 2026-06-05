@@ -16,6 +16,11 @@ struct sql_csv_entry_t {
     char delimiter = '|';
 };
 
+struct sql_parameter_t {
+    std::string name;
+    std::string value;
+};
+
 class sql_benchmark_t final : public benchmark_t {
 public:
     std::string name() const override;
@@ -37,11 +42,14 @@ private:
                     std::vector<sql_csv_entry_t> csv_entries,
                     std::filesystem::path benchmark_dir,
                     std::string database,
-                    std::optional<uint64_t> expected_rows);
+                    std::optional<uint64_t> expected_rows,
+                    std::vector<sql_parameter_t> parameters,
+                    bool logical_multi_statement);
 
     void execute_sql_block(benchmark_state_t& state, const std::string& sql);
     void load_csv_file(benchmark_state_t& state, const sql_csv_entry_t& entry);
     std::string qualify_sql(const std::string& sql) const;
+    void write_resolved_artifacts(const std::string& executable_sql) const;
 
     std::string name_;
     std::string group_;
@@ -51,6 +59,9 @@ private:
     std::filesystem::path benchmark_dir_;
     std::string database_;
     std::optional<uint64_t> expected_rows_;
+    std::vector<sql_parameter_t> parameters_;
+    bool logical_multi_statement_ = false;
+    mutable bool resolved_artifacts_written_ = false;
 };
 
 } // namespace otterbrix::benchmark

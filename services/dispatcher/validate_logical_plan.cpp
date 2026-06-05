@@ -166,6 +166,34 @@ namespace services::dispatcher {
             return merged;
         }
 
+        const char* side_name(side_t side) {
+            switch (side) {
+                case side_t::left:
+                    return "left";
+                case side_t::right:
+                    return "right";
+                default:
+                    return "undefined";
+            }
+        }
+
+        std::string describe_schema(const named_schema& schema) {
+            std::string out = "[";
+            for (size_t i = 0; i < schema.size(); ++i) {
+                if (i > 0) {
+                    out += ", ";
+                }
+                out += schema[i].result_alias.empty() ? "<no-table>" : schema[i].result_alias;
+                out += ".";
+                out += schema[i].type.has_alias() ? schema[i].type.alias() : "<no-column>";
+                out += "(";
+                out += side_name(schema[i].side);
+                out += ")";
+            }
+            out += "]";
+            return out;
+        }
+
         [[nodiscard]] core::result_wrapper_t<type_paths> find_types(std::pmr::memory_resource* resource,
                                                                     components::expressions::key_t& key,
                                                                     const named_schema& schema) {
@@ -341,7 +369,9 @@ namespace services::dispatcher {
 
             if (result.empty()) {
                 return core::error_t(core::error_code_t::schema_error,
-                                     std::pmr::string{"path: \'" + key.as_string() + "\' was not found", resource});
+                                     std::pmr::string{"path: \'" + key.as_string() + "\' was not found in schema " +
+                                                          describe_schema(schema),
+                                                      resource});
             }
             // Store path inside a key, since we will need it later
             key.set_path(result.front().path);
@@ -608,6 +638,10 @@ namespace services::dispatcher {
                 return find_types(resource, key, schema);
             } else if (std::holds_alternative<expression_ptr>(param)) {
                 auto& sub = std::get<expression_ptr>(param);
+                if (!sub) {
+                    return core::error_t(core::error_code_t::invalid_parameter,
+                                         std::pmr::string{"null expression while resolving key paths", resource});
+                }
                 if (sub->group() == expression_group::scalar) {
                     auto* scalar = static_cast<scalar_expression_t*>(sub.get());
                     auto res = resolve_key_paths_in_group(resource, scalar->params(), schema);
@@ -616,6 +650,16 @@ namespace services::dispatcher {
                     }
                 } else if (sub->group() == expression_group::compare) {
                     auto* cmp = static_cast<compare_expression_t*>(sub.get());
+                    if (cmp->is_union()) {
+                        for (auto& child : cmp->children()) {
+                            param_storage child_param{child};
+                            auto res = resolve_key_path(resource, child_param, schema);
+                            if (res.has_error()) {
+                                return res;
+                            }
+                        }
+                        return type_paths{resource};
+                    }
                     auto res = resolve_key_path(resource, cmp->left(), schema);
                     if (res.has_error()) {
                         return res;
@@ -625,16 +669,10 @@ namespace services::dispatcher {
                         return res;
                     }
                     for (auto& child : cmp->children()) {
-                        if (child->group() == expression_group::compare) {
-                            auto* child_cmp = static_cast<compare_expression_t*>(child.get());
-                            res = resolve_key_path(resource, child_cmp->left(), schema);
-                            if (res.has_error()) {
-                                return res;
-                            }
-                            res = resolve_key_path(resource, child_cmp->right(), schema);
-                            if (res.has_error()) {
-                                return res;
-                            }
+                        param_storage child_param{child};
+                        res = resolve_key_path(resource, child_param, schema);
+                        if (res.has_error()) {
+                            return res;
                         }
                     }
                 }
@@ -1398,6 +1436,88 @@ namespace services::dispatcher {
                                     return res.convert_error<named_schema>();
                                 }
                             }
+                        }
+                        named_schema selected_schema(resource);
+                        selected_schema.reserve(node_select->expressions().size());
+                        auto resolve_scalar_type = [&](param_storage& param, auto& self) -> complex_logical_type {
+                            if (std::holds_alternative<components::expressions::key_t>(param)) {
+                                auto& key = std::get<components::expressions::key_t>(param);
+                                assert(!key.path().empty());
+                                return incoming_schema[key.path()[0]].type;
+                            }
+                            if (std::holds_alternative<core::parameter_id_t>(param)) {
+                                return parameters.parameters.at(std::get<core::parameter_id_t>(param)).type();
+                            }
+                            auto& sub = std::get<expression_ptr>(param);
+                            if (sub->group() == expression_group::scalar) {
+                                auto* sub_s = static_cast<scalar_expression_t*>(sub.get());
+                                if (sub_s->type() == scalar_type::case_expr) {
+                                    return sub_s->params().size() >= 2 ? self(sub_s->params()[1], self)
+                                                                       : complex_logical_type(logical_type::NA);
+                                }
+                                if (!sub_s->params().empty()) {
+                                    auto lt = self(sub_s->params()[0], self);
+                                    auto rt = sub_s->params().size() > 1 ? self(sub_s->params()[1], self) : lt;
+                                    return complex_logical_type(
+                                        arithmetic_result_type(lt.type(), rt.type(), impl::scalar_to_arith_op(sub_s->type())));
+                                }
+                            }
+                            return complex_logical_type(logical_type::NA);
+                        };
+
+                        for (auto& expr : node_select->expressions()) {
+                            if (expr->group() != expression_group::scalar) {
+                                continue;
+                            }
+                            auto* scalar_expr = reinterpret_cast<scalar_expression_t*>(expr.get());
+                            if (scalar_expr->type() == scalar_type::star_expand) {
+                                for (const auto& col : incoming_schema) {
+                                    selected_schema.emplace_back(col);
+                                }
+                                continue;
+                            }
+
+                            complex_logical_type out_type(logical_type::NA);
+                            if (scalar_expr->type() == scalar_type::get_field) {
+                                auto& key = scalar_expr->params().empty()
+                                                ? scalar_expr->key()
+                                                : std::get<components::expressions::key_t>(scalar_expr->params().front());
+                                out_type = incoming_schema[key.path()[0]].type;
+                            } else if (scalar_expr->type() == scalar_type::constant && !scalar_expr->params().empty() &&
+                                       std::holds_alternative<core::parameter_id_t>(scalar_expr->params().front())) {
+                                out_type =
+                                    parameters.parameters.at(std::get<core::parameter_id_t>(scalar_expr->params().front()))
+                                        .type();
+                            } else if (!scalar_expr->params().empty()) {
+                                out_type = scalar_expr->type() == scalar_type::case_expr
+                                               ? (scalar_expr->params().size() >= 2
+                                                      ? resolve_scalar_type(scalar_expr->params()[1], resolve_scalar_type)
+                                                      : complex_logical_type(logical_type::NA))
+                                               : complex_logical_type(arithmetic_result_type(
+                                                     resolve_scalar_type(scalar_expr->params()[0], resolve_scalar_type)
+                                                         .type(),
+                                                     scalar_expr->params().size() > 1
+                                                         ? resolve_scalar_type(scalar_expr->params()[1], resolve_scalar_type)
+                                                               .type()
+                                                         : resolve_scalar_type(scalar_expr->params()[0], resolve_scalar_type)
+                                                               .type(),
+                                                     impl::scalar_to_arith_op(scalar_expr->type())));
+                            }
+
+                            if (!scalar_expr->key().storage().empty()) {
+                                out_type.set_alias(std::string(scalar_expr->key().storage().back()));
+                            } else if (scalar_expr->type() == scalar_type::get_field) {
+                                auto& key = scalar_expr->params().empty()
+                                                ? scalar_expr->key()
+                                                : std::get<components::expressions::key_t>(scalar_expr->params().front());
+                                if (!key.storage().empty()) {
+                                    out_type.set_alias(std::string(key.storage().back()));
+                                }
+                            }
+                            selected_schema.emplace_back(type_from_t{node->result_alias(), std::move(out_type)});
+                        }
+                        if (!selected_schema.empty()) {
+                            incoming_schema = std::move(selected_schema);
                         }
                     } else {
                         // Reject only truly-identical columns (same alias from same table).
@@ -2269,6 +2389,19 @@ namespace services::dispatcher {
                 assert(false);
                 return core::error_t(core::error_code_t::unimplemented_yet,
                                      std::pmr::string{"encountered an unknown state during plan validation", resource});
+        }
+
+        if (!node->output_column_aliases().empty()) {
+            if (node->output_column_aliases().size() != result.size()) {
+                return core::error_t(core::error_code_t::schema_error,
+                                     std::pmr::string{"derived table column alias count does not match output column "
+                                                      "count for alias '" +
+                                                          node->result_alias() + "'",
+                                                      resource});
+            }
+            for (size_t i = 0; i < result.size(); ++i) {
+                result[i].type.set_alias(std::string{node->output_column_aliases()[i]});
+            }
         }
 
         return result;

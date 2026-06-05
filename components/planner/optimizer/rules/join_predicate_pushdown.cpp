@@ -1,6 +1,8 @@
 #include "join_predicate_pushdown.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -17,6 +19,11 @@ namespace components::planner::optimizer {
     namespace {
 
         using table_cols_map = std::unordered_map<components::catalog::oid_t, size_t>;
+
+        bool trace_join_pushdown_enabled() {
+            const char* raw = std::getenv("OTTERBRIX_JOIN_PUSHDOWN_TRACE");
+            return raw && raw[0] != '\0' && raw[0] != '0';
+        }
 
         void collect_table_md(const logical_plan::node_ptr& root, table_cols_map& out) {
             if (!root) {
@@ -84,6 +91,92 @@ namespace components::planner::optimizer {
             }
 
             out.push_back(compare);
+        }
+
+        bool same_compare_expression(const expressions::compare_expression_t& left,
+                                     const expressions::compare_expression_t& right) {
+            return static_cast<const expressions::expression_i&>(left) ==
+                   static_cast<const expressions::expression_i&>(right);
+        }
+
+        bool contains_compare(const std::vector<const expressions::compare_expression_t*>& terms,
+                              const expressions::compare_expression_t& needle) {
+            return std::any_of(terms.begin(), terms.end(), [&](const auto* term) {
+                return term && same_compare_expression(*term, needle);
+            });
+        }
+
+        void append_unique_compare(std::vector<const expressions::compare_expression_t*>& terms,
+                                   const expressions::compare_expression_t* candidate) {
+            if (!candidate || contains_compare(terms, *candidate)) {
+                return;
+            }
+            terms.push_back(candidate);
+        }
+
+        void collect_common_or_conjuncts(const expressions::expression_ptr& expr,
+                                         std::vector<const expressions::compare_expression_t*>& out) {
+            if (!expr || expr->group() != expressions::expression_group::compare) {
+                return;
+            }
+
+            const auto* compare = static_cast<const expressions::compare_expression_t*>(expr.get());
+            if (compare->type() == expressions::compare_type::union_or) {
+                std::vector<std::vector<const expressions::compare_expression_t*>> branch_terms;
+                branch_terms.reserve(compare->children().size());
+                for (const auto& child : compare->children()) {
+                    std::vector<const expressions::compare_expression_t*> terms;
+                    flatten_and_terms(child, terms);
+                    if (terms.empty()) {
+                        return;
+                    }
+                    branch_terms.emplace_back(std::move(terms));
+                }
+
+                if (branch_terms.empty()) {
+                    return;
+                }
+
+                for (const auto* candidate : branch_terms.front()) {
+                    if (!candidate || expressions::is_union_compare_condition(candidate->type())) {
+                        continue;
+                    }
+
+                    bool present_in_all = true;
+                    for (size_t branch_idx = 1; branch_idx < branch_terms.size(); ++branch_idx) {
+                        if (!contains_compare(branch_terms[branch_idx], *candidate)) {
+                            present_in_all = false;
+                            break;
+                        }
+                    }
+
+                    if (present_in_all) {
+                        append_unique_compare(out, candidate);
+                    }
+                }
+
+                for (const auto& child : compare->children()) {
+                    collect_common_or_conjuncts(child, out);
+                }
+                return;
+            }
+
+            if (compare->type() == expressions::compare_type::union_and) {
+                for (const auto& child : compare->children()) {
+                    collect_common_or_conjuncts(child, out);
+                }
+            }
+        }
+
+        void collect_where_terms(const expressions::expression_ptr& expr,
+                                 std::vector<const expressions::compare_expression_t*>& out) {
+            flatten_and_terms(expr, out);
+
+            std::vector<const expressions::compare_expression_t*> common_or_terms;
+            collect_common_or_conjuncts(expr, common_or_terms);
+            for (const auto* term : common_or_terms) {
+                append_unique_compare(out, term);
+            }
         }
 
         bool param_references_range(const expressions::param_storage& param, size_t begin, size_t end) {
@@ -308,6 +401,16 @@ namespace components::planner::optimizer {
                     join->set_type(logical_plan::join_type::inner);
                     node->expressions().clear();
                     node->append_expression(combine_join_predicates(node->resource(), pushed));
+                    if (trace_join_pushdown_enabled()) {
+                        std::fprintf(stderr,
+                                     "OTBX_JOIN_PUSHDOWN pushed=%zu left=[%zu,%zu) right=[%zu,%zu) expr=%s\n",
+                                     pushed.size(),
+                                     left_begin,
+                                     left_end,
+                                     right_begin,
+                                     right_end,
+                                     node->expressions().front()->to_string().c_str());
+                    }
                 }
             }
 
@@ -342,7 +445,7 @@ namespace components::planner::optimizer {
             if (data_child && data_child->type() == logical_plan::node_type::join_t && match_child &&
                 !match_child->expressions().empty()) {
                 std::vector<const expressions::compare_expression_t*> where_terms;
-                flatten_and_terms(match_child->expressions().front(), where_terms);
+                collect_where_terms(match_child->expressions().front(), where_terms);
                 push_into_join(data_child, where_terms, md, 0);
             }
 

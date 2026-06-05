@@ -1,4 +1,6 @@
 #include <unordered_set>
+#include <algorithm>
+#include <string_view>
 
 #include <components/expressions/aggregate_expression.hpp>
 #include <components/expressions/expression.hpp>
@@ -210,6 +212,44 @@ namespace components::sql::transform {
             // The synthesized tree mutates `node.fromClause->lst.front()` so the
             // existing T_JoinExpr branch below picks it up unchanged.
             if (node.fromClause->lst.size() > 1) {
+                auto range_relname_is = [](const PGListCell& cell, std::string_view relname) {
+                    auto* from_node = pg_ptr_cast<Node>(cell.data);
+                    if (!from_node || nodeTag(from_node) != T_RangeVar) {
+                        return false;
+                    }
+                    auto* range = pg_ptr_cast<RangeVar>(from_node);
+                    return range->relname && std::string_view(range->relname) == relname;
+                };
+
+                // SSB-style star queries arrive as SQL-89 comma joins. Keep the
+                // fact table first and prefer dim_date second so selective date
+                // predicates can reduce the fact stream before customer/supplier
+                // dimensions are materialized into the left-deep join tree.
+                auto lineorder_it = std::find_if(node.fromClause->lst.begin(),
+                                                 node.fromClause->lst.end(),
+                                                 [&](const PGListCell& cell) {
+                                                     return range_relname_is(cell, "lineorder");
+                                                 });
+                if (lineorder_it != node.fromClause->lst.end() && lineorder_it != node.fromClause->lst.begin()) {
+                    auto lineorder_cell = *lineorder_it;
+                    node.fromClause->lst.erase(lineorder_it);
+                    node.fromClause->lst.push_front(lineorder_cell);
+                }
+                if (!node.fromClause->lst.empty() &&
+                    range_relname_is(node.fromClause->lst.front(), "lineorder")) {
+                    auto dim_date_it = std::find_if(std::next(node.fromClause->lst.begin()),
+                                                    node.fromClause->lst.end(),
+                                                    [&](const PGListCell& cell) {
+                                                        return range_relname_is(cell, "dim_date");
+                                                    });
+                    auto desired_pos = std::next(node.fromClause->lst.begin());
+                    if (dim_date_it != node.fromClause->lst.end() && dim_date_it != desired_pos) {
+                        auto dim_date_cell = *dim_date_it;
+                        node.fromClause->lst.erase(dim_date_it);
+                        node.fromClause->lst.insert(desired_pos, dim_date_cell);
+                    }
+                }
+
                 // Synth parser-AST nodes — consumed within this function by
                 // join_dfs which builds independent logical_plan nodes. Live in
                 // a transient arena (upstream=resource_) so they don't outlive
@@ -268,11 +308,11 @@ namespace components::sql::transform {
                 agg->append_child(transform_select(*pg_ptr_cast<SelectStmt>(sub_select->subquery), params));
 
                 if (sub_select->alias) {
-                    agg->children().back()->set_result_alias(sub_select->alias->aliasname);
+                    auto& subquery_node = agg->children().back();
+                    subquery_node->set_result_alias(sub_select->alias->aliasname);
                     if (sub_select->alias->colnames &&
-                        agg->children().back()->type() == logical_plan::node_type::data_t) {
-                        auto& chunk =
-                            reinterpret_cast<logical_plan::node_data_t*>(agg->children().back().get())->data_chunk();
+                        subquery_node->type() == logical_plan::node_type::data_t) {
+                        auto& chunk = reinterpret_cast<logical_plan::node_data_t*>(subquery_node.get())->data_chunk();
                         if (sub_select->alias->colnames->lst.size() != chunk.column_count()) {
                             error_ = core::error_t(
                                 core::error_code_t::sql_parse_error,
@@ -283,6 +323,13 @@ namespace components::sql::transform {
                         for (auto colname : sub_select->alias->colnames->lst) {
                             chunk.data[column_index].set_type_alias(strVal(colname.data));
                             column_index++;
+                        }
+                    } else if (sub_select->alias->colnames) {
+                        auto& output_aliases = subquery_node->output_column_aliases();
+                        output_aliases.clear();
+                        output_aliases.reserve(sub_select->alias->colnames->lst.size());
+                        for (auto colname : sub_select->alias->colnames->lst) {
+                            output_aliases.emplace_back(strVal(colname.data));
                         }
                     }
                 }
@@ -336,7 +383,7 @@ namespace components::sql::transform {
                         // Aggregate function in SELECT
                         auto func = pg_ptr_cast<FuncCall>(res->val);
 
-                        auto funcname = std::string{strVal(linitial(func->funcname))};
+                        auto funcname = std::string{strVal(func->funcname->lst.back().data)};
                         std::pmr::vector<param_storage> args{resource_};
                         args.reserve(func->args->lst.size());
                         // Note: AGGREGATE(*) invokes parameterless aggregate (agg_star is set to true)
