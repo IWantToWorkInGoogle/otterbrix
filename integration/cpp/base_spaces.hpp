@@ -44,6 +44,9 @@ namespace otterbrix {
 
         log_t& get_log();
         otterbrix::wrapper_dispatcher_t* dispatcher();
+#if defined(DEV_MODE)
+        void disable_shutdown_checkpoint_for_tests() noexcept { checkpoint_on_shutdown_ = false; }
+#endif
         ~base_otterbrix_t();
 
     protected:
@@ -75,6 +78,7 @@ namespace otterbrix {
         services::index::manager_index_ptr manager_index_;
         std::unique_ptr<otterbrix::wrapper_dispatcher_t, actor_zeta::pmr::deleter_t> wrapper_dispatcher_;
         actor_zeta::scheduler_ptr scheduler_disk_;
+        bool checkpoint_on_shutdown_{true};
 
     private:
         inline static std::unordered_set<std::filesystem::path, core::filesystem::path_hash> paths_ = {};

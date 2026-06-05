@@ -148,6 +148,9 @@ namespace components::table {
 
 #if defined(DEV_MODE)
         void debug_set_unloaded_deletes_for_test(bool enabled);
+        storage::row_group_layout_kind debug_layout_kind_for_test() const { return layout_kind_; }
+        void debug_reset_scan_path_counts_for_test() { reset_scan_path_counts(); }
+        row_group_scan_path_counts_t debug_scan_path_counts_for_test() const { return scan_path_counts(); }
 #endif
 
     private:

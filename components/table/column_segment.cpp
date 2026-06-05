@@ -1587,7 +1587,7 @@ namespace components::table {
                 impl::fixed_size_scan<int32_t>(*this, state, scan_count, result);
                 break;
             case types::physical_type::INT64:
-                impl::fixed_size_scan<ino64_t>(*this, state, scan_count, result);
+                impl::fixed_size_scan<int64_t>(*this, state, scan_count, result);
                 break;
             case types::physical_type::UINT8:
                 impl::fixed_size_scan<uint8_t>(*this, state, scan_count, result);
@@ -1658,7 +1658,7 @@ namespace components::table {
                 impl::fixed_size_scan_partial<int32_t>(*this, state, scan_count, result, result_offset);
                 break;
             case types::physical_type::INT64:
-                impl::fixed_size_scan_partial<ino64_t>(*this, state, scan_count, result, result_offset);
+                impl::fixed_size_scan_partial<int64_t>(*this, state, scan_count, result, result_offset);
                 break;
             case types::physical_type::UINT8:
                 impl::fixed_size_scan_partial<uint8_t>(*this, state, scan_count, result, result_offset);

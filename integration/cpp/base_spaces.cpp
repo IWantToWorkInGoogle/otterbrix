@@ -322,7 +322,7 @@ namespace otterbrix {
     base_otterbrix_t::~base_otterbrix_t() {
         trace(log_, "delete spaces");
         // Checkpoint all disk tables before shutdown
-        if (wrapper_dispatcher_) {
+        if (checkpoint_on_shutdown_ && wrapper_dispatcher_) {
             try {
                 auto session = components::session::session_id_t();
                 auto checkpoint_node = components::logical_plan::make_node_checkpoint(&resource);

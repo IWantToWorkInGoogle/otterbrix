@@ -617,8 +617,9 @@ namespace components::table {
             case types::physical_type::FLOAT:
                 return templated_check_row<float>(std::forward<Args>(args)...);
             case types::physical_type::DOUBLE:
-                // case types::physical_type::INTERVAL:
-                // return templated_check_row<interval_t>(std::forward<Args>(args)...);
+                return templated_check_row<double>(std::forward<Args>(args)...);
+            // case types::physical_type::INTERVAL:
+            // return templated_check_row<interval_t>(std::forward<Args>(args)...);
             case types::physical_type::STRING:
                 return templated_check_row<std::string_view>(std::forward<Args>(args)...);
             default:
@@ -846,9 +847,10 @@ namespace components::table {
             result_offset++;
         };
         auto merge = [&](uint64_t id, uint64_t aidx, uint64_t, uint64_t count) { pick_new(id, aidx, count); };
+        const auto update_count = count;
         uint64_t aidx = 0, bidx = 0;
         uint64_t counter = 0;
-        while (aidx < count && bidx < base_info.N) {
+        while (aidx < update_count && bidx < base_info.N) {
             auto a_index = indexing.get_index(aidx);
             auto a_id = static_cast<uint64_t>(ids[a_index]) - base_id;
             auto b_id = base_info.tuples()[bidx];
@@ -867,14 +869,14 @@ namespace components::table {
                 counter++;
             }
         }
-        for (; aidx < count; aidx++) {
+        for (; aidx < update_count; aidx++) {
             auto a_index = indexing.get_index(aidx);
-            pick_new(static_cast<uint64_t>(ids[a_index]) - base_id, a_index, count);
-            count++;
+            pick_new(static_cast<uint64_t>(ids[a_index]) - base_id, a_index, counter);
+            counter++;
         }
         for (; bidx < base_info.N; bidx++) {
-            pick_old(base_info.tuples()[bidx], bidx, count);
-            count++;
+            pick_old(base_info.tuples()[bidx], bidx, counter);
+            counter++;
         }
 
         base_info.N = static_cast<uint32_t>(result_offset);

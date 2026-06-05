@@ -26,6 +26,7 @@
 #include <components/storage/storage.hpp>
 #include <components/storage/table_storage_adapter.hpp>
 #include <components/table/data_table.hpp>
+#include <components/table/row_group.hpp>
 #include <components/table/storage/buffer_pool.hpp>
 #include <components/table/storage/in_memory_block_manager.hpp>
 #include <components/table/storage/metadata_manager.hpp>
@@ -167,6 +168,13 @@ namespace services::disk {
                 return wal::id_t{0};
             return it->second->table_storage.checkpoint_wal_id();
         }
+#if defined(DEV_MODE)
+        components::table::storage::row_group_layout_kind
+        debug_first_row_group_layout_kind_sync(components::catalog::oid_t table_oid) const noexcept;
+        void debug_reset_first_row_group_scan_path_counts_sync(components::catalog::oid_t table_oid) noexcept;
+        components::table::row_group_scan_path_counts_t
+        debug_first_row_group_scan_path_counts_sync(components::catalog::oid_t table_oid) const noexcept;
+#endif
 
         // Read the .otbx.wal_id sidecar directly from disk without loading the storage.
         wal::id_t peek_checkpoint_wal_id_from_disk(components::catalog::oid_t table_oid,

@@ -1188,6 +1188,9 @@ namespace services::dispatcher {
             auto ef = enrich_plan(resource(), logic_plan, disk_address_, ctx);
             co_await std::move(ef);
         }
+
+        logic_plan = components::planner::post_validate_optimize(resource(), logic_plan);
+
         // Logical plan rewrite: insert constraint wrapper nodes driven by enriched fields.
         {
             components::planner::planner_t planner;

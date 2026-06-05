@@ -263,6 +263,46 @@ namespace services::disk {
         co_return s->total_rows();
     }
 
+#if defined(DEV_MODE)
+    components::table::storage::row_group_layout_kind
+    manager_disk_t::debug_first_row_group_layout_kind_sync(catalog::oid_t table_oid) const noexcept {
+        auto it = storages_.find(table_oid);
+        if (it == storages_.end()) {
+            return components::table::storage::row_group_layout_kind::COLUMNAR;
+        }
+        auto* row_group = it->second->table_storage.table().row_group()->row_group(0);
+        if (!row_group) {
+            return components::table::storage::row_group_layout_kind::COLUMNAR;
+        }
+        return row_group->debug_layout_kind_for_test();
+    }
+
+    void manager_disk_t::debug_reset_first_row_group_scan_path_counts_sync(catalog::oid_t table_oid) noexcept {
+        auto it = storages_.find(table_oid);
+        if (it == storages_.end()) {
+            return;
+        }
+        auto* row_group = it->second->table_storage.table().row_group()->row_group(0);
+        if (!row_group) {
+            return;
+        }
+        row_group->debug_reset_scan_path_counts_for_test();
+    }
+
+    components::table::row_group_scan_path_counts_t
+    manager_disk_t::debug_first_row_group_scan_path_counts_sync(catalog::oid_t table_oid) const noexcept {
+        auto it = storages_.find(table_oid);
+        if (it == storages_.end()) {
+            return {};
+        }
+        auto* row_group = it->second->table_storage.table().row_group()->row_group(0);
+        if (!row_group) {
+            return {};
+        }
+        return row_group->debug_scan_path_counts_for_test();
+    }
+#endif
+
     // --- Storage data operations ---
 
     manager_disk_t::unique_future<std::unique_ptr<components::vector::data_chunk_t>>

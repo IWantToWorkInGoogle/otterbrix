@@ -2,6 +2,7 @@
 
 #include "optimizer/rules/column_pruning.hpp"
 #include "optimizer/rules/constant_folding.hpp"
+#include "optimizer/rules/join_predicate_pushdown.hpp"
 
 namespace components::planner {
 
@@ -26,10 +27,12 @@ namespace components::planner {
             return nullptr;
         }
 
-        // Column pruning: annotate aggregate nodes with the set of columns each
-        // one actually needs to read from its source. Reads schema info from
-        // sibling catalog_resolve_table_t nodes (no external catalog needed).
-        optimizer::prune_columns(node);
+        optimizer::push_down_join_predicates(node);
+        // optimizer::prune_columns(node) is intentionally not enabled here yet:
+        // scan projection currently compacts output chunks while expressions keep
+        // storage-schema paths. Enabling it can make predicate scans read invalid
+        // columns. Keep join predicate pushdown live; re-enable pruning together
+        // with expression path remapping or sparse-chunk propagation.
 
         return node;
     }

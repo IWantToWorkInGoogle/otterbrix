@@ -9,6 +9,9 @@
 #include <services/wal/manager_wal_replicate.hpp>
 #include <services/wal/wal_sync_mode.hpp>
 
+#include <cstdio>
+#include <cstdlib>
+
 #include <components/logical_plan/forward.hpp>
 #include <components/logical_plan/node_alter_table.hpp>
 #include <components/logical_plan/node_catalog_resolve_function.hpp>
@@ -33,6 +36,24 @@
 using namespace components::cursor;
 
 namespace {
+
+    bool trace_exec_errors_enabled() {
+        const char* raw = std::getenv("OTTERBRIX_EXEC_TRACE_ERRORS");
+        return raw && raw[0] != '\0' && raw[0] != '0';
+    }
+
+    void trace_exec_error(const char* where, const core::error_t& err, int operator_type = -1) {
+        if (!trace_exec_errors_enabled()) {
+            return;
+        }
+        std::fprintf(stderr,
+                     "[EXEC_ERROR] where=%s op=%d code=%d what='%s'\n",
+                     where,
+                     operator_type,
+                     static_cast<int>(err.type),
+                     err.what.c_str());
+        std::fflush(stderr);
+    }
 
     // Walk through planner-added constraint wrapper nodes (check_constraint,
     // sequence) to find the base DML node type.
@@ -484,6 +505,7 @@ namespace services::collection::executor {
             plan->on_execute(&pipeline_context);
 
             if (plan->has_error()) {
+                trace_exec_error("plan_after_execute", plan->get_error(), static_cast<int>(plan->type()));
                 cursor = make_cursor(resource(), plan->get_error());
                 break;
             }
@@ -509,6 +531,9 @@ namespace services::collection::executor {
                 // Propagate errors set during async resume (fk_check, fk_cascade,
                 // DML on disk failure, etc.)
                 if (waiting_op->has_error()) {
+                    trace_exec_error("waiting_op_after_await",
+                                     waiting_op->get_error(),
+                                     static_cast<int>(waiting_op->type()));
                     cursor = make_cursor(resource(), waiting_op->get_error());
                     break;
                 }
@@ -521,6 +546,7 @@ namespace services::collection::executor {
 
             // Detect errors set asynchronously in operators (e.g. fk_cascade root with RESTRICT).
             if (plan->has_error()) {
+                trace_exec_error("plan_after_resume", plan->get_error(), static_cast<int>(plan->type()));
                 cursor = make_cursor(resource(), plan->get_error());
                 break;
             }
