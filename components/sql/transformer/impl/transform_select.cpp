@@ -305,7 +305,11 @@ namespace components::sql::transform {
             } else if (nodeTag(from_first) == T_RangeSubselect) {
                 auto* sub_select = pg_ptr_cast<RangeSubselect>(from_first);
                 agg = logical_plan::make_node_aggregate(resource_, core::dbname_t{}, core::relname_t{});
-                agg->append_child(transform_select(*pg_ptr_cast<SelectStmt>(sub_select->subquery), params));
+                auto subquery_node = transform_select(*pg_ptr_cast<SelectStmt>(sub_select->subquery), params);
+                if (error_.contains_error() || !subquery_node) {
+                    return nullptr;
+                }
+                agg->append_child(subquery_node);
 
                 if (sub_select->alias) {
                     auto& subquery_node = agg->children().back();
@@ -653,8 +657,14 @@ namespace components::sql::transform {
                 expr = transform_a_expr_func(pg_ptr_cast<FuncCall>(node.whereClause), names, params);
             } else if (nodeTag(node.whereClause) == T_NullTest) {
                 expr = transform_null_test(pg_ptr_cast<NullTest>(node.whereClause), names, params);
+            } else if (nodeTag(node.whereClause) == T_SubLink) {
+                // Bare `WHERE col IN (subquery)` (no surrounding AND/OR).
+                expr = transform_in_sublink(pg_ptr_cast<SubLink>(node.whereClause), names, params);
             } else {
                 expr = transform_a_expr(pg_ptr_cast<A_Expr>(node.whereClause), names, params);
+            }
+            if (error_.contains_error()) {
+                return nullptr;
             }
             if (expr) {
                 agg->append_child(logical_plan::make_node_match(resource_,

@@ -64,6 +64,14 @@ namespace components::sql::transform {
                 break;
             case T_SelectStmt: {
                 log_node = transform_select(pg_cast<SelectStmt>(node), params.get());
+                // Attach any uncorrelated subqueries discovered during the
+                // transform to the plan root (the aggregate). The dispatcher
+                // drains them before the main plan runs. Done before the
+                // catalog_resolve wrap so they ride on the aggregate, which the
+                // dispatcher's tree walk reaches.
+                if (!has_error() && log_node && !pending_subqueries_.empty()) {
+                    log_node->subqueries() = std::move(pending_subqueries_);
+                }
                 // Stamp the primary FROM-clause table as a catalog dependency.
                 // The transformer's aggregate wrapper at the root carries the
                 // (dbname, relname); a future patch can walk joins to add

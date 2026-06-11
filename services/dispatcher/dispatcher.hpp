@@ -21,6 +21,7 @@
 #include <components/catalog/catalog_oids.hpp>
 #include <components/catalog/session_catalog.hpp>
 #include <components/compute/function.hpp>
+#include <components/context/execution_context.hpp>
 #include <components/cursor/cursor.hpp>
 #include <components/log/log.hpp>
 #include <components/logical_plan/node.hpp>
@@ -137,6 +138,16 @@ namespace services::dispatcher {
                           components::logical_plan::node_ptr logical_plan,
                           components::logical_plan::storage_parameters parameters,
                           components::table::transaction_data txn);
+
+        // Resolve, validate, enrich and execute a single UNCORRELATED subquery
+        // sub-plan standalone (same MVCC txn as the parent), returning its
+        // result cursor. Used by the execute_plan pre-pass to substitute scalar
+        // / IN-list subquery results into the main plan before it runs.
+        unique_future<components::cursor::cursor_t_ptr>
+        run_uncorrelated_subquery(components::session::session_id_t session,
+                                  components::logical_plan::node_ptr subplan,
+                                  components::logical_plan::parameter_node_ptr params,
+                                  components::execution_context_t ctx);
 
         actor_zeta::behavior_t current_behavior_;
     };

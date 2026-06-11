@@ -290,12 +290,17 @@ namespace components::sql::transform {
                         child_expr = transform_a_expr_func(pg_ptr_cast<FuncCall>(node), names, params);
                     } else if (nodeTag(node) == T_NullTest) {
                         child_expr = transform_null_test(pg_ptr_cast<NullTest>(node), names, params);
+                    } else if (nodeTag(node) == T_SubLink) {
+                        child_expr = transform_in_sublink(pg_ptr_cast<SubLink>(node), names, params);
                     } else {
                         error_ = core::error_t(
                             core::error_code_t::sql_parse_error,
                             std::pmr::string{"Unsupported expression: unknown expr type in transform_a_expr",
                                              resource_});
-                        return;
+                        return false;
+                    }
+                    if (error_.contains_error() || !child_expr) {
+                        return false;
                     }
                     if (expr->group() == child_expr->group()) {
                         auto comp_expr = reinterpret_cast<const compare_expression_ptr&>(child_expr);
@@ -516,10 +521,19 @@ namespace components::sql::transform {
                 auto union_type = is_not_in ? compare_type::union_and : compare_type::union_or;
                 auto cmp_type = is_not_in ? compare_type::ne : compare_type::eq;
 
+                if (nodeTag(node->rexpr) != T_List) {
+                    error_ = core::error_t(
+                        core::error_code_t::sql_parse_error,
+                        std::pmr::string{"IN expression subqueries are not supported", resource_});
+                    return nullptr;
+                }
                 auto list_node = pg_ptr_cast<List>(node->rexpr);
                 auto union_expr = make_compare_union_expression(params->parameters().resource(), union_type);
                 for (const auto& elem : list_node->lst) {
                     auto param_id = add_param_value(pg_ptr_cast<Node>(elem.data), params);
+                    if (error_.contains_error()) {
+                        return nullptr;
+                    }
                     union_expr->append_child(
                         make_compare_expression(params->parameters().resource(), cmp_type, key_in.field, param_id));
                 }
@@ -531,6 +545,51 @@ namespace components::sql::transform {
                     std::pmr::string{"Unsupported node type: " + expr_kind_to_string(node->kind), resource_});
                 return nullptr;
         }
+    }
+
+    expression_ptr transformer::transform_in_sublink(SubLink* node,
+                                                      const name_collection_t& names,
+                                                      logical_plan::parameter_node_t* params) {
+        // Raw-parser shape of `col IN (subselect)` is ANY_SUBLINK with an
+        // implied "=" operator (operName NIL). `col = ANY (subselect)` carries
+        // operName "=". Both are the supported IN form. NOT IN (`<>ALL`,
+        // ALL_SUBLINK) and other sublink kinds stay unsupported.
+        const bool is_in = node->subLinkType == ANY_SUBLINK &&
+                           (node->operName == nullptr || node->operName->lst.empty() ||
+                            std::string_view(strVal(node->operName->lst.front().data)) == "=");
+        if (!is_in || !node->subselect || nodeTag(node->subselect) != T_SelectStmt || !node->testexpr) {
+            error_ = core::error_t(core::error_code_t::sql_parse_error,
+                                   std::pmr::string{"Unsupported subquery expression", resource_});
+            return nullptr;
+        }
+        if (nodeTag(node->testexpr) != T_ColumnRef && nodeTag(node->testexpr) != T_A_Indirection) {
+            error_ = core::error_t(
+                core::error_code_t::sql_parse_error,
+                std::pmr::string{"IN subquery: left side must be a column reference", resource_});
+            return nullptr;
+        }
+        auto key_in = nodeTag(node->testexpr) == T_ColumnRef
+                          ? columnref_to_field(resource_, pg_ptr_cast<ColumnRef>(node->testexpr), names)
+                          : indirection_to_field(resource_, pg_ptr_cast<A_Indirection>(node->testexpr), names);
+        key_in.deduce_side(names);
+
+        auto subquery_plan = transform_select(*pg_ptr_cast<SelectStmt>(node->subselect), params);
+        if (error_.contains_error() || !subquery_plan) {
+            return nullptr;
+        }
+        // Empty union_or placeholder, already wired into the WHERE tree by the
+        // caller. The dispatcher appends eq(key_in, $value) per result row,
+        // reproducing the supported literal IN-list shape
+        // (union_or(col=v1, col=v2, ...)). A zero-row result leaves it empty,
+        // which the dispatcher rewrites to an always-false predicate.
+        auto placeholder = make_compare_union_expression(params->parameters().resource(), compare_type::union_or);
+        logical_plan::subquery_request_t req{resource_};
+        req.kind = logical_plan::subquery_request_t::kind_t::in_list;
+        req.subquery_plan = std::move(subquery_plan);
+        req.in_left_key = key_in.field;
+        req.placeholder = placeholder;
+        pending_subqueries_.push_back(std::move(req));
+        return placeholder;
     }
 
     expression_ptr transformer::transform_a_expr_func(FuncCall* node,
@@ -701,7 +760,39 @@ namespace components::sql::transform {
                         }
                     }
                 }
-                // Not found — use function name as alias
+                // Aggregate appears only in HAVING, not in SELECT
+                // (e.g. `... GROUP BY x HAVING sum(y) > N` with y not projected).
+                // Build it and append to the group so operator_group_t computes
+                // it and the HAVING predicate can reference it by key. `group` is
+                // mutable through the intrusive_ptr despite the const& binding.
+                if (func->args) {
+                    auto agg_expr =
+                        make_aggregate_expression(resource_, funcname, expressions::key_t{resource_, funcname});
+                    for (const auto& arg : func->args->lst) {
+                        auto* arg_node = pg_ptr_cast<Node>(arg.data);
+                        if (nodeTag(arg_node) == T_ColumnRef) {
+                            auto key = columnref_to_field(resource_, pg_ptr_cast<ColumnRef>(arg_node), names);
+                            key.deduce_side(names);
+                            agg_expr->append_param(key.field);
+                        } else if (nodeTag(arg_node) == T_A_Expr &&
+                                   pg_ptr_cast<A_Expr>(arg_node)->kind == AEXPR_OP &&
+                                   is_arithmetic_operator(strVal(pg_ptr_cast<A_Expr>(arg_node)->name->lst.front().data))) {
+                            auto arith = transform_a_expr_arithmetic(pg_ptr_cast<A_Expr>(arg_node), names, params);
+                            if (error_.contains_error() || !arith) {
+                                return nullptr;
+                            }
+                            agg_expr->append_param(arith);
+                        } else {
+                            agg_expr->append_param(add_param_value(arg_node, params));
+                            if (error_.contains_error()) {
+                                return nullptr;
+                            }
+                        }
+                    }
+                    group->append_expression(agg_expr);
+                    return agg_expr->key();
+                }
+                // Parameterless aggregate fallback — keep the function name alias.
                 return expressions::key_t{resource_, funcname};
             }
             case T_ColumnRef: {
@@ -721,23 +812,57 @@ namespace components::sql::transform {
                         auto stype = get_arithmetic_scalar_type(sub_op);
                         auto expr = make_scalar_expression(resource_, stype);
                         if (sub->lexpr) {
-                            expr->append_param(resolve_having_operand(sub->lexpr, names, params, group));
-                            expr->append_param(resolve_having_operand(sub->rexpr, names, params, group));
+                            auto left = resolve_having_operand(sub->lexpr, names, params, group);
+                            if (error_.contains_error() || contains_null_expression(left)) {
+                                return nullptr;
+                            }
+                            auto right = resolve_having_operand(sub->rexpr, names, params, group);
+                            if (error_.contains_error() || contains_null_expression(right)) {
+                                return nullptr;
+                            }
+                            expr->append_param(left);
+                            expr->append_param(right);
                         } else {
                             // Unary minus: proper unary operator with single operand
                             expr = make_scalar_expression(resource_, scalar_type::unary_minus);
-                            expr->append_param(resolve_having_operand(sub->rexpr, names, params, group));
+                            auto operand = resolve_having_operand(sub->rexpr, names, params, group);
+                            if (error_.contains_error() || contains_null_expression(operand)) {
+                                return nullptr;
+                            }
+                            expr->append_param(operand);
                         }
                         return expr;
                     }
                 }
                 return add_param_value(node, params);
             }
-            case T_SubLink:
-                error_ = core::error_t(
-                    core::error_code_t::sql_parse_error,
-                    std::pmr::string{"Unsupported subquery in HAVING operand: scalar subquery", resource_});
-                return nullptr;
+            case T_SubLink: {
+                auto* sublink = pg_ptr_cast<SubLink>(node);
+                // Only a single-value scalar subquery is supported as a HAVING
+                // operand, and only when uncorrelated (it must run standalone).
+                // The dispatcher executes it once and fills `result_param`.
+                if (sublink->subLinkType != EXPR_SUBLINK || !sublink->subselect ||
+                    nodeTag(sublink->subselect) != T_SelectStmt) {
+                    error_ = core::error_t(
+                        core::error_code_t::sql_parse_error,
+                        std::pmr::string{"Unsupported subquery in HAVING operand: scalar subquery", resource_});
+                    return nullptr;
+                }
+                auto subquery_plan = transform_select(*pg_ptr_cast<SelectStmt>(sublink->subselect), params);
+                if (error_.contains_error() || !subquery_plan) {
+                    return nullptr;
+                }
+                // Reserve a parameter the dispatcher fills with the scalar
+                // result; the enclosing comparison references it like a literal.
+                auto result_param = params->add_parameter(
+                    types::logical_value_t(resource_, types::complex_logical_type{types::logical_type::NA}));
+                logical_plan::subquery_request_t req{resource_};
+                req.kind = logical_plan::subquery_request_t::kind_t::scalar;
+                req.subquery_plan = std::move(subquery_plan);
+                req.result_param = result_param;
+                pending_subqueries_.push_back(std::move(req));
+                return result_param;
+            }
             default:
                 return add_param_value(node, params);
         }

@@ -9,6 +9,7 @@
 #include <components/catalog/table_id.hpp>
 
 #include <components/context/context.hpp>
+#include <components/expressions/compare_expression.hpp>
 #include <components/logical_plan/node_abort_transaction.hpp>
 #include <components/logical_plan/node_aggregate.hpp>
 #include <components/logical_plan/node_allocate_oids.hpp>
@@ -342,6 +343,72 @@ namespace services::dispatcher {
                 out.push_back(c);
             }
             return out;
+        }
+
+        // Wrap a standalone uncorrelated-subquery sub-plan (a bare aggregate
+        // emitted by the transformer) with catalog_resolve_namespace /
+        // catalog_resolve_table front children for every (db, rel) it
+        // references. Mirrors the dispatcher's main resolve-wrap (see the
+        // pre-order walk in execute_plan) but produces a fresh sequence_t so the
+        // sub-plan can be resolved, validated and executed on its own.
+        components::logical_plan::node_ptr
+        wrap_subplan_with_resolves(std::pmr::memory_resource* resource,
+                                   components::logical_plan::node_ptr subplan) {
+            using namespace components::logical_plan;
+            std::set<std::string> dbs;
+            std::set<std::pair<std::string, std::string>> tbls;
+            auto add_dbrel = [&](const std::string& db, const std::string& rel) {
+                if (db.empty()) {
+                    return;
+                }
+                dbs.insert(db);
+                if (!rel.empty()) {
+                    tbls.insert({db, rel});
+                }
+            };
+            std::vector<const node_t*> stack;
+            stack.push_back(subplan.get());
+            while (!stack.empty()) {
+                const node_t* n = stack.back();
+                stack.pop_back();
+                if (!n) {
+                    continue;
+                }
+                switch (n->type()) {
+                    case node_type::aggregate_t: {
+                        auto* d = static_cast<const node_aggregate_t*>(n);
+                        add_dbrel(static_cast<const std::string&>(d->dbname()),
+                                  static_cast<const std::string&>(d->relname()));
+                        break;
+                    }
+                    case node_type::match_t: {
+                        auto* d = static_cast<const node_match_t*>(n);
+                        add_dbrel(static_cast<const std::string&>(d->dbname()),
+                                  static_cast<const std::string&>(d->relname()));
+                        break;
+                    }
+                    case node_type::join_t: {
+                        auto* d = static_cast<const node_join_t*>(n);
+                        add_dbrel(static_cast<const std::string&>(d->dbname()),
+                                  static_cast<const std::string&>(d->relname()));
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                for (const auto& c : n->children()) {
+                    stack.push_back(c.get());
+                }
+            }
+            auto seq = boost::intrusive_ptr<node_t>(new node_sequence_t(resource));
+            for (const auto& db : dbs) {
+                seq->append_child(make_node_catalog_resolve_namespace(resource, core::dbname_t{db}));
+            }
+            for (const auto& [db, rel] : tbls) {
+                seq->append_child(make_node_catalog_resolve_table(resource, core::dbname_t{db}, core::relname_t{rel}));
+            }
+            seq->append_child(std::move(subplan));
+            return seq;
         }
     } // namespace
 
@@ -804,6 +871,80 @@ namespace services::dispatcher {
                 impl::gather_plan_resolve_index(logic_plan.get(), dispatcher_idx);
             }
         }
+        // === Uncorrelated subquery pre-pass ===
+        // The transformer attaches uncorrelated subqueries (scalar in HAVING,
+        // IN in WHERE) to the plan root. Execute each one standalone now — after
+        // Pass 1 (read txn established) and before the main validate — and
+        // substitute its result into the main plan so the rest of the pipeline
+        // sees a subquery-free plan. Correlated subqueries are rejected at
+        // transform time, so everything here can run independently.
+        {
+            std::vector<node_t*> sstack;
+            sstack.push_back(logic_plan.get());
+            std::pmr::vector<components::logical_plan::subquery_request_t>* reqs = nullptr;
+            while (!sstack.empty()) {
+                node_t* n = sstack.back();
+                sstack.pop_back();
+                if (!n) {
+                    continue;
+                }
+                if (!n->subqueries().empty()) {
+                    reqs = &n->subqueries();
+                    break;
+                }
+                for (auto& c : n->children()) {
+                    sstack.push_back(c.get());
+                }
+            }
+            if (reqs) {
+                // Ensure a read txn exists for subquery execution (normally set
+                // by the Pass 1 block above; guard the no-resolve corner case).
+                if (ctx.txn.transaction_id == 0) {
+                    auto t = txn_manager_.begin_transaction(session).data();
+                    if (needs_statement_read_txn && !had_active_txn_at_entry) {
+                        auto_read_txn_started = true;
+                    }
+                    ctx = components::execution_context_t{session, t, ctx.session_tz, ctx.table_oid};
+                }
+                for (auto& req : *reqs) {
+                    auto cur = co_await run_uncorrelated_subquery(session, req.subquery_plan, params, ctx);
+                    if (cur->is_error()) {
+                        close_auto_read_txn();
+                        co_return std::move(cur);
+                    }
+                    if (req.kind == components::logical_plan::subquery_request_t::kind_t::scalar) {
+                        // SQL: a scalar subquery returning no rows yields NULL.
+                        auto value =
+                            cur->size() >= 1
+                                ? cur->value(0, 0)
+                                : components::types::logical_value_t(
+                                      resource(),
+                                      components::types::complex_logical_type{components::types::logical_type::NA});
+                        params->set_parameter(req.result_param, std::move(value));
+                    } else {
+                        // IN-list: fill the placeholder union_or with one
+                        // eq(col, value) per result row (same shape as a literal
+                        // IN-list). Zero rows → `col IN ()` is always false.
+                        auto* placeholder =
+                            static_cast<components::expressions::compare_expression_t*>(req.placeholder.get());
+                        if (cur->size() == 0) {
+                            placeholder->set_type(components::expressions::compare_type::all_false);
+                        } else {
+                            for (uint64_t row = 0; row < cur->size(); ++row) {
+                                auto pid = params->add_parameter(cur->value(0, row));
+                                placeholder->append_child(
+                                    components::expressions::make_compare_expression(resource(),
+                                                                                     components::expressions::compare_type::eq,
+                                                                                     req.in_left_key,
+                                                                                     pid));
+                            }
+                        }
+                    }
+                }
+                reqs->clear();
+            }
+        }
+
         // Build table_id from the plan's role-named accessors. Each derived
         // node owns a (db, rel)-shaped pair; nodes that don't (create_type_t,
         // drop_type_t, wrappers) yield empty identifiers — same outcome as
@@ -1904,6 +2045,54 @@ namespace services::dispatcher {
 
         auto* gs = static_cast<components::operators::operator_get_schema_t*>(op.get());
         co_return make_cursor(resource(), gs->take_schemas());
+    }
+
+    manager_dispatcher_t::unique_future<components::cursor::cursor_t_ptr>
+    manager_dispatcher_t::run_uncorrelated_subquery(components::session::session_id_t session,
+                                                    node_ptr subplan,
+                                                    parameter_node_ptr params,
+                                                    components::execution_context_t ctx) {
+        using namespace components::logical_plan;
+        // Mirror the main read path for a standalone sub-plan:
+        // optimize → resolve-wrap → Pass 1 → stamp → validate → enrich →
+        // post-validate optimize → execute. Reuses the dispatcher's existing
+        // resolve/validate/enrich helpers; the subquery runs in the parent's
+        // MVCC txn (ctx.txn) so it sees the same snapshot.
+        subplan = components::planner::optimize(resource(), subplan, params.get());
+        auto wrapped = wrap_subplan_with_resolves(resource(), std::move(subplan));
+
+        auto fresh = extract_unresolved_resolves(wrapped.get());
+        if (!fresh.empty()) {
+            auto pass_root = boost::intrusive_ptr<node_t>(new node_sequence_t(resource()));
+            for (auto& n : fresh) {
+                pass_root->append_child(n);
+            }
+            auto pass_params = make_parameter_node(resource());
+            auto pass_res = co_await execute_plan_impl(session, pass_root, pass_params->take_parameters(), ctx.txn);
+            if (pass_res.cursor->is_error()) {
+                co_return std::move(pass_res.cursor);
+            }
+        }
+        stamp_oids_from_resolves(wrapped.get());
+
+        impl::plan_resolve_index_t idx;
+        impl::gather_plan_resolve_index(wrapped.get(), idx);
+        auto vt_err = validate_types(resource(), &idx, wrapped.get(), session_tz(session));
+        if (vt_err.contains_error()) {
+            co_return make_cursor(resource(), vt_err);
+        }
+        auto schema_res = validate_schema(resource(), &idx, wrapped.get(), params->parameters());
+        if (schema_res.has_error()) {
+            co_return make_cursor(resource(), schema_res.error());
+        }
+
+        co_await enrich_plan(resource(), wrapped, disk_address_, ctx);
+        wrapped = components::planner::post_validate_optimize(resource(), wrapped);
+
+        auto sub_params = make_parameter_node(resource());
+        sub_params->set_parameters(params->parameters());
+        auto res = co_await execute_plan_impl(session, wrapped, sub_params->take_parameters(), ctx.txn);
+        co_return std::move(res.cursor);
     }
 
     manager_dispatcher_t::unique_future<collection::executor::execute_result_t>

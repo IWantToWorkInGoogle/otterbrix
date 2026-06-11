@@ -9,7 +9,8 @@ namespace components::logical_plan {
         : type_(type)
         , output_column_aliases_(resource)
         , children_(resource)
-        , expressions_(resource) {}
+        , expressions_(resource)
+        , subqueries_(resource) {}
 
     node_type node_t::type() const { return type_; }
 
@@ -26,6 +27,9 @@ namespace components::logical_plan {
 
     const std::pmr::vector<expression_ptr>& node_t::expressions() const { return expressions_; }
     std::pmr::vector<expression_ptr>& node_t::expressions() { return expressions_; }
+
+    const std::pmr::vector<subquery_request_t>& node_t::subqueries() const { return subqueries_; }
+    std::pmr::vector<subquery_request_t>& node_t::subqueries() { return subqueries_; }
 
     void node_t::set_result_alias(const std::string& alias) { result_alias_ = alias; }
 

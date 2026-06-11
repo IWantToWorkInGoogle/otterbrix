@@ -196,6 +196,113 @@ TEST_CASE("integration::cpp::test_sql_features::in_list") {
     }
 }
 
+// Uncorrelated subqueries (TPC-H q11 scalar-in-HAVING + q18 IN-in-WHERE shapes).
+// The dispatcher executes each subquery once and substitutes its result into the
+// main plan before it runs. Fixture: count 0..99.
+TEST_CASE("integration::cpp::test_sql_features::uncorrelated_subquery") {
+    auto config = test_create_config("/tmp/test_sql_features/uncorrelated_subquery");
+    test_clear_directory(config);
+    config.disk.on = false;
+    config.wal.on = false;
+    test_spaces space(config);
+    auto* dispatcher = space.dispatcher();
+
+    INFO("initialization") {
+        {
+            auto session = otterbrix::session_id_t();
+            dispatcher->execute_sql(session, "CREATE DATABASE TestDatabase;");
+        }
+        {
+            auto session = otterbrix::session_id_t();
+            dispatcher->create_collection(session, database_name, collection_name);
+        }
+        {
+            auto session = otterbrix::session_id_t();
+            std::stringstream query;
+            query << "INSERT INTO TestDatabase.TestCollection (name, count) VALUES ";
+            for (int num = 0; num < 100; ++num) {
+                query << "('Name " << num << "', " << num << ")" << (num == 99 ? ";" : ", ");
+            }
+            auto cur = dispatcher->execute_sql(session, query.str());
+            REQUIRE(cur->is_success());
+            REQUIRE(cur->size() == 100);
+        }
+    }
+
+    INFO("IN-subquery (q18 shape)") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT * FROM TestDatabase.TestCollection WHERE count IN "
+                                           "(SELECT count FROM TestDatabase.TestCollection WHERE count < 5);");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 5);
+    }
+
+    INFO("IN-subquery combined with AND") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT * FROM TestDatabase.TestCollection WHERE count IN "
+                                           "(SELECT count FROM TestDatabase.TestCollection WHERE count < 50) "
+                                           "AND count > 45;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 4); // 46, 47, 48, 49
+    }
+
+    INFO("IN-subquery with empty result is always false") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT * FROM TestDatabase.TestCollection WHERE count IN "
+                                           "(SELECT count FROM TestDatabase.TestCollection WHERE count > 1000);");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 0);
+    }
+
+    INFO("scalar subquery in HAVING (q11 shape), avg threshold") {
+        // avg(count) over 0..99 is 49.5; GROUP BY count → sum(count)=count per
+        // group; count > 49.5 keeps 50..99 → 50 groups.
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT count, sum(count) FROM TestDatabase.TestCollection "
+                                           "GROUP BY count "
+                                           "HAVING sum(count) > (SELECT avg(count) FROM TestDatabase.TestCollection);");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 50);
+    }
+
+    INFO("scalar subquery in HAVING, min threshold (value matters)") {
+        // min(count) is 0; count > 0 keeps 1..99 → 99 groups. Different count
+        // than the avg case proves the scalar VALUE is substituted, not ignored.
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT count, sum(count) FROM TestDatabase.TestCollection "
+                                           "GROUP BY count "
+                                           "HAVING sum(count) > (SELECT min(count) FROM TestDatabase.TestCollection);");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 99);
+    }
+
+    INFO("HAVING aggregate not in SELECT list") {
+        // sum(count) appears only in HAVING, not the projection. count > 50
+        // (sum=count per single-value group) keeps 51..99 → 49 groups.
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT count FROM TestDatabase.TestCollection "
+                                           "GROUP BY count HAVING sum(count) > 50;");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 49);
+    }
+
+    INFO("IN-subquery whose body groups + HAVINGs an unprojected aggregate (q18 shape)") {
+        auto session = otterbrix::session_id_t();
+        auto cur = dispatcher->execute_sql(session,
+                                           "SELECT * FROM TestDatabase.TestCollection WHERE count IN "
+                                           "(SELECT count FROM TestDatabase.TestCollection "
+                                           " GROUP BY count HAVING sum(count) > 50);");
+        REQUIRE(cur->is_success());
+        REQUIRE(cur->size() == 49); // counts 51..99
+    }
+}
+
 TEST_CASE("integration::cpp::test_sql_features::between") {
     auto config = test_create_config("/tmp/test_sql_features/between");
     test_clear_directory(config);

@@ -80,6 +80,13 @@ namespace components::sql::transform {
         expressions::expression_ptr
         transform_a_expr(A_Expr* node, const name_collection_t& names, logical_plan::parameter_node_t* params);
 
+        // Uncorrelated `col IN (SELECT col ...)` (ANY_SUBLINK). Transforms the
+        // subquery body, records a deferred subquery_request_t, and returns an
+        // empty union_or placeholder that the dispatcher fills with one
+        // eq(col, value) per result row. Correlated/other sublink kinds error.
+        expressions::expression_ptr
+        transform_in_sublink(SubLink* node, const name_collection_t& names, logical_plan::parameter_node_t* params);
+
         // Arithmetic expression: returns scalar_expression_t
         expressions::expression_ptr transform_a_expr_arithmetic(A_Expr* node,
                                                                 const name_collection_t& names,
@@ -163,6 +170,11 @@ namespace components::sql::transform {
         vector::data_chunk_t parameter_insert_rows_;
         size_t aggregate_counter_{0};
         std::pmr::vector<expressions::expression_ptr> pending_internal_aggs_{resource_};
+        // Uncorrelated subqueries discovered while transforming a SELECT.
+        // Accumulated here and attached to the plan root in transform() so the
+        // dispatcher can execute them once and substitute their results before
+        // the main plan runs. See logical_plan::subquery_request_t.
+        std::pmr::vector<logical_plan::subquery_request_t> pending_subqueries_{resource_};
         core::error_t error_;
     };
 } // namespace components::sql::transform
