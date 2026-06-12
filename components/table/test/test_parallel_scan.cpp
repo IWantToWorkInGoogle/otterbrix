@@ -6,6 +6,8 @@
 #include <components/table/storage/standard_buffer_manager.hpp>
 #include <core/file/local_file_system.hpp>
 #include <set>
+#include <thread>
+#include <vector>
 
 using namespace components::types;
 using namespace components::vector;
@@ -20,8 +22,8 @@ namespace {
         storage::standard_buffer_manager_t buffer_manager;
         storage::in_memory_block_manager_t block_manager;
 
-        test_env()
-            : buffer_pool(&resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
+        explicit test_env(uint64_t max_memory = uint64_t(1) << 32)
+            : buffer_pool(&resource, max_memory, false, uint64_t(1) << 24)
             , buffer_manager(&resource, fs, buffer_pool)
             , block_manager(buffer_manager, storage::DEFAULT_BLOCK_ALLOC_SIZE) {}
     };
@@ -243,4 +245,81 @@ TEST_CASE("parallel scan: copy_segments provides snapshot") {
         REQUIRE(segments[i] != nullptr);
         REQUIRE(segments[i]->count == rows_per_rg);
     }
+}
+
+namespace {
+    // Drive next_parallel_chunk from `nthreads` real threads sharing one parallel_state. The atomic
+    // next_row_group_idx hands each thread distinct row groups; every thread keeps its own
+    // table_scan_state + result chunk. Returns the multiset of all scanned values. Built to be run
+    // under ThreadSanitizer: it concurrently exercises row_group_tree segment_at, lazy column load
+    // (row_group_lock_), and buffer-pool pin/unpin + eviction (purge_lock_) on a single table.
+    std::vector<int64_t> parallel_scan_all(data_table_t& table, test_env& env, unsigned nthreads) {
+        std::vector<storage_index_t> column_ids;
+        column_ids.emplace_back(0);
+        auto parallel_state = table.create_parallel_scan_state(column_ids);
+        auto types = table.copy_types();
+
+        std::vector<std::vector<int64_t>> per_thread(nthreads);
+        std::vector<std::thread> threads;
+        threads.reserve(nthreads);
+        for (unsigned t = 0; t < nthreads; t++) {
+            threads.emplace_back([&, t]() {
+                table_scan_state local_state(&env.resource);
+                data_chunk_t result(&env.resource, types, DEFAULT_VECTOR_CAPACITY);
+                while (table.next_parallel_chunk(*parallel_state, local_state, result)) {
+                    for (uint64_t i = 0; i < result.size(); i++) {
+                        per_thread[t].push_back(result.data[0].value(i).value<int64_t>());
+                    }
+                }
+            });
+        }
+        for (auto& th : threads) {
+            th.join();
+        }
+        std::vector<int64_t> all;
+        for (auto& v : per_thread) {
+            all.insert(all.end(), v.begin(), v.end());
+        }
+        return all;
+    }
+
+    void require_exact_cover(std::vector<int64_t> values, uint64_t total) {
+        REQUIRE(values.size() == total); // no rows dropped or double-counted across threads
+        std::set<int64_t> distinct(values.begin(), values.end());
+        REQUIRE(distinct.size() == total); // every value seen exactly once
+        REQUIRE(*distinct.begin() == 0);
+        REQUIRE(*distinct.rbegin() == static_cast<int64_t>(total) - 1);
+    }
+} // namespace
+
+TEST_CASE("parallel scan: concurrent threads cover all rows exactly once [tsan]") {
+    test_env env;
+    auto table = make_int_table(env);
+
+    constexpr uint64_t rows_per_rg = DEFAULT_VECTOR_CAPACITY;
+    constexpr int num_row_groups = 32;
+    for (int i = 0; i < num_row_groups; i++) {
+        append_rows(*table, env, static_cast<int64_t>(static_cast<uint64_t>(i) * rows_per_rg), rows_per_rg);
+    }
+    const uint64_t total = static_cast<uint64_t>(num_row_groups) * rows_per_rg;
+    REQUIRE(table->row_group()->total_rows() == total);
+
+    require_exact_cover(parallel_scan_all(*table, env, 8), total);
+}
+
+TEST_CASE("parallel scan: concurrent threads under buffer-pool eviction pressure [tsan]") {
+    // A small pool forces blocks to be evicted and re-pinned while other threads scan — this is the
+    // documented remaining hazard for parallel scan (concurrent eviction path, purge_lock_).
+    test_env env(uint64_t(1) << 21); // 2 MiB pool vs ~64 row groups worth of data
+
+    auto table = make_int_table(env);
+    constexpr uint64_t rows_per_rg = DEFAULT_VECTOR_CAPACITY;
+    constexpr int num_row_groups = 64;
+    for (int i = 0; i < num_row_groups; i++) {
+        append_rows(*table, env, static_cast<int64_t>(static_cast<uint64_t>(i) * rows_per_rg), rows_per_rg);
+    }
+    const uint64_t total = static_cast<uint64_t>(num_row_groups) * rows_per_rg;
+    REQUIRE(table->row_group()->total_rows() == total);
+
+    require_exact_cover(parallel_scan_all(*table, env, 8), total);
 }
