@@ -162,8 +162,16 @@ namespace components::table {
     void standard_column_data_t::initialize_column(const persistent_column_data_t& persistent_data) {
         column_data_t::initialize_column(persistent_data);
 
-        // create matching transient validity segments for each data segment
-        validity.initialize_column_validity(persistent_data);
+        // If the validity child was persisted (COLUMNAR layout), restore it from its real on-disk
+        // segments so reopened NULLs survive. Otherwise (PAX layout, where validity lives in the
+        // page layout and is restored separately by create_from_pointer, or an all-valid column with
+        // no persisted child) fall back to the matching all-valid transient segments.
+        if (!persistent_data.child_columns.empty() && persistent_data.child_columns[0] &&
+            !persistent_data.child_columns[0]->data_pointers.empty()) {
+            validity.initialize_column(*persistent_data.child_columns[0]);
+        } else {
+            validity.initialize_column_validity(persistent_data);
+        }
     }
 
 } // namespace components::table

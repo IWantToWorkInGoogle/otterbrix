@@ -147,6 +147,12 @@ namespace components::table::storage {
         uint64_t row_start{0};
         uint64_t tuple_count{0};
         std::vector<std::vector<data_pointer_t>> columnar_data_pointers; // per-column data pointers
+        // Per-column validity-child data pointers for the COLUMNAR layout. The columnar checkpoint
+        // flushes only a column's own data segments; without persisting the validity child here, a
+        // reopened columnar column reads back all-valid and silently turns NULLs into values. Empty
+        // for PAX columns (PAX stores validity inside its own page layout) and for columns without a
+        // validity child.
+        std::vector<std::vector<data_pointer_t>> columnar_validity_pointers;
         std::vector<data_pointer_t> deletes_pointers;
         row_group_layout_kind layout_kind{row_group_layout_kind::COLUMNAR};
         std::optional<pax_fixed_row_group_layout_t> pax_fixed_layout;

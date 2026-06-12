@@ -5249,11 +5249,13 @@ TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") 
 
 // Differential round-trip fuzzer — CATALOG mode. The highest-ROI guard against *silent*
 // corruption (wrong value / wrong null bit, no error). It does NOT abort on the first divergence:
-// it runs many seeded random trials (random schema over the PAX-supported scalar + string types,
+// it runs many seeded random trials (random schema over the supported scalar + string types,
 // random nulls, random row counts across row-group/page boundaries, append → cold-reopen →
 // append-after-reopen → cold-reopen → scan, with random DELETEs and UPDATEs interleaved at every
 // append/reopen point and mirrored into the oracle), and for every mismatch records a *signature*
-// (type / nullable / committed-vs-appended region / del / upd / symptom). At the end it prints the distinct
+// (layout / type / nullable / committed-vs-appended region / del / upd / symptom). Each trial picks a
+// layout: PAX_ONLY (~2/3) or COLUMNAR_ONLY (~1/3); UPDATE is gated to PAX because columnar checkpoint
+// drops the update_segment overlay on reopen (a separate, still-open bug). At the end it prints the distinct
 // bug classes with counts and an example seed for a deterministic repro, then asserts clean.
 // Crank trials with FUZZ_TRIALS=N. To deterministically repro one catalog seed, run with
 // FUZZ_ONLY_SEED=<seed> (executes exactly that one trial). This is a HARD guard — every class it
@@ -5496,6 +5498,12 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
         std::set<uint64_t> deleted_rows; // rows removed via DELETE — excluded from the visible oracle
         bool had_update = false;         // whether any UPDATE was applied this trial (signature tag)
         const bool do_mid_reopen = (rng() & 1u) != 0; // distinguish reopen-append from plain append
+        // Exercise BOTH on-disk layouts: PAX (page-packed validity) and COLUMNAR (validity persisted
+        // as a child column). Both must round-trip values + null bits identically. ~1/3 columnar.
+        const bool use_columnar = (rng() % 3) == 0;
+        const auto layout_policy =
+            use_columnar ? row_group_layout_policy::COLUMNAR_ONLY : row_group_layout_policy::PAX_ONLY;
+        const char* layout_tag = use_columnar ? "columnar" : "pax";
 
         const auto append_batch = [&](data_table_t& table, std::pmr::memory_resource* res, uint64_t n) {
             auto types = table.copy_types();
@@ -5551,7 +5559,13 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             };
 
             // UPDATE a random column on a random subset of live rows (~half the mutation points).
-            if ((rng() & 1u) != 0) {
+            // Gated to PAX: the COLUMNAR checkpoint flushes base data segments directly and drops the
+            // update_segment overlay (it does not re-materialize merged values the way PAX does via
+            // scan_committed_range), so columnar UPDATEs are lost on reopen — a separate pre-existing
+            // bug tracked apart from this columnar-validity fix. The coin is always drawn so the RNG
+            // stream stays stable across layouts.
+            const bool do_update = (rng() & 1u) != 0;
+            if (do_update && !use_columnar) {
                 auto live = live_rows();
                 if (!live.empty()) {
                     const uint64_t c = rng() % ncols;
@@ -5616,7 +5630,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                     test_env_t env;
                     single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
                     bm.create_new_database();
-                    bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+                    bm.set_layout_policy(layout_policy);
                     auto cols_copy = columns;
                     auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
                     append_batch(*table, &env.resource, r1);
@@ -5637,7 +5651,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 test_env_t env;
                 single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
                 bm.create_new_database();
-                bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+                bm.set_layout_policy(layout_policy);
                 auto cols_copy = columns;
                 auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
                 append_batch(*table, &env.resource, r1);
@@ -5704,7 +5718,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                         const char* sym = check(schema[c].type, oracle[c][row], result.data[c], i);
                         if (sym[0] != '\0') {
                             const char* region = (do_mid_reopen && row >= r1) ? "appended" : "committed";
-                            std::string sig = std::string("type=") + type_name(schema[c].type) +
+                            std::string sig = std::string("layout=") + layout_tag + " type=" +
+                                              type_name(schema[c].type) +
                                               " nullcol=" + (schema[c].nullable ? "1" : "0") + " region=" + region +
                                               " reopen_append=" + (do_mid_reopen ? "1" : "0") + " del=" + del_tag +
                                               " upd=" + upd_tag + " symptom=" + sym;
@@ -5716,8 +5731,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 scanned += result.size();
             }
             if (overflow || scanned != visible.size()) {
-                record("row-count-mismatch reopen_append=" + std::string(do_mid_reopen ? "1" : "0") + " del=" +
-                           del_tag + " upd=" + upd_tag,
+                record("layout=" + std::string(layout_tag) + " row-count-mismatch reopen_append=" +
+                           std::string(do_mid_reopen ? "1" : "0") + " del=" + del_tag + " upd=" + upd_tag,
                        seed);
             }
         } catch (const std::exception& e) {

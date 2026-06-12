@@ -280,6 +280,15 @@ namespace components::table::storage {
             }
         }
 
+        // per-column validity-child pointers (COLUMNAR layout; empty for PAX / no-validity columns)
+        writer.write<uint32_t>(static_cast<uint32_t>(columnar_validity_pointers.size()));
+        for (const auto& column_ptrs : columnar_validity_pointers) {
+            writer.write<uint32_t>(static_cast<uint32_t>(column_ptrs.size()));
+            for (const auto& dp : column_ptrs) {
+                dp.serialize(writer);
+            }
+        }
+
         // deletes
         writer.write<uint32_t>(static_cast<uint32_t>(deletes_pointers.size()));
         for (const auto& dp : deletes_pointers) {
@@ -299,6 +308,16 @@ namespace components::table::storage {
             result.columnar_data_pointers[i].resize(seg_count);
             for (uint32_t j = 0; j < seg_count; j++) {
                 result.columnar_data_pointers[i][j] = data_pointer_t::deserialize(reader);
+            }
+        }
+
+        auto vcol_count = reader.read<uint32_t>();
+        result.columnar_validity_pointers.resize(vcol_count);
+        for (uint32_t i = 0; i < vcol_count; i++) {
+            auto seg_count = reader.read<uint32_t>();
+            result.columnar_validity_pointers[i].resize(seg_count);
+            for (uint32_t j = 0; j < seg_count; j++) {
+                result.columnar_validity_pointers[i][j] = data_pointer_t::deserialize(reader);
             }
         }
 

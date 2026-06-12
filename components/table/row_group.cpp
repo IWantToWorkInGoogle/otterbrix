@@ -5243,6 +5243,19 @@ namespace components::table {
 
         auto col_count = get_column_count();
         pointer.columnar_data_pointers.resize(col_count);
+        pointer.columnar_validity_pointers.resize(col_count);
+
+        // Persist a columnar column's validity child alongside its data. Without this the reopened
+        // column has no persisted null mask and reads back all-valid (NULLs become values). Only
+        // standard columns carry a validity child; nested/other columns are unaffected here.
+        auto persist_columnar_validity = [&](uint64_t column_index, column_data_t& column) {
+            auto* standard_column = dynamic_cast<standard_column_data_t*>(&column);
+            if (!standard_column) {
+                return;
+            }
+            auto validity_persistent = standard_column->validity.checkpoint(partial_block_manager);
+            pointer.columnar_validity_pointers[column_index] = std::move(validity_persistent.data_pointers);
+        };
 
         auto checkpoint_committed_deletes = [&]() {
             auto* vinfo = version_info();
@@ -5289,6 +5302,7 @@ namespace components::table {
             }
             auto persistent = column.checkpoint(partial_block_manager);
             pointer.columnar_data_pointers[column_index] = std::move(persistent.data_pointers);
+            persist_columnar_validity(column_index, column);
         };
 
         for (uint64_t i = 0; i < col_count; i++) {
@@ -5418,8 +5432,10 @@ namespace components::table {
                 if (!pointer.columnar_data_pointers[i].empty()) {
                     continue;
                 }
-                auto persistent = get_column(i).checkpoint(partial_block_manager);
+                auto& column = get_column(i);
+                auto persistent = column.checkpoint(partial_block_manager);
                 pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
+                persist_columnar_validity(i, column);
             }
             pointer.layout_kind = storage::row_group_layout_kind::COLUMNAR;
             pax_fixed_layout_.reset();
@@ -5482,6 +5498,14 @@ namespace components::table {
         for (uint64_t i = 0; i < min_count; i++) {
             persistent_column_data_t pcd(columns_[i]->resource());
             pcd.data_pointers = pointer.columnar_data_pointers[i];
+            // Hand the persisted validity-child pointers to initialize_column as a child column so a
+            // columnar column restores its real null mask instead of zero-filling to all-valid.
+            // Empty for PAX columns (their validity is restored from the page layout below).
+            if (i < pointer.columnar_validity_pointers.size() && !pointer.columnar_validity_pointers[i].empty()) {
+                auto validity_child = std::make_unique<persistent_column_data_t>(columns_[i]->resource());
+                validity_child->data_pointers = pointer.columnar_validity_pointers[i];
+                pcd.child_columns.push_back(std::move(validity_child));
+            }
             columns_[i]->initialize_column(pcd);
         }
 
