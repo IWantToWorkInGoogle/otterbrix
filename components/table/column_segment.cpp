@@ -228,6 +228,15 @@ namespace components::table {
             memcpy(result.data() + result_idx * sizeof(T), data_ptr, sizeof(T));
         }
 
+        // Read a single validity bit (1 = valid, matching validity_mask_t::row_is_valid) from a
+        // packed mask at `mask_ptr` via a memcpy load, so it is safe regardless of mask_ptr
+        // alignment — a misaligned uint64 dereference is UB and faults on stricter targets (ARM).
+        inline bool validity_bit(std::byte* mask_ptr, uint64_t index) {
+            const uint64_t entry =
+                load<uint64_t>(mask_ptr + (index / vector::validity_mask_t::BITS_PER_VALUE) * sizeof(uint64_t));
+            return (entry & (uint64_t(1) << (index % vector::validity_mask_t::BITS_PER_VALUE))) != 0;
+        }
+
         void validity_fetch_row(column_segment_t& segment,
                                 column_fetch_state&,
                                 int64_t row_id,
@@ -237,10 +246,8 @@ namespace components::table {
             auto& buffer_manager = segment.block->block_manager.buffer_manager;
             auto handle = buffer_manager.pin(segment.block);
             auto dataptr = handle.ptr() + segment.block_offset();
-            vector::validity_mask_t mask(reinterpret_cast<uint64_t*>(dataptr));
-            auto& result_mask = result.validity();
-            if (!mask.row_is_valid(static_cast<uint64_t>(row_id))) {
-                result_mask.set_invalid(result_idx);
+            if (!validity_bit(dataptr, static_cast<uint64_t>(row_id))) {
+                result.validity().set_invalid(result_idx);
             }
         }
 
@@ -253,15 +260,19 @@ namespace components::table {
 
             auto baseptr = handle.ptr() + segment.block_offset();
             auto dict = dictionary(segment, handle);
-            auto base_data = reinterpret_cast<int32_t*>(baseptr + DICTIONARY_HEADER_SIZE);
+            // The dictionary offset array sits at baseptr + DICTIONARY_HEADER_SIZE. block_offset() is
+            // not int32-aligned for shared-block / disk-loaded segments, so read each offset with a
+            // memcpy load instead of dereferencing reinterpret_cast<int32_t*> (UB; ARM-unsafe).
+            auto* offsets = baseptr + DICTIONARY_HEADER_SIZE;
             auto result_data = result.data<std::string_view>();
 
-            auto dict_offset = base_data[row_id];
+            auto dict_offset = load<int32_t>(offsets + static_cast<uint64_t>(row_id) * sizeof(int32_t));
             uint32_t string_length;
             if (row_id == 0) {
                 string_length = static_cast<uint32_t>(std::abs(dict_offset));
             } else {
-                string_length = static_cast<uint32_t>(std::abs(dict_offset) - std::abs(base_data[row_id - 1]));
+                auto prev_offset = load<int32_t>(offsets + static_cast<uint64_t>(row_id - 1) * sizeof(int32_t));
+                string_length = static_cast<uint32_t>(std::abs(dict_offset) - std::abs(prev_offset));
             }
             result_data[result_idx] =
                 fetch_string_from_dict(segment, dict, baseptr, dict_offset, string_length, nullptr, &state);
@@ -283,9 +294,8 @@ namespace components::table {
             auto& buffer_manager = segment.block->block_manager.buffer_manager;
             auto handle = buffer_manager.pin(segment.block);
             auto dataptr = handle.ptr() + segment.block_offset();
-            vector::validity_mask_t mask(reinterpret_cast<uint64_t*>(dataptr));
 
-            return table_filter_dispatch(filter, mask.row_is_valid(static_cast<uint64_t>(row_id)));
+            return table_filter_dispatch(filter, validity_bit(dataptr, static_cast<uint64_t>(row_id)));
         }
 
         bool string_check_row(column_segment_t& segment,
@@ -296,14 +306,17 @@ namespace components::table {
 
             auto baseptr = handle.ptr() + segment.block_offset();
             auto dict = dictionary(segment, handle);
-            auto base_data = reinterpret_cast<int32_t*>(baseptr + DICTIONARY_HEADER_SIZE);
+            // See string_fetch_row: read int32 dict offsets with memcpy loads, not a misaligned
+            // reinterpret_cast<int32_t*> at the (possibly unaligned) block_offset().
+            auto* offsets = baseptr + DICTIONARY_HEADER_SIZE;
 
-            auto dict_offset = base_data[row_id];
+            auto dict_offset = load<int32_t>(offsets + static_cast<uint64_t>(row_id) * sizeof(int32_t));
             uint32_t string_length;
             if (row_id == 0) {
                 string_length = static_cast<uint32_t>(std::abs(dict_offset));
             } else {
-                string_length = static_cast<uint32_t>(std::abs(dict_offset) - std::abs(base_data[row_id - 1]));
+                auto prev_offset = load<int32_t>(offsets + static_cast<uint64_t>(row_id - 1) * sizeof(int32_t));
+                string_length = static_cast<uint32_t>(std::abs(dict_offset) - std::abs(prev_offset));
             }
 
             return table_filter_dispatch(
@@ -780,10 +793,11 @@ namespace components::table {
                                    uint64_t result_offset) {
             auto start = segment.relative_index(state.row_index);
 
-            static_assert(sizeof(uint64_t) == sizeof(uint64_t), "uint64_t should be 64-bit");
             auto& result_mask = result.validity();
+            // Read mask words with memcpy loads rather than dereferencing reinterpret_cast<uint64_t*>:
+            // validity segments are block-aligned today (block_offset()==0), but a misaligned typed
+            // load is UB and faults on stricter targets (ARM). load<> compiles to a plain mov on x86.
             auto buffer_ptr = state.scan_state->ptr() + segment.block_offset();
-            auto input_data = reinterpret_cast<uint64_t*>(buffer_ptr);
 
             auto result_data = result_mask.data();
 
@@ -796,7 +810,7 @@ namespace components::table {
             while (pos < scan_count) {
                 uint64_t current_result_idx = result_entry;
                 uint64_t offset;
-                uint64_t input_mask = input_data[input_entry];
+                uint64_t input_mask = load<uint64_t>(buffer_ptr + input_entry * sizeof(uint64_t));
 
                 if (result_idx < input_idx) {
                     auto shift_amount = input_idx - result_idx;
@@ -851,14 +865,14 @@ namespace components::table {
             auto start = segment.relative_index(state.row_index);
             if (static_cast<uint64_t>(start) % vector::validity_mask_t::BITS_PER_VALUE == 0) {
                 auto& result_mask = result.validity();
+                // memcpy loads instead of reinterpret_cast<uint64_t*> — see validity_scan_partial.
                 auto buffer_ptr = state.scan_state->ptr() + segment.block_offset();
-                auto input_data = reinterpret_cast<uint64_t*>(buffer_ptr);
                 auto result_data = result_mask.data();
                 uint64_t start_offset = static_cast<uint64_t>(start) / vector::validity_mask_t::BITS_PER_VALUE;
                 uint64_t entry_scan_count = (scan_count + vector::validity_mask_t::BITS_PER_VALUE - 1) /
                                             vector::validity_mask_t::BITS_PER_VALUE;
                 for (uint64_t i = 0; i < entry_scan_count; i++) {
-                    auto input_entry = input_data[start_offset + i];
+                    auto input_entry = load<uint64_t>(buffer_ptr + (start_offset + i) * sizeof(uint64_t));
                     if (!result_data && input_entry == vector::validity_data_t::MAX_ENTRY) {
                         continue;
                     }
