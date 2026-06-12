@@ -5254,12 +5254,14 @@ TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") 
 // append-after-reopen → cold-reopen → scan), and for every mismatch records a *signature*
 // (type / nullable / committed-vs-appended region / symptom). At the end it prints the distinct
 // bug classes with counts and an example seed for a deterministic repro, then asserts clean.
-// Crank trials with FUZZ_TRIALS=N. The dominant class (append-after-reopen VALUE corruption via
-// dictionary-segment append) is FIXED — default 150 trials are clean. Still tagged [!mayfail]
-// because deeper runs (FUZZ_TRIALS >= ~400) surface a RARE remaining validity edge
-// (committed-region null bit lost after reopen-append + re-checkpoint, ~0.3% of trials). Drop the
-// tag once that is fixed to make this a hard guard.
-TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reopen == oracle)", "[!mayfail]") {
+// Crank trials with FUZZ_TRIALS=N. To deterministically repro one catalog seed, run with
+// FUZZ_ONLY_SEED=<seed> (executes exactly that one trial). This is a HARD guard — every class it
+// ever surfaced is fixed: (1) append-after-reopen VALUE corruption via dictionary-segment append;
+// (2) committed-prefix NULLs dropped at checkpoint because count_valid() over-counted the final
+// partial validity entry and tripped the all-valid fast path; (3) appended rows reading back as
+// spurious NULLs because the append landed in a reopened (persisted) validity segment whose tail
+// bits past the persisted page were stale. Verified clean to FUZZ_TRIALS=5000.
+TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reopen == oracle)") {
     using namespace components::table;
     using namespace components::table::storage;
     using namespace components::types;
@@ -5464,8 +5466,14 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
 
     const uint64_t seed_base = 12648430ull;
     const uint64_t seed_mult = 2654435761ull;
-    for (int trial = 0; trial < trials; trial++) {
-        const uint64_t seed = seed_base + static_cast<uint64_t>(trial) * seed_mult;
+    // FUZZ_ONLY_SEED=<seed> runs exactly one trial with that seed — turns a catalog "example seed"
+    // into a deterministic single-trial repro without searching for its trial index.
+    const char* only_seed_env = std::getenv("FUZZ_ONLY_SEED");
+    const bool single = only_seed_env != nullptr;
+    const uint64_t only_seed = single ? std::strtoull(only_seed_env, nullptr, 10) : 0;
+    const int loop_trials = single ? 1 : trials;
+    for (int trial = 0; trial < loop_trials; trial++) {
+        const uint64_t seed = single ? only_seed : seed_base + static_cast<uint64_t>(trial) * seed_mult;
         std::mt19937_64 rng(seed);
         std::remove(table_path.c_str());
 

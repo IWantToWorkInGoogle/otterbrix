@@ -378,7 +378,10 @@ namespace components::table {
         //    column appended-to then scanned returned wrong values for the appended rows.
         // In both cases roll over to a fresh UNCOMPRESSED in-memory segment positioned right after
         // the last loaded one, so new rows land in appendable, codec-free storage.
-        if (segment && (segment->block_offset() != 0 ||
+        //  - is_persisted() additionally catches a reopened UNCOMPRESSED validity segment, which the
+        //    block_offset()/compression() checks miss (block_offset()==0, compression==UNCOMPRESSED);
+        //    appending into it in place resurrects stale tail bits as spurious NULLs.
+        if (segment && (segment->is_persisted() || segment->block_offset() != 0 ||
                         segment->compression() != compression::compression_type::UNCOMPRESSED)) {
             apend_transient_segment(l, segment->start + static_cast<int64_t>(segment->count));
             segment = data_.last_segment(l);
@@ -779,6 +782,7 @@ namespace components::table {
                                                               dp.block_pointer.offset,
                                                               dp.segment_size);
             segment->set_compression(dp.compression);
+            segment->set_persisted(true);
             if (i < persistent_data.segment_statistics.size() && persistent_data.segment_statistics[i].has_stats()) {
                 segment->set_segment_statistics(persistent_data.segment_statistics[i]);
             }
@@ -823,6 +827,11 @@ namespace components::table {
             auto* seg = data_.last_segment(l);
             if (seg) {
                 seg->count = dp.tuple_count;
+                // Mark as persisted: this segment is a right-sized snapshot of a checkpointed page,
+                // not appendable space. Its bits past the page's row count are stale (create_from_pointer
+                // memset/memcpy's only the page payload), so appending into it in place would let
+                // non-null appended rows inherit stale invalid bits and read back as spurious NULLs.
+                seg->set_persisted(true);
             }
         }
         if (!persistent_data.data_pointers.empty()) {

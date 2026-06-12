@@ -957,7 +957,8 @@ namespace components::table {
         , offset_(other.offset_)
         , segment_size_(other.segment_size_)
         , segment_state_(std::move(other.segment_state_))
-        , segment_statistics_(std::move(other.segment_statistics_)) {
+        , segment_statistics_(std::move(other.segment_statistics_))
+        , persisted_(other.persisted_) {
         assert(!block || segment_size_ <= block_manager().block_size());
     }
 
@@ -970,7 +971,8 @@ namespace components::table {
         , offset_(other.offset_)
         , segment_size_(other.segment_size_)
         , segment_state_(std::move(other.segment_state_))
-        , segment_statistics_(std::move(other.segment_statistics_)) {
+        , segment_statistics_(std::move(other.segment_statistics_))
+        , persisted_(other.persisted_) {
         assert(!block || segment_size_ <= block_manager().block_size());
     }
 
