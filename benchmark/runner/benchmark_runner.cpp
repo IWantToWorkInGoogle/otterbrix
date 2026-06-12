@@ -21,14 +21,24 @@ namespace otterbrix::benchmark {
 namespace {
 
 const char* layout_name(benchmark_configuration_t::disk_layout_policy layout) {
-    return layout == benchmark_configuration_t::disk_layout_policy::columnar_only ? "columnar" : "auto";
+    switch (layout) {
+        case benchmark_configuration_t::disk_layout_policy::columnar_only:
+            return "columnar";
+        case benchmark_configuration_t::disk_layout_policy::pax_only:
+            return "pax";
+        case benchmark_configuration_t::disk_layout_policy::auto_select:
+        default:
+            return "auto";
+    }
 }
 
 std::filesystem::path benchmark_state_root(const benchmark_configuration_t& config) {
     auto root = std::filesystem::temp_directory_path() / "otterbrix-benchmark-runner";
     root /= config.disk_on ? "disk" : "memory";
-    root /= config.layout_policy == benchmark_configuration_t::disk_layout_policy::columnar_only ? "columnar"
-                                                                                                  : "auto";
+    root /= layout_name(config.layout_policy);
+    if (config.disk_on && config.pax_page_rows != configuration::default_pax_rows_per_page) {
+        root /= "pax_page_rows_" + std::to_string(static_cast<uint32_t>(config.pax_page_rows));
+    }
     root /= config.wal_on ? "wal_on" : "wal_off";
     return root;
 }
@@ -87,6 +97,19 @@ void clear_run_state(benchmark_state_t& state) {
     state.result_hash.clear();
 }
 
+void reset_user_table_scan_path_counts(benchmark_state_t& state) {
+    if (state.instance) {
+        state.instance->reset_user_table_scan_path_counts();
+    }
+}
+
+components::table::row_group_scan_path_counts_t snapshot_user_table_scan_path_counts(const benchmark_state_t& state) {
+    if (!state.instance) {
+        return {};
+    }
+    return state.instance->user_table_scan_path_counts();
+}
+
 std::string csv_escape(const std::string& value) {
     std::string result = "\"";
     for (char ch : value) {
@@ -130,10 +153,117 @@ void print_benchmark_methodology_warnings(const benchmark_configuration_t& confi
         std::cerr << "WARNING: --group=ssb without a benchmark name filter/config includes diagnostic SQL files. "
                      "Use pattern 'ssb/q[1-4]-' for the official 13-query SSB set.\n";
     }
-    if (config.disk_on && !config.skip_load && !config.load_only) {
+    if (config.disk_on && !config.skip_load && !config.load_only && !config.shared_load) {
         std::cerr << "WARNING: disk latency run without --skip-load includes load/setup work. Prefer --load-only first, "
                      "then --skip-load for query latency.\n";
     }
+}
+
+void write_csv_result(std::ofstream& csv_file,
+                      const benchmark_configuration_t& config,
+                      const benchmark_result_t& result) {
+    if (!csv_file.is_open()) {
+        return;
+    }
+
+    csv_file << std::fixed << std::setprecision(3) << result.name << "," << result.group << ","
+             << layout_name(config.layout_policy) << "," << config.pax_page_rows << ","
+             << (config.disk_on ? "disk" : "memory") << ","
+             << "warm"
+             << "," << "true"
+             << "," << (trace_enabled() ? "true" : "false") << "," << build_type() << "," << result.nruns
+             << "," << result.min_ms() << "," << result.max_ms() << "," << result.avg_ms() << ","
+             << result.median_ms() << "," << result.stddev_ms() << "," << result.ci95_ms() << ","
+             << result.rsd_pct() << "," << (result.verified ? "OK" : "FAIL") << ",";
+    if (result.result_metadata_valid) {
+        csv_file << result.row_count << "," << result.column_count << "," << result.result_hash;
+    } else {
+        csv_file << ",,";
+    }
+    const auto& scan_counts = result.scan_path_counts;
+    csv_file << "," << scan_counts.pax_generic_projected << "," << scan_counts.pax_generic_pruned_pages << ","
+             << scan_counts.pax_generic_prefetched_blocks << "," << scan_counts.pax_generic_skipped_payload_pages
+             << "," << scan_counts.pax_fixed_projected << "," << scan_counts.pax_fixed_pruned_pages << ","
+             << scan_counts.pax_fixed_prefetched_blocks << "," << scan_counts.pax_fixed_skipped_payload_pages << ","
+             << scan_counts.regular << "," << csv_escape(result.error) << "\n";
+}
+
+benchmark_result_t run_loaded_single(benchmark_t& bench,
+                                     benchmark_state_t& state,
+                                     const benchmark_configuration_t& config) {
+    benchmark_result_t result;
+    result.name = bench.name();
+    result.group = bench.group();
+
+    auto nruns = config.nruns > 0 ? config.nruns : bench.nruns();
+    result.nruns = nruns;
+
+    try {
+        auto bail_on_fail = [&]() {
+            result.verified = false;
+            result.error = !state.error.empty() ? state.error : "see stderr";
+        };
+
+        if (!config.no_warmup) {
+            if (config.verbose) {
+                std::cout << "  Warmup run for " << bench.name() << "...\n";
+            }
+            clear_run_state(state);
+            bench.run(state);
+            if (state.failed) {
+                bail_on_fail();
+                return result;
+            }
+        }
+        reset_user_table_scan_path_counts(state);
+
+        for (uint64_t i = 0; i < nruns; ++i) {
+            clear_run_state(state);
+            auto start = std::chrono::high_resolution_clock::now();
+            bench.run(state);
+            auto end = std::chrono::high_resolution_clock::now();
+            if (state.failed) {
+                bail_on_fail();
+                return result;
+            }
+
+            auto duration = std::chrono::duration<double, std::milli>(end - start);
+            result.timings_ms.push_back(duration.count());
+
+            if (state.result_metadata_valid) {
+                if (!result.result_metadata_valid) {
+                    result.result_metadata_valid = true;
+                    result.row_count = state.row_count;
+                    result.column_count = state.column_count;
+                    result.result_hash = state.result_hash;
+                } else if (result.row_count != state.row_count || result.column_count != state.column_count ||
+                           result.result_hash != state.result_hash) {
+                    result.verified = false;
+                    result.error = "Result fingerprint mismatch across runs";
+                    return result;
+                }
+            }
+
+            if (config.verbose) {
+                std::cout << "  Run " << (i + 1) << "/" << nruns << ": " << std::fixed << std::setprecision(3)
+                          << duration.count() << " ms\n";
+            }
+        }
+        result.scan_path_counts = snapshot_user_table_scan_path_counts(state);
+
+        auto verify_err = bench.verify(state);
+        if (!verify_err.empty()) {
+            result.verified = false;
+            result.error = verify_err;
+        }
+
+        bench.cleanup(state);
+    } catch (const std::exception& e) {
+        result.error = e.what();
+        result.verified = false;
+    }
+
+    return result;
 }
 
 class benchmark_instance_t final : public base_otterbrix_t {
@@ -151,10 +281,19 @@ private:
         cfg.wal.path = root / "wal";
         cfg.log.level = log_t::level::off;
         cfg.disk.on = config.disk_on;
-        cfg.disk.layout_policy =
-            config.layout_policy == benchmark_configuration_t::disk_layout_policy::columnar_only
-                ? configuration::disk_layout_policy::columnar_only
-                : configuration::disk_layout_policy::auto_select;
+        cfg.disk.pax_rows_per_page = config.pax_page_rows;
+        switch (config.layout_policy) {
+            case benchmark_configuration_t::disk_layout_policy::columnar_only:
+                cfg.disk.layout_policy = configuration::disk_layout_policy::columnar_only;
+                break;
+            case benchmark_configuration_t::disk_layout_policy::pax_only:
+                cfg.disk.layout_policy = configuration::disk_layout_policy::pax_only;
+                break;
+            case benchmark_configuration_t::disk_layout_policy::auto_select:
+            default:
+                cfg.disk.layout_policy = configuration::disk_layout_policy::auto_select;
+                break;
+        }
         cfg.wal.on = config.wal_on;
         return cfg;
     }
@@ -368,6 +507,7 @@ void benchmark_runner_t::run(const benchmark_configuration_t& config) {
         }
         benchmark_instance_t instance(config);
         benchmark_state_t state;
+        state.instance = &instance;
         state.dispatcher = instance.dispatcher();
         state.session = session_id_t();
 
@@ -407,9 +547,64 @@ void benchmark_runner_t::run(const benchmark_configuration_t& config) {
     if (!config.output_file.empty()) {
         csv_file.open(config.output_file);
         if (csv_file.is_open()) {
-            csv_file << "name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,"
-                        "median_ms,verified,row_count,column_count,result_hash,error_message\n";
+            csv_file << "name,group,layout,pax_page_rows,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,"
+                        "median_ms,stddev_ms,ci95_ms,rsd_pct,verified,row_count,column_count,result_hash,"
+                        "pax_scan_generic_projected,pax_scan_generic_pruned_pages,"
+                        "pax_scan_generic_prefetched_blocks,pax_scan_generic_skipped_payload_pages,"
+                        "pax_scan_fixed_projected,pax_scan_fixed_pruned_pages,"
+                        "pax_scan_fixed_prefetched_blocks,pax_scan_fixed_skipped_payload_pages,"
+                        "pax_scan_regular,"
+                        "error_message\n";
         }
+    }
+
+    if (config.shared_load) {
+        if (config.skip_load) {
+            throw std::runtime_error("--shared-load cannot be combined with --skip-load");
+        }
+        if (config.disk_on || config.wal_on) {
+            recreate_benchmark_state_root(config);
+        }
+
+        benchmark_instance_t instance(config);
+        benchmark_state_t state;
+        state.instance = &instance;
+        state.dispatcher = instance.dispatcher();
+        state.session = session_id_t();
+
+        std::set<std::string> loaded_groups;
+        for (auto* b : filtered) {
+            if (loaded_groups.count(b->group())) {
+                continue;
+            }
+            loaded_groups.insert(b->group());
+            if (config.verbose) {
+                std::cout << "Loading data for group: " << b->group() << " (via " << b->name() << ")\n";
+            }
+            clear_run_state(state);
+            b->load(state);
+            if (state.failed) {
+                throw std::runtime_error("Error loading group " + b->group() + ": " + state.error);
+            }
+            if (config.verbose) {
+                std::cout << "Loaded group: " << b->group() << "\n";
+            }
+        }
+
+        if (config.disk_on) {
+            auto checkpoint = state.dispatcher->execute_sql(state.session, "CHECKPOINT");
+            if (checkpoint->is_error() && config.verbose) {
+                std::cerr << "CHECKPOINT failed after shared load: " << checkpoint->get_error().what << "\n";
+            }
+        }
+
+        report_header(std::cout);
+        for (auto* b : filtered) {
+            auto result = run_loaded_single(*b, state, config);
+            report_result(result, std::cout);
+            write_csv_result(csv_file, config, result);
+        }
+        return;
     }
 
     report_header(std::cout);
@@ -418,21 +613,7 @@ void benchmark_runner_t::run(const benchmark_configuration_t& config) {
         auto result = run_single(*b, config);
         report_result(result, std::cout);
 
-        if (csv_file.is_open()) {
-            csv_file << std::fixed << std::setprecision(3) << result.name << "," << result.group << ","
-                     << layout_name(config.layout_policy) << "," << (config.disk_on ? "disk" : "memory") << ","
-                     << "warm"
-                     << "," << "true"
-                     << "," << (trace_enabled() ? "true" : "false") << "," << build_type() << "," << result.nruns
-                     << "," << result.min_ms() << "," << result.max_ms() << "," << result.avg_ms() << ","
-                     << result.median_ms() << "," << (result.verified ? "OK" : "FAIL") << ",";
-            if (result.result_metadata_valid) {
-                csv_file << result.row_count << "," << result.column_count << "," << result.result_hash;
-            } else {
-                csv_file << ",,";
-            }
-            csv_file << "," << csv_escape(result.error) << "\n";
-        }
+        write_csv_result(csv_file, config, result);
     }
 }
 
@@ -463,6 +644,7 @@ benchmark_result_t benchmark_runner_t::run_single(benchmark_t& bench, const benc
 
         benchmark_instance_t instance(config);
         benchmark_state_t state;
+        state.instance = &instance;
         state.dispatcher = instance.dispatcher();
         state.session = session_id_t();
 
@@ -478,12 +660,15 @@ benchmark_result_t benchmark_runner_t::run_single(benchmark_t& bench, const benc
         }
 
         // Warmup
-        if (config.verbose) {
-            std::cout << "  Warmup run...\n";
+        if (!config.no_warmup) {
+            if (config.verbose) {
+                std::cout << "  Warmup run...\n";
+            }
+            clear_run_state(state);
+            bench.run(state);
+            if (state.failed) { bail_on_fail(); return result; }
         }
-        clear_run_state(state);
-        bench.run(state);
-        if (state.failed) { bail_on_fail(); return result; }
+        reset_user_table_scan_path_counts(state);
 
         // Timed runs
         for (uint64_t i = 0; i < nruns; ++i) {
@@ -515,6 +700,7 @@ benchmark_result_t benchmark_runner_t::run_single(benchmark_t& bench, const benc
                           << duration.count() << " ms\n";
             }
         }
+        result.scan_path_counts = snapshot_user_table_scan_path_counts(state);
 
         // Verify
         auto verify_err = bench.verify(state);

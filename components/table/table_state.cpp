@@ -25,12 +25,38 @@ namespace components::table {
             return value;
         }
 
+        uint64_t scan_current_row_offset(const collection_scan_state& state) {
+            if (!state.row_group) {
+                return std::numeric_limits<uint64_t>::max();
+            }
+            const auto coarse_offset = state.vector_index * vector::DEFAULT_VECTOR_CAPACITY;
+            if (state.row_offset_override_active) {
+                return state.row_offset_override;
+            }
+            if (!state.row_group->has_persisted_pax_layout()) {
+                return coarse_offset;
+            }
+            for (const auto& column_state : state.column_scans) {
+                if (!column_state.current) {
+                    continue;
+                }
+                const auto fine_offset = state.vector_index_relative_to_row_group
+                                             ? column_state.row_index - state.row_group->start
+                                             : column_state.row_index;
+                if (fine_offset < 0) {
+                    continue;
+                }
+                const auto fine_offset_u = static_cast<uint64_t>(fine_offset);
+                return fine_offset_u < coarse_offset ? fine_offset_u : coarse_offset;
+            }
+            return coarse_offset;
+        }
+
         uint64_t scan_current_absolute_row(const collection_scan_state& state) {
             if (!state.row_group) {
                 return std::numeric_limits<uint64_t>::max();
             }
-            const auto offset = state.vector_index * vector::DEFAULT_VECTOR_CAPACITY;
-            return static_cast<uint64_t>(state.row_group->start) + offset;
+            return static_cast<uint64_t>(state.row_group->start) + scan_current_row_offset(state);
         }
 
         void maybe_log_scan_progress(const collection_scan_state& state,
@@ -51,7 +77,7 @@ namespace components::table {
                          static_cast<long long>(state.row_group->start),
                          static_cast<unsigned long long>(state.row_group->count.load()),
                          static_cast<unsigned long long>(state.vector_index),
-                         static_cast<unsigned long long>(state.vector_index * vector::DEFAULT_VECTOR_CAPACITY),
+                         static_cast<unsigned long long>(scan_current_row_offset(state)),
                          static_cast<unsigned long long>(current_row),
                          static_cast<long long>(state.max_row),
                          static_cast<long long>(state.max_row_group_row));
@@ -74,7 +100,7 @@ namespace components::table {
                 return;
             }
             const bool exhausted =
-                static_cast<int64_t>(state.vector_index * vector::DEFAULT_VECTOR_CAPACITY) >= state.max_row_group_row;
+                static_cast<int64_t>(scan_current_row_offset(state)) >= state.max_row_group_row;
             if (exhausted) {
                 return;
             }
@@ -87,7 +113,7 @@ namespace components::table {
                           static_cast<long long>(state.row_group->start),
                           static_cast<unsigned long long>(state.row_group->count.load()),
                           static_cast<unsigned long long>(state.vector_index),
-                          static_cast<unsigned long long>(state.vector_index * vector::DEFAULT_VECTOR_CAPACITY),
+                          static_cast<unsigned long long>(scan_current_row_offset(state)),
                           static_cast<long long>(state.max_row_group_row));
             throw std::runtime_error(message);
         }
@@ -244,6 +270,8 @@ namespace components::table {
         , row_groups(nullptr)
         , max_row(0)
         , batch_index(0)
+        , row_offset_override_active(false)
+        , row_offset_override(0)
         , valid_indexing(resource, vector::DEFAULT_VECTOR_CAPACITY)
         , parent_(parent) {}
 
@@ -280,8 +308,7 @@ namespace components::table {
                                   result.size(),
                                   "collection_scan_state::scan");
             maybe_log_scan_progress(*this, observed_rows, next_trace_row, trace_every_rows);
-            const bool rg_exhausted =
-                static_cast<int64_t>(vector_index * vector::DEFAULT_VECTOR_CAPACITY) >= max_row_group_row;
+            const bool rg_exhausted = static_cast<int64_t>(scan_current_row_offset(*this)) >= max_row_group_row;
             if (!rg_exhausted) {
                 continue;
             }
@@ -342,8 +369,7 @@ namespace components::table {
                 }
             }
             maybe_log_scan_progress(*this, emitted_rows, next_trace_row, trace_every_rows);
-            const bool rg_exhausted =
-                static_cast<int64_t>(vector_index * vector::DEFAULT_VECTOR_CAPACITY) >= max_row_group_row;
+            const bool rg_exhausted = static_cast<int64_t>(scan_current_row_offset(*this)) >= max_row_group_row;
             if (!rg_exhausted) {
                 continue;
             }

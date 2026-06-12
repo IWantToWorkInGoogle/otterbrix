@@ -160,12 +160,14 @@ namespace components::operators {
                          components::catalog::oid_t table_oid,
                          const expressions::compare_expression_ptr& expression,
                          logical_plan::limit_t limit,
-                         std::vector<size_t> projected_cols)
+                         std::vector<size_t> projected_cols,
+                         bool row_ids_only)
         : read_only_operator_t(resource, log, operator_type::full_scan)
         , table_oid_(table_oid)
         , expression_(expression)
         , limit_(limit)
-        , projected_cols_(std::move(projected_cols)) {}
+        , projected_cols_(std::move(projected_cols))
+        , row_ids_only_(row_ids_only) {}
 
     void full_scan::on_execute_impl(pipeline::context_t* /*pipeline_context*/) {
         if (table_oid_ == components::catalog::INVALID_OID)
@@ -201,6 +203,13 @@ namespace components::operators {
         int64_t offset_val = limit_.offset();
         int64_t limit_val = limit_.limit();
         int64_t scan_limit = (limit_val < 0) ? limit_val : limit_val + offset_val;
+        // The row-ids-only scan (empty projection) was only ever enabled for the
+        // now-removed in-place unsafe PAX DML path; the transactional MVCC delete
+        // path (index mirror, fk cascade, WAL) needs full column payloads, so the
+        // optimization stays disabled here. row_ids_only_ is retained on the
+        // planner/operator wiring but is not honored at scan time.
+        const bool row_ids_only = false;
+        (void) row_ids_only_;
         auto [_s, sf] = actor_zeta::send(ctx->disk_address,
                                          &services::disk::manager_disk_t::storage_scan_batched,
                                          ctx->session,
@@ -208,6 +217,7 @@ namespace components::operators {
                                          std::move(filter),
                                          scan_limit,
                                          projected_cols_,
+                                         row_ids_only,
                                          ctx->txn);
         auto batches_ptr = co_await std::move(sf);
         std::pmr::vector<vector::data_chunk_t> batches(resource_);

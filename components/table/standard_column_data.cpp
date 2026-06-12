@@ -51,6 +51,13 @@ namespace components::table {
                                           uint64_t target_count) {
         assert(state.row_index == state.child_states[0].row_index);
         auto scan_count = column_data_t::scan(vector_index, state, result, target_count);
+        // The validity child writes null bits at child_states[0].result_offset, which the scan
+        // driver does not keep in sync with the parent's result_offset (templated_scan only
+        // updates the top-level column_scans entries). When several row groups stream into one
+        // growing chunk (result_offset > 0 for all but the first), a stale child offset writes
+        // the null mask over an already-filled earlier row group. Mirror the parent offset here
+        // so data and its validity always land at the same position.
+        state.child_states[0].result_offset = state.result_offset;
         validity.scan(vector_index, state.child_states[0], result, target_count);
         return scan_count;
     }
@@ -62,8 +69,19 @@ namespace components::table {
                                                     uint64_t target_count) {
         assert(state.row_index == state.child_states[0].row_index);
         auto scan_count = column_data_t::scan_committed(vector_index, state, result, allow_updates, target_count);
+        // See scan(): keep the validity child's result_offset aligned with the parent so a
+        // multi-row-group scan into one chunk does not corrupt earlier rows' null masks.
+        state.child_states[0].result_offset = state.result_offset;
         validity.scan_committed(vector_index, state.child_states[0], result, allow_updates, target_count);
         return scan_count;
+    }
+
+    void standard_column_data_t::fetch_committed_updates_range(uint64_t offset_in_row_group,
+                                                               uint64_t count,
+                                                               vector::vector_t& result,
+                                                               uint64_t result_offset) {
+        column_data_t::fetch_committed_updates_range(offset_in_row_group, count, result, result_offset);
+        validity.fetch_committed_updates_range(offset_in_row_group, count, result, result_offset);
     }
 
     uint64_t standard_column_data_t::scan_count(column_scan_state& state, vector::vector_t& result, uint64_t count) {

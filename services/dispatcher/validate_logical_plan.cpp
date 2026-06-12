@@ -90,6 +90,11 @@ namespace services::dispatcher {
                     return components::vector::arithmetic_op::add;
             }
         }
+
+        std::string result_alias_for_projected_key(const components::expressions::key_t& key,
+                                                   const std::string& fallback) {
+            return key.storage().size() > 1 ? std::string(key.storage().front()) : fallback;
+        }
         // plan_resolve_index_t + helpers live in
         // services/dispatcher/plan_resolve_index.hpp so
         // enrich_logical_plan.cpp can use the same probe-then-fallback
@@ -1410,8 +1415,25 @@ namespace services::dispatcher {
                         }
 
                         // Resolve key paths in node_select scalar expressions against incoming schema.
-                        // Aggregates are always in node_group_t now, so only scalar expressions appear here.
+                        // Aggregates are always in node_group_t now; scalar row/vector functions may appear here too.
+                        auto allowed_projection_function_types =
+                            components::compute::create_mask(components::compute::function_type_t::row,
+                                                             components::compute::function_type_t::vector);
                         for (auto& expr : node_select->expressions()) {
+                            if (expr->group() == expression_group::function) {
+                                auto* func_expr = reinterpret_cast<function_expression_t*>(expr.get());
+                                auto res = impl::validate_schema(resource,
+                                                                 func_expr,
+                                                                 parameters,
+                                                                 incoming_schema,
+                                                                 incoming_schema,
+                                                                 true,
+                                                                 allowed_projection_function_types);
+                                if (res.has_error()) {
+                                    return res.error();
+                                }
+                                continue;
+                            }
                             if (expr->group() != expression_group::scalar) {
                                 continue;
                             }
@@ -1466,6 +1488,29 @@ namespace services::dispatcher {
                         };
 
                         for (auto& expr : node_select->expressions()) {
+                            if (expr->group() == expression_group::function) {
+                                auto* func_expr = reinterpret_cast<function_expression_t*>(expr.get());
+                                auto fn_schema = impl::validate_schema(resource,
+                                                                       func_expr,
+                                                                       parameters,
+                                                                       incoming_schema,
+                                                                       incoming_schema,
+                                                                       true,
+                                                                       allowed_projection_function_types);
+                                if (fn_schema.has_error()) {
+                                    return fn_schema.error();
+                                }
+                                for (auto& entry : fn_schema.value()) {
+                                    auto out_type = entry.type;
+                                    if (!func_expr->result_alias().empty()) {
+                                        out_type.set_alias(func_expr->result_alias());
+                                    } else if (!out_type.has_alias()) {
+                                        out_type.set_alias(func_expr->name());
+                                    }
+                                    selected_schema.emplace_back(type_from_t{node->result_alias(), std::move(out_type)});
+                                }
+                                continue;
+                            }
                             if (expr->group() != expression_group::scalar) {
                                 continue;
                             }
@@ -1674,7 +1719,9 @@ namespace services::dispatcher {
                                         res_type = &res_type->child_type();
                                     }
                                 }
-                                result.emplace_back(type_from_t{node->result_alias(), *res_type});
+                                result.emplace_back(
+                                    type_from_t{impl::result_alias_for_projected_key(key, node->result_alias()),
+                                                *res_type});
                                 key_schema.emplace_back(result.back());
                             } else if (scalar_expr->type() == scalar_type::group_field) {
                                 // GROUP BY field: resolve key path and expose in output schema
@@ -1688,7 +1735,9 @@ namespace services::dispatcher {
                                 if (!key.storage().empty()) {
                                     out_type.set_alias(std::string(key.storage().back()));
                                 }
-                                result.emplace_back(type_from_t{node->result_alias(), out_type});
+                                result.emplace_back(
+                                    type_from_t{impl::result_alias_for_projected_key(key, node->result_alias()),
+                                                out_type});
                                 key_schema.emplace_back(result.back());
                             } else if (is_case_or_arithmetic(scalar_expr->type())) {
                                 // Try resolve against incoming_schema
@@ -1881,8 +1930,8 @@ namespace services::dispatcher {
                     }
 
                     // Resolve node_select scalar expression key paths against the group output schema.
-                    // GROUP BY key columns are real columns addressable by name (key_schema).
-                    // Computed aggregate columns are internal artifacts — resolve positionally.
+                    // This includes both GROUP BY keys (possibly still table-qualified, e.g. c/name)
+                    // and aggregate aliases (e.g. total, avg_key).
                     if (node_select) {
                         size_t agg_cursor = 0;
                         for (auto& expr : node_select->expressions()) {
@@ -1896,7 +1945,7 @@ namespace services::dispatcher {
                                         ? scalar_expr->key()
                                         : std::get<components::expressions::key_t>(scalar_expr->params().front());
                                 if (key.path().empty()) {
-                                    auto res = impl::validate_key(resource, key, key_schema, key_schema, true);
+                                    auto res = impl::validate_key(resource, key, result, result, true);
                                     if (res.has_error()) {
                                         if (agg_cursor >= agg_result_positions.size()) {
                                             return res.convert_error<named_schema>();

@@ -2,6 +2,7 @@
 
 #include "arithmetic_eval.hpp"
 #include <components/expressions/compare_expression.hpp>
+#include <components/physical_plan/operators/predicates/utils.hpp>
 
 namespace components::operators {
 
@@ -140,6 +141,10 @@ namespace components::operators {
     vector::data_chunk_t operator_select_t::evaluate(pipeline::context_t* pipeline_context,
                                                      vector::data_chunk_t& input) {
         auto num_rows = input.size();
+        auto* function_registry =
+            pipeline_context && pipeline_context->function_registry
+                ? pipeline_context->function_registry
+                : compute::function_registry_t::get_default();
 
         // Build one vector_t per SELECT column.
         std::pmr::vector<vector::vector_t> out_vecs(resource_);
@@ -191,6 +196,42 @@ namespace components::operators {
                         vec.set_value(row, col.constant_value);
                     }
                     vec.set_type_alias(std::string{col.key.name});
+                    out_vecs.push_back(std::move(vec));
+                    break;
+                }
+                case select_column_t::kind::function: {
+                    if (!col.function_expr || !function_registry) {
+                        set_error(core::error_t(core::error_code_t::unrecognized_function,
+                                                std::pmr::string{"function expression is not resolved", resource_}));
+                        return vector::data_chunk_t(resource_, {}, 0);
+                    }
+
+                    auto getter = predicates::impl::create_value_getter(resource_,
+                                                                        function_registry,
+                                                                        col.function_expr,
+                                                                        &pipeline_context->parameters);
+                    types::complex_logical_type col_type{types::logical_type::NA};
+                    std::pmr::vector<types::logical_value_t> values(resource_);
+                    values.reserve(num_rows);
+                    for (uint64_t row = 0; row < num_rows; ++row) {
+                        auto value = getter(input, input, row, row);
+                        if (value.has_error()) {
+                            set_error(value.error());
+                            return vector::data_chunk_t(resource_, {}, 0);
+                        }
+                        auto val = std::move(value.value());
+                        if (col_type.type() == types::logical_type::NA) {
+                            col_type = val.type();
+                        }
+                        values.push_back(std::move(val));
+                    }
+
+                    vector::vector_t vec(resource_, col_type, num_rows);
+                    for (uint64_t row = 0; row < num_rows; ++row) {
+                        vec.set_value(row, values[row]);
+                    }
+                    vec.set_type_alias(col.function_expr->result_alias().empty() ? col.function_expr->name()
+                                                                                  : col.function_expr->result_alias());
                     out_vecs.push_back(std::move(vec));
                     break;
                 }

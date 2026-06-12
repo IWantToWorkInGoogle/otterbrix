@@ -13,7 +13,31 @@ NC='\033[0m' # No Color
 ACTOR_ZETA_VERSION="1.1.1"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
 CXX_STANDARD="${CXX_STANDARD:-20}"
-JOBS="${JOBS:-$(nproc)}"
+# Memory-aware default job count. Heavy C++ template TUs (PAX row_group.cpp)
+# peak ~1.5 GB each, so on a RAM-constrained box the binding constraint is
+# memory-per-job, not cores. A blind -j$(nproc) OOM-kills the IDE. We cap by
+# BOTH available RAM (~1.5 GB/job, snapshot at build start) and cores (leave 2
+# free, never exceed the -j6 project cap). Explicit JOBS=N always wins.
+default_jobs() {
+    local cores core_cap mem_kb mem_cap
+    cores="$(nproc 2>/dev/null || echo 4)"
+    core_cap=$(( cores > 2 ? cores - 2 : 1 ))
+    if [ "$core_cap" -gt 6 ]; then core_cap=6; fi
+    mem_kb="$(awk '/^MemAvailable:/{print $2; f=1} END{if(!f) print 0}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [ "${mem_kb:-0}" -gt 0 ]; then
+        mem_cap=$(( mem_kb / (3 * 512 * 1024) ))   # ~1.5 GiB per compile job
+        if [ "$mem_cap" -lt 1 ]; then mem_cap=1; fi
+    else
+        mem_cap="$core_cap"
+    fi
+    if [ "$mem_cap" -lt "$core_cap" ]; then echo "$mem_cap"; else echo "$core_cap"; fi
+}
+if [ -n "${JOBS:-}" ]; then
+    JOBS_SOURCE="explicit"
+else
+    JOBS="$(default_jobs)"
+    JOBS_SOURCE="auto (memory-aware; override with JOBS=N)"
+fi
 DEV_MODE="${DEV_MODE:-ON}"
 ENABLE_TESTS="${ENABLE_TESTS:-OFF}"
 
@@ -22,7 +46,7 @@ echo -e "${GREEN}Otterbrix Build Script${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo "Build Type: $BUILD_TYPE"
 echo "C++ Standard: $CXX_STANDARD"
-echo "Jobs: $JOBS"
+echo "Jobs: $JOBS [$JOBS_SOURCE]"
 echo "Dev Mode: $DEV_MODE"
 echo ""
 
@@ -46,11 +70,14 @@ fi
 print_section "Step 1: Initializing git submodules"
 if [ ! -f "actor-zeta/CMakeLists.txt" ]; then
     echo "Initializing actor-zeta submodule..."
-    git submodule init
-    git submodule update --recursive
+    git submodule update --init --recursive actor-zeta
 else
     echo "actor-zeta submodule already initialized"
-    git submodule update --recursive
+    if [ "${UPDATE_SUBMODULES:-OFF}" = "ON" ]; then
+        git submodule update --recursive actor-zeta
+    else
+        echo "Skipping submodule update. Set UPDATE_SUBMODULES=ON to refresh it."
+    fi
 fi
 
 # Step 2: Check dependencies

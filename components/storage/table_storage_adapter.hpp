@@ -2,6 +2,7 @@
 
 #include "storage.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <actor-zeta/actor/basic_actor.hpp>
 #include <actor-zeta/actor/dispatch.hpp>
 #include <actor-zeta/actor/dispatch_traits.hpp>
@@ -10,6 +11,7 @@
 #include <actor-zeta/spawn.hpp>
 #include <components/table/data_table.hpp>
 #include <components/table/table_state.hpp>
+#include <components/vector/vector_operations.hpp>
 #include <memory_resource>
 #include <mutex>
 
@@ -31,6 +33,7 @@ namespace components::storage {
                            uint64_t row_group_idx,
                            const table::table_filter_t* filter,
                            std::vector<size_t> projected_cols,
+                           bool row_ids_only,
                            table::transaction_data txn) {
                 std::pmr::vector<vector::data_chunk_t> batches{resource_};
                 if (!table_) {
@@ -38,7 +41,8 @@ namespace components::storage {
                 }
 
                 auto types = table_->copy_types(resource_);
-                const std::vector<size_t>* projected_ptr = projected_cols.empty() ? nullptr : &projected_cols;
+                const std::vector<size_t>* projected_ptr =
+                    row_ids_only ? &projected_cols : (projected_cols.empty() ? nullptr : &projected_cols);
                 table_->scan_row_group_batched(row_group_idx,
                                                column_ids,
                                                filter,
@@ -174,11 +178,30 @@ namespace components::storage {
                           const std::vector<size_t>* projected_cols,
                           table::transaction_data txn) override {
             auto types = table_.copy_types();
-            auto column_indices = build_scan_column_ids(projected_cols);
+            const bool row_ids_only = projected_cols && projected_cols->empty();
+            auto column_indices =
+                row_ids_only ? build_row_id_only_scan_column_ids(filter) : build_scan_column_ids(projected_cols);
             auto total_row_groups = table_.row_group()->row_group_tree()->segment_count();
-            const bool plain_committed_scan = txn.transaction_id == 0 && txn.start_time == 0;
 
-            if (scheduler_ && plain_committed_scan && total_row_groups > 1 && table_.supports_threaded_scan()) {
+            // Parallel scan is plumbed and MVCC-correct (the worker forwards `txn`
+            // into scan_row_group_batched, same visibility as the serial path). A
+            // thread-safety audit confirmed all per-scan state is thread-local
+            // (local table_scan_state + local block_cache), PAX layouts are
+            // immutable during scan, scan-path counters are atomic, and block
+            // pin/unpin + the eviction queue are lock-protected. The remaining
+            // hazard is the concurrent-eviction path under memory pressure; as long
+            // as the buffer pool holds the working set (no churn), parallel scan of
+            // distinct row groups is safe — including for transactional (txn != 0)
+            // reads, whose visibility the worker reproduces.
+            //
+            // Default behaviour stays serial for safety. Parallel scan is opt-in via
+            // OTTERBRIX_PARALLEL_SCAN and bounded by PARALLEL_SCAN_MAX_ROW_GROUPS so
+            // it only engages where the pool comfortably holds all row groups.
+            static constexpr uint64_t PARALLEL_SCAN_MAX_ROW_GROUPS = 1024;
+            const bool plain_committed_scan = txn.transaction_id == 0 && txn.start_time == 0;
+            const bool parallel_scan_opt_in = std::getenv("OTTERBRIX_PARALLEL_SCAN") != nullptr;
+            if (scheduler_ && (plain_committed_scan || parallel_scan_opt_in) && total_row_groups > 1 &&
+                total_row_groups <= PARALLEL_SCAN_MAX_ROW_GROUPS && table_.supports_threaded_scan()) {
                 auto workers =
                     snapshot_parallel_workers(static_cast<size_t>(std::min<uint64_t>(table_.max_threads(),
                                                                                       total_row_groups)));
@@ -195,6 +218,7 @@ namespace components::storage {
                                                                   row_group_idx,
                                                                   filter,
                                                                   projected_copy,
+                                                                  row_ids_only,
                                                                   txn);
                     if (needs_sched) {
                         scheduler_->enqueue(worker);
@@ -228,6 +252,19 @@ namespace components::storage {
                 column_indices.emplace_back(static_cast<int64_t>(i));
             }
             table_.fetch(output, column_indices, row_ids, count, table::transaction_data{0, 0}, state);
+        }
+
+        void fetch(vector::data_chunk_t& output,
+                   const vector::vector_t& row_ids,
+                   uint64_t count,
+                   table::transaction_data txn) override {
+            table::column_fetch_state state;
+            std::vector<table::storage_index_t> column_indices;
+            column_indices.reserve(table_.column_count());
+            for (size_t i = 0; i < table_.column_count(); i++) {
+                column_indices.emplace_back(static_cast<int64_t>(i));
+            }
+            table_.fetch(output, column_indices, row_ids, count, txn, state);
         }
 
         void scan_segment(int64_t start,
@@ -269,6 +306,8 @@ namespace components::storage {
             table_.finalize_append(append_state, txn);
             return start_row;
         }
+
+        bool has_persisted_pax_layout() const override { return table_.has_persisted_pax_layout(); }
 
         void update(vector::vector_t& row_ids, vector::data_chunk_t& data) override {
             auto update_state = table_.initialize_update({});
@@ -340,6 +379,41 @@ namespace components::storage {
                 for (size_t i = 0; i < table_.column_count(); i++) {
                     column_indices.emplace_back(static_cast<int64_t>(i));
                 }
+            }
+            return column_indices;
+        }
+
+        void append_filter_column_ids(const table::table_filter_t* filter,
+                                      std::vector<table::storage_index_t>& column_indices) const {
+            if (!filter) {
+                return;
+            }
+            if (auto* conjunction = dynamic_cast<const table::conjunction_filter_t*>(filter)) {
+                for (const auto& child : conjunction->child_filters) {
+                    append_filter_column_ids(child.get(), column_indices);
+                }
+                return;
+            }
+            const auto& table_indices = table::table_filter_table_indices(filter);
+            if (table_indices.empty()) {
+                return;
+            }
+            const auto column_index = table_indices.front();
+            if (column_index >= table_.column_count()) {
+                return;
+            }
+            table::storage_index_t storage_index{column_index};
+            if (std::find(column_indices.begin(), column_indices.end(), storage_index) == column_indices.end()) {
+                column_indices.push_back(storage_index);
+            }
+        }
+
+        std::vector<table::storage_index_t> build_row_id_only_scan_column_ids(
+            const table::table_filter_t* filter) const {
+            std::vector<table::storage_index_t> column_indices;
+            append_filter_column_ids(filter, column_indices);
+            if (column_indices.empty()) {
+                column_indices.emplace_back();
             }
             return column_indices;
         }

@@ -59,7 +59,6 @@ namespace services::disk {
                     continue;
                 }
                 trace(log_, "manager_disk_t::checkpoint_all checkpointing : oid={}", static_cast<unsigned>(tbl_oid));
-
                 const auto& otbx_path = entry->otbx_path;
                 auto prev_path = otbx_path;
                 prev_path += ".prev";
@@ -80,7 +79,6 @@ namespace services::disk {
                     }
                 }
 
-                // Write new checkpoint (2 fsync inside checkpoint(wal_id))
                 entry->table_storage.table().compact();
                 entry->table_storage.checkpoint(current_wal_id);
 
@@ -242,6 +240,7 @@ namespace services::disk {
                                                                        std::move(columns),
                                                                        otbx_path,
                                                                        layout_policy,
+                                                                       config_.pax_rows_per_page,
                                                                        scheduler_disk_,
                                                                        &run_fn_));
     }
@@ -269,6 +268,7 @@ namespace services::disk {
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
                                                                            config_.layout_policy,
+                                                                           config_.pax_rows_per_page,
                                                                            scheduler_disk_,
                                                                            &run_fn_));
             return;
@@ -279,6 +279,7 @@ namespace services::disk {
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
                                                                            config_.layout_policy,
+                                                                           config_.pax_rows_per_page,
                                                                            scheduler_disk_,
                                                                            &run_fn_));
         } catch (const std::exception& e) {
@@ -304,6 +305,7 @@ namespace services::disk {
                               std::make_unique<collection_storage_entry_t>(resource(),
                                                                            otbx_path,
                                                                            config_.layout_policy,
+                                                                           config_.pax_rows_per_page,
                                                                            scheduler_disk_,
                                                                            &run_fn_));
             return;

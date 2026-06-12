@@ -40,6 +40,15 @@ namespace components::table {
         return total;
     }
 
+    bool collection_t::has_persisted_pax_layout() const {
+        for (auto* rg = row_groups_->root_segment(); rg; rg = row_groups_->next_segment(rg)) {
+            if (rg->has_persisted_pax_layout()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     const std::pmr::vector<types::complex_logical_type>& collection_t::types() const { return types_; }
 
     void collection_t::adopt_types(std::pmr::vector<types::complex_logical_type> types) {

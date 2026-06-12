@@ -1,5 +1,7 @@
 #include "manager_disk_impl.hpp"
 
+#include <components/vector/vector_operations.hpp>
+
 namespace services::disk {
 
     using namespace core::filesystem;
@@ -211,6 +213,7 @@ namespace services::disk {
                                                                        std::move(columns),
                                                                        otbx_path,
                                                                        layout_policy,
+                                                                       config_.pax_rows_per_page,
                                                                        scheduler_disk_,
                                                                        &run_fn_));
         co_return;
@@ -327,13 +330,16 @@ namespace services::disk {
                                          std::unique_ptr<components::table::table_filter_t> filter,
                                          int64_t limit,
                                          std::vector<size_t> projected_cols,
+                                         bool row_ids_only,
                                          components::table::transaction_data txn) {
         auto batches = std::make_unique<std::pmr::vector<components::vector::data_chunk_t>>(resource());
         auto* s = get_storage(table_oid);
         if (!s) {
             co_return std::move(batches);
         }
-        const std::vector<size_t>* projected_ptr = projected_cols.empty() ? nullptr : &projected_cols;
+        std::vector<size_t> row_ids_only_projection;
+        const std::vector<size_t>* projected_ptr =
+            row_ids_only ? &row_ids_only_projection : (projected_cols.empty() ? nullptr : &projected_cols);
         s->scan_batched(*batches, filter.get(), limit, projected_ptr, txn);
         co_return std::move(batches);
     }
@@ -342,14 +348,15 @@ namespace services::disk {
     manager_disk_t::storage_fetch(session_id_t /*session*/,
                                   catalog::oid_t table_oid,
                                   components::vector::vector_t row_ids,
-                                  uint64_t count) {
+                                  uint64_t count,
+                                  components::table::transaction_data txn) {
         auto* s = get_storage(table_oid);
         if (!s) {
             co_return nullptr;
         }
         auto types = s->types();
         auto result = std::make_unique<components::vector::data_chunk_t>(resource(), types, count);
-        s->fetch(*result, row_ids, count);
+        s->fetch(*result, row_ids, count, txn);
         co_return std::move(result);
     }
 
@@ -363,8 +370,20 @@ namespace services::disk {
             co_return nullptr;
         }
         auto types = s->types();
-        auto result = std::make_unique<components::vector::data_chunk_t>(resource(), types);
-        s->scan_segment(start, count, [&result](components::vector::data_chunk_t& chunk) { chunk.copy(*result, 0); });
+        auto result = std::make_unique<components::vector::data_chunk_t>(resource(), types, count);
+        uint64_t offset = 0;
+        s->scan_segment(start, count, [&result, &offset](components::vector::data_chunk_t& chunk) {
+            for (uint64_t col = 0; col < chunk.column_count(); col++) {
+                components::vector::vector_ops::copy(chunk.data[col],
+                                                     result->data[col],
+                                                     chunk.size(),
+                                                     0,
+                                                     offset);
+            }
+            components::vector::vector_ops::copy(chunk.row_ids, result->row_ids, chunk.size(), 0, offset);
+            offset += chunk.size();
+            result->set_cardinality(offset);
+        });
         co_return std::move(result);
     }
 
@@ -594,6 +613,56 @@ namespace services::disk {
             co_return std::pair<int64_t, uint64_t>{0, 0};
         }
         co_return s->update(row_ids, *data, ctx.txn);
+    }
+
+    components::table::row_group_scan_path_counts_t
+    manager_disk_t::user_table_scan_path_counts_sync() const noexcept {
+        components::table::row_group_scan_path_counts_t result;
+        for (const auto& [table_oid, entry] : storages_) {
+            if (table_oid < catalog::FIRST_USER_OID || !entry) {
+                continue;
+            }
+            auto collection = entry->table_storage.table().row_group();
+            if (!collection) {
+                continue;
+            }
+            for (int64_t row_group_index = 0;; row_group_index++) {
+                auto* row_group = collection->row_group(row_group_index);
+                if (!row_group) {
+                    break;
+                }
+                const auto counts = row_group->scan_path_counts_for_benchmark();
+                result.pax_generic_projected += counts.pax_generic_projected;
+                result.pax_generic_pruned_pages += counts.pax_generic_pruned_pages;
+                result.pax_generic_prefetched_blocks += counts.pax_generic_prefetched_blocks;
+                result.pax_generic_skipped_payload_pages += counts.pax_generic_skipped_payload_pages;
+                result.pax_fixed_projected += counts.pax_fixed_projected;
+                result.pax_fixed_pruned_pages += counts.pax_fixed_pruned_pages;
+                result.pax_fixed_prefetched_blocks += counts.pax_fixed_prefetched_blocks;
+                result.pax_fixed_skipped_payload_pages += counts.pax_fixed_skipped_payload_pages;
+                result.regular += counts.regular;
+            }
+        }
+        return result;
+    }
+
+    void manager_disk_t::reset_user_table_scan_path_counts_sync() noexcept {
+        for (const auto& [table_oid, entry] : storages_) {
+            if (table_oid < catalog::FIRST_USER_OID || !entry) {
+                continue;
+            }
+            auto collection = entry->table_storage.table().row_group();
+            if (!collection) {
+                continue;
+            }
+            for (int64_t row_group_index = 0;; row_group_index++) {
+                auto* row_group = collection->row_group(row_group_index);
+                if (!row_group) {
+                    break;
+                }
+                row_group->reset_scan_path_counts_for_benchmark();
+            }
+        }
     }
 
     manager_disk_t::unique_future<uint64_t> manager_disk_t::storage_delete_rows(execution_context_t ctx,

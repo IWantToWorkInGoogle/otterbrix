@@ -3,9 +3,12 @@
 #include "row_version_manager.hpp"
 #include "storage/block_manager.hpp"
 #include "storage/data_pointer.hpp"
+#include <components/vector/data_chunk.hpp>
 #include <atomic>
+#include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 namespace components::vector {
     class data_chunk_t;
@@ -42,8 +45,12 @@ namespace components::table {
     struct row_group_scan_path_counts_t {
         uint64_t pax_generic_projected{0};
         uint64_t pax_generic_pruned_pages{0};
+        uint64_t pax_generic_prefetched_blocks{0};
+        uint64_t pax_generic_skipped_payload_pages{0};
         uint64_t pax_fixed_projected{0};
         uint64_t pax_fixed_pruned_pages{0};
+        uint64_t pax_fixed_prefetched_blocks{0};
+        uint64_t pax_fixed_skipped_payload_pages{0};
         uint64_t regular{0};
     };
 
@@ -70,8 +77,12 @@ namespace components::table {
         std::atomic<bool> scan_path_counts_enabled_{false};
         std::atomic<uint64_t> pax_generic_projected_scan_count_{0};
         std::atomic<uint64_t> pax_generic_pruned_page_count_{0};
+        std::atomic<uint64_t> pax_generic_prefetched_block_count_{0};
+        std::atomic<uint64_t> pax_generic_skipped_payload_page_count_{0};
         std::atomic<uint64_t> pax_fixed_projected_scan_count_{0};
         std::atomic<uint64_t> pax_fixed_pruned_page_count_{0};
+        std::atomic<uint64_t> pax_fixed_prefetched_block_count_{0};
+        std::atomic<uint64_t> pax_fixed_skipped_payload_page_count_{0};
         std::atomic<uint64_t> regular_scan_count_{0};
 
     public:
@@ -117,6 +128,8 @@ namespace components::table {
         void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
 
         uint64_t committed_row_count();
+        bool has_persisted_pax_layout() const;
+        bool can_append_mutable_tail() const;
         bool supports_threaded_scan() const;
 
         void initialize_append(row_group_append_state& append_state);
@@ -152,6 +165,13 @@ namespace components::table {
         void debug_reset_scan_path_counts_for_test() { reset_scan_path_counts(); }
         row_group_scan_path_counts_t debug_scan_path_counts_for_test() const { return scan_path_counts(); }
 #endif
+        void reset_scan_path_counts_for_benchmark() { reset_scan_path_counts(); }
+        void ensure_scan_path_counts_enabled_for_benchmark() {
+            if (!scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+                reset_scan_path_counts();
+            }
+        }
+        row_group_scan_path_counts_t scan_path_counts_for_benchmark() const { return scan_path_counts(); }
 
     private:
         uint64_t indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count);
@@ -159,6 +179,12 @@ namespace components::table {
                                  uint64_t vector_idx,
                                  vector::indexing_vector_t& indexing_vector,
                                  uint64_t max_count);
+	        uint64_t pax_visibility_indexing(const collection_scan_state& state,
+	                                         uint64_t row_offset_in_group,
+	                                         uint64_t max_count,
+	                                         vector::indexing_vector_t& result_indexing,
+	                                         bool transaction_scan);
+	        bool requires_pax_version_visibility(bool transaction_scan);
         uint64_t
         committed_indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count);
         std::shared_ptr<row_version_manager_t> get_or_create_version_info_internal();
@@ -190,8 +216,9 @@ namespace components::table {
         std::mutex row_group_lock_;
         std::vector<storage::meta_block_pointer_t> column_pointers_;
         std::unique_ptr<std::atomic<bool>[]> is_loaded_;
-        std::vector<storage::meta_block_pointer_t> deletes_pointers_;
+        std::vector<storage::data_pointer_t> deletes_pointers_;
         std::atomic<bool> deletes_is_loaded_;
         uint64_t allocation_size_;
+
     };
 } // namespace components::table

@@ -137,12 +137,14 @@ namespace services::disk {
                              std::unique_ptr<components::table::table_filter_t> filter,
                              int64_t limit,
                              std::vector<size_t> projected_cols,
+                             bool row_ids_only,
                              components::table::transaction_data txn);
         actor_zeta::unique_future<std::unique_ptr<components::vector::data_chunk_t>>
         storage_fetch(session_id_t session,
                       components::catalog::oid_t table_oid,
                       components::vector::vector_t row_ids,
-                      uint64_t count);
+                      uint64_t count,
+                      components::table::transaction_data txn);
         actor_zeta::unique_future<std::unique_ptr<components::vector::data_chunk_t>>
         storage_scan_segment(session_id_t session, components::catalog::oid_t table_oid, int64_t start, uint64_t count);
 

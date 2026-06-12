@@ -9,7 +9,8 @@ struct benchmark_configuration_t {
     enum class disk_layout_policy : uint8_t
     {
         auto_select = 0,
-        columnar_only = 1
+        columnar_only = 1,
+        pax_only = 2
     };
 
     std::string name_pattern;
@@ -28,6 +29,9 @@ struct benchmark_configuration_t {
     bool verbose = false;
     bool skip_load = false;
     bool load_only = false;
+    bool shared_load = false;
+    bool no_warmup = false; // skip the untimed warmup run so the first timed run is cold-cache
+    uint16_t pax_page_rows = 256;
     std::string config_file;
     std::string generate_config;
 };

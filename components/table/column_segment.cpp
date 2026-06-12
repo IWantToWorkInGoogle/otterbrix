@@ -381,8 +381,16 @@ namespace components::table {
                                  uint64_t vcount) {
             assert(segment.block_offset() == 0);
 
+            // Rows the segment's mask buffer can hold = bytes * 8 (one bit per row). Written as
+            // size * CAPACITY / MASK_SIZE so it tracks the segment sizing convention, but the
+            // multiply MUST come before the divide: a right-sized loaded segment can be smaller
+            // than STANDARD_MASK_SIZE (e.g. 16 B for a reopened 100-row partial row group), and
+            // `size / MASK_SIZE` then truncates to 0. With max_tuples == 0, `max_tuples - count`
+            // underflows and the std::min no longer bounds the append, so it overruns the buffer
+            // instead of rolling over to a fresh segment — corrupting the null mask of the rows
+            // past the buffer (the append-after-reopen bug).
             auto max_tuples =
-                segment.segment_size() / vector::validity_mask_t::STANDARD_MASK_SIZE * vector::DEFAULT_VECTOR_CAPACITY;
+                segment.segment_size() * vector::DEFAULT_VECTOR_CAPACITY / vector::validity_mask_t::STANDARD_MASK_SIZE;
             uint64_t append_count = std::min(vcount, max_tuples - segment.count);
             if (data.validity.all_valid()) {
                 segment.count += append_count;

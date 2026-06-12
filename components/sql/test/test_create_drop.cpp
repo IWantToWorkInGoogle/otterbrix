@@ -120,13 +120,20 @@ TEST_CASE("components::sql::table") {
         REQUIRE(std::string_view{result.error().what}.find("WITH(storage='disk')") != std::string::npos);
     }
 
-    SECTION("using pax rejects mixed root schema") {
+    SECTION("using pax accepts mixed root schema") {
+        // PAX supports mixing fixed-width and generic (string/nested) root
+        // columns: at checkpoint the fixed-width columns are promoted into the
+        // PAX_GENERIC layout (see supports_explicit_pax_schema / the row_group
+        // checkpoint writer). The DDL transformer therefore accepts the mix and
+        // records it as a PAX disk table.
         auto stmt = linitial(
             raw_parser(&arena_resource, "CREATE TABLE table_name(name string, count bigint) WITH(storage='disk') USING PAX"));
         auto result = transformer.transform(pg_cell_to_node_cast(stmt)).finalize();
-        REQUIRE(result.has_error());
-        REQUIRE(std::string_view{result.error().what}.find("mixing fixed-width and generic root columns") !=
-                std::string::npos);
+        REQUIRE(!result.has_error());
+        auto node = result.value().node;
+        auto data = reinterpret_cast<node_create_collection_ptr&>(node);
+        REQUIRE(data->is_disk_storage());
+        REQUIRE(data->storage_format() == create_collection_storage_format_t::disk_pax);
     }
 
     SECTION("using pax rejects columnar fallback roots") {

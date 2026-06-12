@@ -12,7 +12,7 @@ namespace otterbrix::benchmark {
 namespace {
 
 const std::vector<std::string> directives = {
-    "name", "group", "description", "runs", "timeout", "load", "run", "result", "cleanup", "load_csv"};
+    "name", "group", "description", "runs", "timeout", "load", "run", "verify", "result", "cleanup", "load_csv"};
 
 bool is_directive(const std::string& line) {
     for (const auto& d : directives) {
@@ -146,6 +146,8 @@ void interpreted_benchmark_t::parse(const std::filesystem::path& path) {
             load_sql_ = body;
         } else if (current_section == "run") {
             run_sql_ = body;
+        } else if (current_section == "verify") {
+            verify_sql_ = body;
         } else if (current_section == "result") {
             expected_rows_ = std::stoll(body);
         } else if (current_section == "cleanup") {
@@ -162,7 +164,8 @@ void interpreted_benchmark_t::parse(const std::filesystem::path& path) {
         auto trimmed = trim(line);
         if (trimmed.empty() || trimmed[0] == '#') {
             if (!current_section.empty() &&
-                (current_section == "load" || current_section == "run" || current_section == "cleanup")) {
+                (current_section == "load" || current_section == "run" || current_section == "verify" ||
+                 current_section == "cleanup")) {
                 current_body += "\n";
             }
             continue;
@@ -334,7 +337,8 @@ void interpreted_benchmark_t::cleanup(benchmark_state_t& state) {
 std::string interpreted_benchmark_t::verify(benchmark_state_t& state) {
     if (expected_rows_ < 0) return "";
 
-    auto cursor = state.dispatcher->execute_sql(state.session, run_sql_);
+    const auto& sql = verify_sql_.empty() ? run_sql_ : verify_sql_;
+    auto cursor = state.dispatcher->execute_sql(state.session, sql);
     if (cursor->is_error()) {
         std::ostringstream oss;
         oss << "Verification " << format_sql_error(cursor);

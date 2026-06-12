@@ -172,6 +172,8 @@ namespace components::table {
         row_groups_->cleanup_versions(lowest_active_start_time);
     }
 
+    bool data_table_t::has_persisted_pax_layout() const { return row_groups_->has_persisted_pax_layout(); }
+
     void data_table_t::compact() {
         auto total = row_groups_->total_rows();
         if (total == 0) {
@@ -201,15 +203,15 @@ namespace components::table {
             table_scan_state state(resource_);
             initialize_scan_with_offset(state, column_ids, 0, static_cast<int64_t>(total));
 
-            auto scan_types = copy_types();
-            vector::data_chunk_t chunk(resource_, scan_types, vector::DEFAULT_VECTOR_CAPACITY);
             while (true) {
+                auto scan_types = copy_types();
+                vector::data_chunk_t chunk(resource_, scan_types, vector::DEFAULT_VECTOR_CAPACITY);
                 state.table_state.scan_committed(chunk, table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
                 if (chunk.size() == 0) {
                     break;
                 }
+                chunk.flatten();
                 new_collection->append(chunk, append_state);
-                chunk.reset();
             }
 
             new_collection->finalize_append(append_state, transaction_data{0, 0});
@@ -387,10 +389,11 @@ namespace components::table {
                 } else {
                     start_in_chunk = static_cast<uint64_t>(row_start - current_row);
                 }
-                vector::indexing_vector_t indexing(resource_, start_in_chunk, chunk_count);
-                chunk.slice(indexing, chunk_count);
+                auto sliced = chunk.partial_copy(resource_, start_in_chunk, chunk_count);
+                function(sliced);
+            } else {
+                function(chunk);
             }
-            function(chunk);
             chunk.reset();
             current_row = end_row;
         }

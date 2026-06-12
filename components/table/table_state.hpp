@@ -166,6 +166,8 @@ namespace components::table {
         row_group_segment_tree_t* row_groups;
         int64_t max_row;
         uint64_t batch_index;
+        bool row_offset_override_active;
+        uint64_t row_offset_override;
         vector::indexing_vector_t valid_indexing;
         transaction_data txn{0, 0};
 

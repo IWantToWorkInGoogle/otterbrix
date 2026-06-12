@@ -103,8 +103,9 @@ namespace otterbrix {
         trace(log_, "spaces::manager_index finish");
 
         trace(log_, "spaces::manager_dispatcher start");
-        manager_dispatcher_ =
-            actor_zeta::spawn<services::dispatcher::manager_dispatcher_t>(&resource, scheduler_dispatcher_.get(), log_);
+        manager_dispatcher_ = actor_zeta::spawn<services::dispatcher::manager_dispatcher_t>(&resource,
+                                                                                            scheduler_dispatcher_.get(),
+                                                                                            log_);
         trace(log_, "spaces::manager_dispatcher finish");
 
         wrapper_dispatcher_ = actor_zeta::spawn<wrapper_dispatcher_t>(&resource, manager_dispatcher_->address(), log_);
@@ -318,6 +319,19 @@ namespace otterbrix {
     log_t& base_otterbrix_t::get_log() { return log_; }
 
     wrapper_dispatcher_t* base_otterbrix_t::dispatcher() { return wrapper_dispatcher_.get(); }
+
+    components::table::row_group_scan_path_counts_t base_otterbrix_t::user_table_scan_path_counts() const noexcept {
+        if (!manager_disk_) {
+            return {};
+        }
+        return manager_disk_->user_table_scan_path_counts_sync();
+    }
+
+    void base_otterbrix_t::reset_user_table_scan_path_counts() noexcept {
+        if (manager_disk_) {
+            manager_disk_->reset_user_table_scan_path_counts_sync();
+        }
+    }
 
     base_otterbrix_t::~base_otterbrix_t() {
         trace(log_, "delete spaces");

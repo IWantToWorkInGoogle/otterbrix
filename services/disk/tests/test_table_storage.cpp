@@ -729,6 +729,7 @@ TEST_CASE("services::disk::table_storage::manager_disk_actor_scan_batched_filter
                                   std::move(filter),
                                   int64_t{-1},
                                   std::vector<size_t>{},
+                                  false,
                                   transaction_data{0, 0});
 
     REQUIRE(batches != nullptr);
@@ -775,6 +776,7 @@ TEST_CASE("services::disk::table_storage::manager_disk_actor_scan_batched_filter
                                   std::move(filter),
                                   int64_t{-1},
                                   std::vector<size_t>{},
+                                  false,
                                   transaction_data{0, 0});
 
     REQUIRE(batches != nullptr);
@@ -993,7 +995,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_projected_via_st
     scheduler.stop();
 }
 
-TEST_CASE("services::disk::table_storage::parallel_scan_batched_with_committed_deletes_falls_back") {
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_with_committed_deletes_uses_threads") {
     std::pmr::synchronized_pool_resource resource;
 
     std::vector<column_definition_t> columns;
@@ -1024,6 +1026,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_with_committed_d
 
         adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
 
+        REQUIRE(adapter.parallel_worker_count() > 0);
         REQUIRE(batches.size() == 1);
         REQUIRE(batches[0].size() == DEFAULT_VECTOR_CAPACITY);
         require_ordered_int64_batches(batches, DEFAULT_VECTOR_CAPACITY);
@@ -1066,7 +1069,59 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_uses_t
     cleanup_test_dir();
 }
 
-TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_deletes_falls_back") {
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_row_ids_only_keeps_empty_projection") {
+    cleanup_test_dir();
+    std::filesystem::create_directories(test_dir());
+    std::pmr::synchronized_pool_resource resource;
+
+    auto otbx_path = std::filesystem::path(test_dir()) / "parallel_row_ids_only_scan.otbx";
+    constexpr uint64_t total_rows = 2 * DEFAULT_VECTOR_CAPACITY;
+
+    {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("value", logical_type::BIGINT);
+        columns.emplace_back("payload", logical_type::BIGINT);
+        table_storage_t ts(&resource, std::move(columns), otbx_path);
+        append_two_int64_columns(ts.table(), &resource, total_rows);
+        ts.checkpoint();
+    }
+
+    {
+        table_storage_t ts(&resource, otbx_path);
+        actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
+        scheduler.start();
+        scheduler_guard_t guard{scheduler};
+        {
+            components::storage::table_storage_adapter_t adapter(ts.table(), &resource, &scheduler);
+            std::pmr::vector<data_chunk_t> batches{&resource};
+            std::vector<size_t> row_ids_only_projection;
+
+            adapter.scan_batched(batches, nullptr, -1, &row_ids_only_projection, transaction_data{0, 0});
+
+            REQUIRE(adapter.parallel_worker_count() > 0);
+            REQUIRE(batches.size() == 2);
+
+            uint64_t seen = 0;
+            for (const auto& batch : batches) {
+                REQUIRE(batch.column_count() == 2);
+                for (const auto& column : batch.data) {
+                    REQUIRE(column.data() == nullptr);
+                    REQUIRE(column.auxiliary() == nullptr);
+                }
+                const auto* row_ids = batch.row_ids.data<int64_t>();
+                for (uint64_t i = 0; i < batch.size(); ++i) {
+                    REQUIRE(row_ids[i] == static_cast<int64_t>(seen));
+                    ++seen;
+                }
+            }
+            REQUIRE(seen == total_rows);
+        }
+    }
+
+    cleanup_test_dir();
+}
+
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_deletes_uses_threads") {
     cleanup_test_dir();
     std::filesystem::create_directories(test_dir());
     std::pmr::synchronized_pool_resource resource;
@@ -1096,6 +1151,12 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_c
         REQUIRE(deleted == 1);
         mutating_adapter.commit_all_deletes(TRANSACTION_ID_START, 1);
 
+#if defined(DEV_MODE)
+        auto* first_row_group = ts.table().row_group()->row_group_tree()->root_segment();
+        REQUIRE(first_row_group != nullptr);
+        first_row_group->debug_reset_scan_path_counts_for_test();
+#endif
+
         actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
         scheduler.start();
         scheduler_guard_t guard{scheduler};
@@ -1105,7 +1166,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_c
 
             adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
 
-            REQUIRE(adapter.parallel_worker_count() == 0);
+            REQUIRE(adapter.parallel_worker_count() > 0);
             uint64_t seen = 0;
             for (auto& batch : batches) {
                 batch.data[0].flatten(batch.size());
@@ -1116,6 +1177,12 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_c
             }
             REQUIRE(seen == DEFAULT_VECTOR_CAPACITY);
         }
+
+#if defined(DEV_MODE)
+        const auto counts = first_row_group->debug_scan_path_counts_for_test();
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+#endif
     }
 
     cleanup_test_dir();
@@ -1161,7 +1228,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_r
     cleanup_test_dir();
 }
 
-TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_updates_falls_back") {
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_update_overlay_uses_threads") {
     cleanup_test_dir();
     std::filesystem::create_directories(test_dir());
     std::pmr::synchronized_pool_resource resource;
@@ -1194,6 +1261,12 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_u
         components::storage::table_storage_adapter_t mutating_adapter(ts.table(), &resource);
         mutating_adapter.update(row_ids_chunk.data[0], update_chunk);
 
+#if defined(DEV_MODE)
+        auto* first_row_group = ts.table().row_group()->row_group_tree()->root_segment();
+        REQUIRE(first_row_group != nullptr);
+        first_row_group->debug_reset_scan_path_counts_for_test();
+#endif
+
         actor_zeta::scheduler::sharing_scheduler scheduler(2, 1000);
         scheduler.start();
         scheduler_guard_t guard{scheduler};
@@ -1203,7 +1276,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_u
 
             adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
 
-            REQUIRE(adapter.parallel_worker_count() == 0);
+            REQUIRE(adapter.parallel_worker_count() > 0);
             REQUIRE_FALSE(batches.empty());
             uint64_t seen = 0;
             for (auto& batch : batches) {
@@ -1219,6 +1292,12 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_u
             }
             REQUIRE(seen == total_rows);
         }
+
+#if defined(DEV_MODE)
+        const auto counts = first_row_group->debug_scan_path_counts_for_test();
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+#endif
     }
 
     cleanup_test_dir();
@@ -1283,7 +1362,7 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_u
     cleanup_test_dir();
 }
 
-TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_unloaded_deletes_falls_back") {
+TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_unloaded_deletes_uses_threads") {
     cleanup_test_dir();
     std::filesystem::create_directories(test_dir());
     std::pmr::synchronized_pool_resource resource;
@@ -1324,18 +1403,16 @@ TEST_CASE("services::disk::table_storage::parallel_scan_batched_disk_load_with_u
 
             adapter.scan_batched(batches, nullptr, -1, nullptr, transaction_data{0, 0});
 
-            REQUIRE(adapter.parallel_worker_count() == 0);
+            REQUIRE(adapter.parallel_worker_count() > 0);
             uint64_t seen = 0;
             for (auto& batch : batches) {
                 batch.data[0].flatten(batch.size());
                 for (uint64_t i = 0; i < batch.size(); ++i) {
-                    if (seen < DEFAULT_VECTOR_CAPACITY) {
-                        REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
-                    }
+                    REQUIRE(batch.data[0].value(i).value<int64_t>() == static_cast<int64_t>(seen));
                     ++seen;
                 }
             }
-            REQUIRE(seen >= DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(seen == DEFAULT_VECTOR_CAPACITY);
         }
     }
 

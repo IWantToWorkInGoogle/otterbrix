@@ -8,10 +8,20 @@
 #include <components/table/storage/metadata_writer.hpp>
 #include <components/table/storage/single_file_block_manager.hpp>
 #include <components/table/storage/standard_buffer_manager.hpp>
+#include <components/table/transaction_manager.hpp>
 #include <components/types/type_spec.hpp>
 #include <core/file/local_file_system.hpp>
 
+#include <algorithm>
+#include <array>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <functional>
+#include <map>
+#include <random>
+#include <set>
 #include <memory_resource>
 #include <optional>
 #include <unistd.h>
@@ -31,6 +41,13 @@ namespace components::table {
         static void reset_scan_path_counts(row_group_t& row_group) { row_group.reset_scan_path_counts(); }
         static row_group_scan_path_counts_t scan_path_counts(const row_group_t& row_group) {
             return row_group.scan_path_counts();
+        }
+        static const std::optional<storage::pax_fixed_row_group_layout_t>&
+        pax_fixed_layout(const row_group_t& row_group) {
+            return row_group.pax_fixed_layout_;
+        }
+        static uint64_t delete_pointer_count(const row_group_t& row_group) {
+            return row_group.deletes_pointers_.size();
         }
     };
 } // namespace components::table
@@ -429,6 +446,67 @@ namespace {
             table.finalize_append(state, transaction_data{0, 0});
             offset += batch;
         }
+    }
+
+    void delete_committed_rows(components::table::data_table_t& table,
+                               std::pmr::memory_resource* resource,
+                               const std::vector<uint64_t>& rows) {
+        using namespace components::table;
+        using namespace components::types;
+        using namespace components::vector;
+
+        vector_t row_ids(resource, logical_type::BIGINT, rows.size());
+        for (uint64_t i = 0; i < rows.size(); i++) {
+            row_ids.set_value(i, logical_value_t{resource, static_cast<int64_t>(rows[i])});
+        }
+
+        auto delete_state = table.initialize_delete({});
+        REQUIRE(table.delete_rows(*delete_state, row_ids, rows.size(), 0) == rows.size());
+    }
+
+    void update_fixed_column(components::table::data_table_t& table,
+                             std::pmr::memory_resource* resource,
+                             uint64_t column_index,
+                             const std::vector<uint64_t>& rows,
+                             const std::vector<components::types::logical_value_t>& values,
+                             components::types::logical_type type) {
+        using namespace components::table;
+        using namespace components::types;
+        using namespace components::vector;
+
+        REQUIRE(rows.size() == values.size());
+        vector_t row_ids(resource, logical_type::BIGINT, rows.size());
+        data_chunk_t updates(resource, {type}, rows.size());
+        updates.set_cardinality(rows.size());
+        for (uint64_t i = 0; i < rows.size(); i++) {
+            row_ids.set_value(i, logical_value_t{resource, static_cast<int64_t>(rows[i])});
+            updates.set_value(0, i, values[i]);
+        }
+        table.update_column(row_ids, {column_index}, updates);
+    }
+
+    void update_string_column(components::table::data_table_t& table,
+                              std::pmr::memory_resource* resource,
+                              uint64_t column_index,
+                              const std::vector<uint64_t>& rows,
+                              const std::vector<std::optional<std::string>>& values) {
+        using namespace components::table;
+        using namespace components::types;
+        using namespace components::vector;
+
+        REQUIRE(rows.size() == values.size());
+        vector_t row_ids(resource, logical_type::BIGINT, rows.size());
+        data_chunk_t updates(resource, {logical_type::STRING_LITERAL}, rows.size());
+        updates.set_cardinality(rows.size());
+        for (uint64_t i = 0; i < rows.size(); i++) {
+            row_ids.set_value(i, logical_value_t{resource, static_cast<int64_t>(rows[i])});
+            if (values[i].has_value()) {
+                updates.set_value(0, i, logical_value_t{resource, *values[i]});
+            } else {
+                updates.data[0].set_null(i, true);
+            }
+        }
+        table.update_column(row_ids, {column_index}, updates);
     }
 
     std::string padded_name(uint64_t row) {
@@ -883,7 +961,7 @@ TEST_CASE("checkpoint_load: explicit columnar-only root support matrix excludes 
     REQUIRE(variant_type.child_types()[3].type() == logical_type::BLOB);
 }
 
-TEST_CASE("checkpoint_load: explicit pax support matrix rejects mixed and fallback root schemas") {
+TEST_CASE("checkpoint_load: explicit pax support matrix accepts mixed and rejects fallback root schemas") {
     using components::table::column_definition_t;
     using components::table::detail::supports_explicit_pax_schema;
     using namespace components::types;
@@ -906,14 +984,42 @@ TEST_CASE("checkpoint_load: explicit pax support matrix rejects mixed and fallba
     mixed_columns.emplace_back("name", logical_type::STRING_LITERAL);
     mixed_columns.emplace_back("count", logical_type::BIGINT);
     error_message.clear();
-    REQUIRE_FALSE(supports_explicit_pax_schema(mixed_columns, &error_message));
-    REQUIRE(error_message.find("mixing fixed-width and generic root columns") != std::string::npos);
+    REQUIRE(supports_explicit_pax_schema(mixed_columns, &error_message));
+    REQUIRE(error_message.empty());
 
     std::vector<column_definition_t> fallback_columns;
     fallback_columns.emplace_back("gap", logical_type::INTERVAL);
     error_message.clear();
     REQUIRE_FALSE(supports_explicit_pax_schema(fallback_columns, &error_message));
     REQUIRE(error_message.find("not supported by USING PAX") != std::string::npos);
+
+    const auto require_unsupported_label = [&](logical_type type, const char* label) {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("unsupported", type);
+        error_message.clear();
+        REQUIRE_FALSE(supports_explicit_pax_schema(columns, &error_message));
+        REQUIRE(error_message.find("type '" + std::string(label) + "'") != std::string::npos);
+        REQUIRE(error_message.find("not supported by USING PAX") != std::string::npos);
+    };
+
+    require_unsupported_label(logical_type::DATE, "date");
+    require_unsupported_label(logical_type::TIME, "time");
+    require_unsupported_label(logical_type::TIME_TZ, "timetz");
+    require_unsupported_label(logical_type::BLOB, "blob");
+    require_unsupported_label(logical_type::INTERVAL, "interval");
+
+    const auto require_unsupported_complex = [&](complex_logical_type type) {
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("unsupported", std::move(type));
+        error_message.clear();
+        REQUIRE_FALSE(supports_explicit_pax_schema(columns, &error_message));
+        REQUIRE(error_message.find("not supported by USING PAX") != std::string::npos);
+    };
+
+    require_unsupported_complex(complex_logical_type::create_map(logical_type::INTEGER,
+                                                                 logical_type::STRING_LITERAL,
+                                                                 "map_payload"));
+    require_unsupported_complex(complex_logical_type::create_variant(std::pmr::get_default_resource(), "variant_payload"));
 }
 
 TEST_CASE("checkpoint_load: columnar-only layout policy disables pax routing") {
@@ -1488,7 +1594,7 @@ TEST_CASE("checkpoint_load: string columns are written as pax generic") {
         auto row_group = row_group_pointer_t::deserialize(reader);
         REQUIRE(row_group.columnar_data_pointers.size() == 2);
         REQUIRE(row_group.columnar_data_pointers[0].size() == 2);
-        REQUIRE_FALSE(row_group.columnar_data_pointers[1].empty());
+        REQUIRE(row_group.columnar_data_pointers[1].empty());
 
         REQUIRE(reader.read<uint32_t>() == ROW_GROUP_LAYOUTS_MAGIC);
         REQUIRE(reader.read<uint32_t>() == 1);
@@ -1499,11 +1605,18 @@ TEST_CASE("checkpoint_load: string columns are written as pax generic") {
         REQUIRE(pax_layout.version == 4);
         REQUIRE(pax_layout.rows_per_page == 256);
         REQUIRE(pax_layout.pages.size() == 2);
-        REQUIRE(pax_layout.pages[0].slices.size() == 2);
+        REQUIRE(pax_layout.pages[0].slices.size() == 4);
         REQUIRE(pax_layout.pages[0].slices[0].slice_kind == pax_generic_slice_kind::STRING_VALUES);
         REQUIRE(pax_layout.pages[0].slices[0].codec_kind == pax_generic_codec_kind::STRING_SEGMENT);
         REQUIRE(pax_layout.pages[0].slices[0].statistics.has_value());
         REQUIRE(pax_layout.pages[0].slices[1].slice_kind == pax_generic_slice_kind::VALIDITY);
+        REQUIRE(pax_layout.pages[0].slices[2].column_index == 1);
+        REQUIRE(pax_layout.pages[0].slices[2].slice_kind == pax_generic_slice_kind::FIXED_VALUES);
+        REQUIRE(pax_layout.pages[0].slices[2].codec_kind == pax_generic_codec_kind::FIXED_PLAIN);
+        REQUIRE(pax_layout.pages[0].slices[2].fixed_logical_type == logical_type::BIGINT);
+        REQUIRE(pax_layout.pages[0].slices[2].statistics.has_value());
+        REQUIRE(pax_layout.pages[0].slices[3].column_index == 1);
+        REQUIRE(pax_layout.pages[0].slices[3].slice_kind == pax_generic_slice_kind::VALIDITY);
     }
 
     {
@@ -1599,6 +1712,96 @@ TEST_CASE("checkpoint_load: pax generic string scan preserves null validity acro
     }
 
     std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Scale / pool-pressure round-trip invariant: load many row groups under a small
+// buffer pool, checkpoint, reopen in a fresh block manager, and verify EVERY row
+// (value AND null mask) comes back exactly — not a fingerprint. This is the guard
+// for the silent-truncation class: the old full-block transient-segment allocation
+// exhausted the pool at ~16 row groups here and the load was truncated; the
+// right-sized DATA+VALIDITY segments keep the whole table. Deliberately uses a 16 MB
+// pool + 256 KB blocks so the regression manifests at a few-thousand rows (fast),
+// instead of needing ~540k rows at production pool sizes.
+TEST_CASE("checkpoint_load: pax fixed round-trip preserves every row and null mask under buffer-pool pressure") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    // Independent, deliberately small buffer pool (16 MB) + small blocks (256 KB).
+    std::pmr::synchronized_pool_resource resource;
+    core::filesystem::local_file_system_t fs;
+    buffer_pool_t pool(&resource, uint64_t(16) << 20, false, uint64_t(1) << 24);
+    standard_buffer_manager_t buffer_manager(&resource, fs, pool);
+    constexpr uint64_t BLOCK_ALLOC = uint64_t(256) << 10;
+
+    // ~39 row groups (DEFAULT_VECTOR_CAPACITY rows each). Under the old whole-block
+    // reservation that is ~39 MB of transient segments — well past the 16 MB pool.
+    constexpr uint64_t NUM_ROWS = 40000;
+    const auto path = test_db_path();
+    std::remove(path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    auto col0_fn = [](uint64_t row) -> std::optional<int64_t> {
+        return (row % 13 == 0) ? std::optional<int64_t>{} : std::optional<int64_t>{static_cast<int64_t>(row)};
+    };
+    auto col1_fn = [](uint64_t row) -> std::optional<uint32_t> {
+        return (row % 7 == 0) ? std::optional<uint32_t>{} : std::optional<uint32_t>{static_cast<uint32_t>(row * 3)};
+    };
+
+    {
+        single_file_block_manager_t bm(buffer_manager, fs, path, BLOCK_ALLOC);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("payload", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&resource, bm, std::move(columns), "scale_nulls");
+        append_nullable_fixed_integer_pair(*table, &resource, NUM_ROWS, col0_fn, col1_fn);
+        REQUIRE(table->calculate_size() == NUM_ROWS);
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(buffer_manager, fs, path, BLOCK_ALLOC);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&resource, bm, reader);
+
+        uint64_t scanned = 0;
+        loaded->scan_table_segment(0, NUM_ROWS, [&](data_chunk_t& chunk) {
+            for (uint64_t i = 0; i < chunk.size(); i++) {
+                const auto row = scanned + i;
+                const auto e0 = col0_fn(row);
+                const auto e1 = col1_fn(row);
+                REQUIRE(chunk.data[0].is_null(i) == !e0.has_value());
+                if (e0.has_value()) {
+                    REQUIRE(chunk.data[0].value(i).value<int64_t>() == *e0);
+                }
+                REQUIRE(chunk.data[1].is_null(i) == !e1.has_value());
+                if (e1.has_value()) {
+                    REQUIRE(chunk.data[1].value(i).value<uint32_t>() == *e1);
+                }
+            }
+            scanned += chunk.size();
+        });
+        REQUIRE(scanned == NUM_ROWS); // the whole table survived — no silent truncation
+    }
+
+    std::remove(path.c_str());
     cleanup_test_file();
 }
 
@@ -2801,6 +3004,453 @@ TEST_CASE("checkpoint_load: pax generic projected scan uses fast path") {
         const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
         REQUIRE(counts.pax_generic_projected > 0);
         REQUIRE(counts.pax_generic_pruned_pages == 0);
+        REQUIRE(counts.pax_generic_prefetched_blocks > 0);
+        REQUIRE(counts.pax_generic_skipped_payload_pages == 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax generic projected scan skips committed deletes") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_generic_delete_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_generic_delete");
+        append_nullable_string_data(*table,
+                                    &env.resource,
+                                    NUM_ROWS,
+                                    [](uint64_t row) -> std::optional<std::string> { return padded_name(row); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> deleted_rows{0, 5, 128, 255, 300, 511};
+        delete_committed_rows(*loaded, &env.resource, deleted_rows);
+
+        std::vector<uint64_t> expected_rows;
+        for (uint64_t row = 0; row < NUM_ROWS; row++) {
+            if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+                expected_rows.push_back(row);
+            }
+        }
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0)};
+        std::vector<size_t> projected_cols{0};
+
+        table_scan_state helper_state(&env.resource);
+        loaded->initialize_scan(helper_state, projected_indices, nullptr);
+        data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        REQUIRE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                        helper_state.table_state,
+                                                                        helper_chunk));
+        REQUIRE(helper_chunk.size() == expected_rows.size());
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = expected_rows[scanned + i];
+                REQUIRE(*result.data[0].value(i).value<std::string*>() == padded_name(row));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected_rows.size());
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected > 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax generic projected scan applies active transaction delete visibility") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_generic_active_txn_delete_visibility";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table =
+            std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_generic_active_txn_delete");
+        append_nullable_string_data(*table,
+                                    &env.resource,
+                                    NUM_ROWS,
+                                    [](uint64_t row) -> std::optional<std::string> { return padded_name(row); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> deleted_rows{0, 5, 128, 255, 300, 511};
+        vector_t row_ids(&env.resource, logical_type::BIGINT, deleted_rows.size());
+        for (uint64_t i = 0; i < deleted_rows.size(); i++) {
+            row_ids.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(deleted_rows[i])});
+        }
+
+        transaction_manager_t txn_manager;
+        auto writer_session = components::session::session_id_t::generate_uid();
+        auto& writer_txn = txn_manager.begin_transaction(writer_session);
+        auto delete_state = loaded->initialize_delete({});
+        REQUIRE(loaded->delete_rows(*delete_state,
+                                    row_ids,
+                                    deleted_rows.size(),
+                                    writer_txn.transaction_id()) == deleted_rows.size());
+
+        std::vector<uint64_t> all_rows;
+        all_rows.reserve(NUM_ROWS);
+        std::vector<uint64_t> committed_visible_rows;
+        committed_visible_rows.reserve(NUM_ROWS - deleted_rows.size());
+        for (uint64_t row = 0; row < NUM_ROWS; row++) {
+            all_rows.push_back(row);
+            if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+                committed_visible_rows.push_back(row);
+            }
+        }
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0)};
+        std::vector<size_t> projected_cols{0};
+
+        const auto scan_and_check = [&](transaction_data txn, const std::vector<uint64_t>& expected_rows) {
+            row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, nullptr);
+            state.table_state.txn = txn;
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+            uint64_t scanned = 0;
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+
+                for (uint64_t i = 0; i < result.size(); i++) {
+                    const auto row = expected_rows[scanned + i];
+                    REQUIRE(*result.data[0].value(i).value<std::string*>() == padded_name(row));
+                }
+                scanned += result.size();
+            }
+            REQUIRE(scanned == expected_rows.size());
+
+            const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+            REQUIRE(counts.pax_generic_projected > 0);
+            REQUIRE(counts.pax_fixed_projected == 0);
+            REQUIRE(counts.regular == 0);
+        };
+
+        auto reader_session = components::session::session_id_t::generate_uid();
+        auto& reader_txn = txn_manager.begin_transaction(reader_session);
+        scan_and_check(reader_txn.data(), all_rows);
+        txn_manager.abort(reader_session);
+
+        const auto writer_txn_id = writer_txn.transaction_id();
+        const auto commit_id = txn_manager.commit(writer_session);
+        loaded->commit_all_deletes(writer_txn_id, commit_id);
+
+        auto fresh_session = components::session::session_id_t::generate_uid();
+        auto& fresh_txn = txn_manager.begin_transaction(fresh_session);
+        scan_and_check(fresh_txn.data(), committed_visible_rows);
+        txn_manager.abort(fresh_session);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax generic projected scan persists committed deletes") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_generic_persisted_delete_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table =
+            std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_generic_persisted_delete");
+        append_nullable_string_data(*table,
+                                    &env.resource,
+                                    NUM_ROWS,
+                                    [](uint64_t row) -> std::optional<std::string> { return padded_name(row); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    const std::vector<uint64_t> deleted_rows{0, 5, 128, 255, 300, 511};
+    std::vector<uint64_t> expected_rows;
+    for (uint64_t row = 0; row < NUM_ROWS; row++) {
+        if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+            expected_rows.push_back(row);
+        }
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        delete_committed_rows(*loaded, &env.resource, deleted_rows);
+
+        metadata_writer_t writer(meta_mgr);
+        loaded->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(row_group_test_access_t::delete_pointer_count(*first_row_group) == 1);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(row_group_test_access_t::delete_pointer_count(*first_row_group) == 1);
+        REQUIRE(loaded->calculate_size() == expected_rows.size());
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0)};
+        std::vector<size_t> projected_cols{0};
+
+        table_scan_state helper_state(&env.resource);
+        loaded->initialize_scan(helper_state, projected_indices, nullptr);
+        data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        REQUIRE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                        helper_state.table_state,
+                                                                        helper_chunk));
+        REQUIRE(helper_chunk.size() == expected_rows.size());
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = expected_rows[scanned + i];
+                REQUIRE(*result.data[0].value(i).value<std::string*>() == padded_name(row));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected_rows.size());
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected > 0);
+        REQUIRE(counts.pax_fixed_projected == 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax generic projected scan applies update overlay") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_generic_update_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("name", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_generic_update");
+        append_nullable_string_data(*table,
+                                    &env.resource,
+                                    NUM_ROWS,
+                                    [](uint64_t row) -> std::optional<std::string> { return padded_name(row); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> updated_rows{5, 128, 300};
+        const std::string updated_value = "zzzz_updated_hot";
+        update_string_column(*loaded,
+                             &env.resource,
+                             0,
+                             updated_rows,
+                             {updated_value, std::nullopt, updated_value});
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0)};
+        std::vector<size_t> projected_cols{0};
+
+        {
+            table_scan_state helper_state(&env.resource);
+            loaded->initialize_scan(helper_state, projected_indices, nullptr);
+            data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                            helper_state.table_state,
+                                                                            helper_chunk));
+            REQUIRE(helper_chunk.size() == NUM_ROWS);
+            REQUIRE(*helper_chunk.data[0].value(5).value<std::string*>() == updated_value);
+            REQUIRE(helper_chunk.data[0].is_null(128));
+            REQUIRE(*helper_chunk.data[0].value(300).value<std::string*>() == updated_value);
+        }
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        std::pmr::vector<uint64_t> eq_filter_columns(&env.resource);
+        eq_filter_columns.push_back(0);
+        constant_filter_t eq_filter(components::expressions::compare_type::eq,
+                                    logical_value_t{&env.resource, updated_value},
+                                    std::move(eq_filter_columns));
+
+        table_scan_state eq_state(&env.resource);
+        loaded->initialize_scan(eq_state, projected_indices, &eq_filter);
+        data_chunk_t eq_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        loaded->scan(eq_result, eq_state);
+        REQUIRE(eq_result.size() == 2);
+        for (uint64_t i = 0; i < eq_result.size(); i++) {
+            REQUIRE(*eq_result.data[0].value(i).value<std::string*>() == updated_value);
+        }
+
+        std::pmr::vector<uint64_t> null_filter_columns(&env.resource);
+        null_filter_columns.push_back(0);
+        is_null_filter_t null_filter(components::expressions::compare_type::is_null, std::move(null_filter_columns));
+
+        table_scan_state null_state(&env.resource);
+        loaded->initialize_scan(null_state, projected_indices, &null_filter);
+        data_chunk_t null_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        loaded->scan(null_result, null_state);
+        REQUIRE(null_result.size() == 1);
+        REQUIRE(null_result.data[0].is_null(0));
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected > 0);
         REQUIRE(counts.pax_fixed_projected == 0);
         REQUIRE(counts.regular == 0);
     }
@@ -2917,6 +3567,8 @@ TEST_CASE("checkpoint_load: pax generic projected scan supports simple filters")
         const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
         REQUIRE(counts.pax_generic_projected > 0);
         REQUIRE(counts.pax_generic_pruned_pages > 0);
+        REQUIRE(counts.pax_generic_prefetched_blocks > 0);
+        REQUIRE(counts.pax_generic_skipped_payload_pages > 0);
         REQUIRE(counts.pax_fixed_projected == 0);
         REQUIRE(counts.regular == 0);
     }
@@ -3012,6 +3664,8 @@ TEST_CASE("checkpoint_load: pax generic projected scan supports non-projected fi
                                                                             helper_state.table_state,
                                                                             helper_chunk));
 
+            row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
             table_scan_state state(&env.resource);
             loaded->initialize_scan(state, projected_indices, &filter);
             data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
@@ -3029,6 +3683,12 @@ TEST_CASE("checkpoint_load: pax generic projected scan supports non-projected fi
                 scanned += result.size();
             }
             REQUIRE(scanned == alpha_rows.size());
+
+            const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+            REQUIRE(counts.pax_generic_projected > 0);
+            REQUIRE(counts.pax_generic_prefetched_blocks > 0);
+            REQUIRE(counts.pax_fixed_projected == 0);
+            REQUIRE(counts.regular == 0);
         }
 
         {
@@ -3160,7 +3820,7 @@ TEST_CASE("checkpoint_load: pax generic projected scan restores overflow strings
     cleanup_test_file();
 }
 
-TEST_CASE("checkpoint_load: pax generic projected scan falls back for mixed projection") {
+TEST_CASE("checkpoint_load: pax generic projected scan supports mixed projection") {
     using namespace components::table;
     using namespace components::table::storage;
     using namespace components::types;
@@ -3228,9 +3888,51 @@ TEST_CASE("checkpoint_load: pax generic projected scan falls back for mixed proj
         REQUIRE(first_row_group != nullptr);
 
         data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
-        REQUIRE_FALSE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
-                                                                              helper_state.table_state,
-                                                                              helper_chunk));
+        REQUIRE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                        helper_state.table_state,
+                                                                        helper_chunk));
+        REQUIRE(helper_chunk.size() == NUM_ROWS);
+        for (uint64_t i = 0; i < helper_chunk.size(); i++) {
+            REQUIRE(*helper_chunk.data[0].value(i).value<std::string*>() == padded_name(i));
+            REQUIRE(helper_chunk.data[1].value(i).value<int64_t>() == static_cast<int64_t>(i * 2));
+        }
+
+        {
+            std::vector<storage_index_t> row_id_projection{storage_index_t(0), storage_index_t()};
+            std::pmr::vector<complex_logical_type> row_id_result_types(&env.resource);
+            row_id_result_types.emplace_back(logical_type::STRING_LITERAL);
+            row_id_result_types.emplace_back(logical_type::BIGINT);
+            table_scan_state row_id_state(&env.resource);
+            loaded->initialize_scan(row_id_state, row_id_projection, nullptr);
+            data_chunk_t row_id_result(&env.resource, row_id_result_types, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                            row_id_state.table_state,
+                                                                            row_id_result));
+            REQUIRE(row_id_result.size() == NUM_ROWS);
+            for (uint64_t i = 0; i < row_id_result.size(); i++) {
+                REQUIRE(*row_id_result.data[0].value(i).value<std::string*>() == padded_name(i));
+                REQUIRE(row_id_result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(i));
+            }
+        }
+
+        {
+            std::vector<storage_index_t> string_projection{storage_index_t(0)};
+            std::vector<size_t> string_projected_cols{0};
+            std::pmr::vector<uint64_t> filter_columns(&env.resource);
+            filter_columns.push_back(0);
+            constant_filter_t invalid_filter(components::expressions::compare_type::invalid,
+                                             logical_value_t{&env.resource, padded_name(10)},
+                                             std::move(filter_columns));
+            table_scan_state invalid_filter_state(&env.resource);
+            loaded->initialize_scan(invalid_filter_state, string_projection, &invalid_filter);
+            data_chunk_t invalid_filter_result(&env.resource,
+                                               loaded->copy_types(),
+                                               string_projected_cols,
+                                               DEFAULT_VECTOR_CAPACITY);
+            REQUIRE_FALSE(row_group_test_access_t::try_scan_pax_generic_projected(*first_row_group,
+                                                                                  invalid_filter_state.table_state,
+                                                                                  invalid_filter_result));
+        }
 
         row_group_test_access_t::reset_scan_path_counts(*first_row_group);
 
@@ -3255,10 +3957,12 @@ TEST_CASE("checkpoint_load: pax generic projected scan falls back for mixed proj
         REQUIRE(scanned == NUM_ROWS);
 
         const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
-        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_generic_projected > 0);
         REQUIRE(counts.pax_generic_pruned_pages == 0);
+        REQUIRE(counts.pax_generic_prefetched_blocks > 0);
+        REQUIRE(counts.pax_generic_skipped_payload_pages == 0);
         REQUIRE(counts.pax_fixed_projected == 0);
-        REQUIRE(counts.regular > 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
@@ -3354,7 +4058,1798 @@ TEST_CASE("checkpoint_load: pax fixed projected scan uses fast path") {
         REQUIRE(counts.pax_generic_projected == 0);
         REQUIRE(counts.pax_fixed_projected > 0);
         REQUIRE(counts.pax_fixed_pruned_pages == 0);
+        REQUIRE(counts.pax_fixed_prefetched_blocks > 0);
+        REQUIRE(counts.pax_fixed_skipped_payload_pages == 0);
         REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan skips committed deletes") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_fixed_delete_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_delete");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  NUM_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> deleted_rows{0, 3, 128, 255, 256, 511};
+        delete_committed_rows(*loaded, &env.resource, deleted_rows);
+
+        std::vector<uint64_t> expected_rows;
+        for (uint64_t row = 0; row < NUM_ROWS; row++) {
+            if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+                expected_rows.push_back(row);
+            }
+        }
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        table_scan_state helper_state(&env.resource);
+        loaded->initialize_scan(helper_state, projected_indices, nullptr);
+        data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        REQUIRE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                      helper_state.table_state,
+                                                                      helper_chunk));
+        REQUIRE(helper_chunk.size() == expected_rows.size());
+
+        {
+            std::vector<storage_index_t> row_id_projection{storage_index_t(0), storage_index_t()};
+            std::pmr::vector<complex_logical_type> row_id_result_types(&env.resource);
+            row_id_result_types.emplace_back(logical_type::BIGINT);
+            row_id_result_types.emplace_back(logical_type::BIGINT);
+            table_scan_state row_id_state(&env.resource);
+            loaded->initialize_scan(row_id_state, row_id_projection, nullptr);
+            data_chunk_t row_id_result(&env.resource, row_id_result_types, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                          row_id_state.table_state,
+                                                                          row_id_result));
+            REQUIRE(row_id_result.size() == expected_rows.size());
+            for (uint64_t i = 0; i < row_id_result.size(); i++) {
+                const auto row = expected_rows[i];
+                REQUIRE(row_id_result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(row_id_result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(row));
+            }
+        }
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = expected_rows[scanned + i];
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected_rows.size());
+
+        auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        std::pmr::vector<uint64_t> filter_columns(&env.resource);
+        filter_columns.push_back(0);
+        constant_filter_t filter(components::expressions::compare_type::gte,
+                                 logical_value_t{&env.resource, int64_t(250)},
+                                 std::move(filter_columns));
+
+        std::vector<uint64_t> filtered_expected_rows;
+        for (auto row : expected_rows) {
+            if (row >= 250) {
+                filtered_expected_rows.push_back(row);
+            }
+        }
+
+        table_scan_state filtered_state(&env.resource);
+        loaded->initialize_scan(filtered_state, projected_indices, &filter);
+        data_chunk_t filtered_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        scanned = 0;
+        while (true) {
+            filtered_result.reset();
+            loaded->scan(filtered_result, filtered_state);
+            if (filtered_result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < filtered_result.size(); i++) {
+                const auto row = filtered_expected_rows[scanned + i];
+                REQUIRE(filtered_result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(filtered_result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += filtered_result.size();
+        }
+        REQUIRE(scanned == filtered_expected_rows.size());
+
+        counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        conjunction_and_filter_t range_filter;
+        std::pmr::vector<uint64_t> lower_filter_columns(&env.resource);
+        lower_filter_columns.push_back(0);
+        range_filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::gte,
+            logical_value_t{&env.resource, int64_t(300)},
+            std::move(lower_filter_columns)));
+        std::pmr::vector<uint64_t> upper_filter_columns(&env.resource);
+        upper_filter_columns.push_back(0);
+        range_filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::lt,
+            logical_value_t{&env.resource, int64_t(320)},
+            std::move(upper_filter_columns)));
+
+        std::vector<uint64_t> range_expected_rows;
+        for (auto row : expected_rows) {
+            if (row >= 300 && row < 320) {
+                range_expected_rows.push_back(row);
+            }
+        }
+
+        table_scan_state range_state(&env.resource);
+        loaded->initialize_scan(range_state, projected_indices, &range_filter);
+        data_chunk_t range_result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        scanned = 0;
+        while (true) {
+            range_result.reset();
+            loaded->scan(range_result, range_state);
+            if (range_result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < range_result.size(); i++) {
+                const auto row = range_expected_rows[scanned + i];
+                REQUIRE(range_result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(range_result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += range_result.size();
+        }
+        REQUIRE(scanned == range_expected_rows.size());
+
+        counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_pruned_pages > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan applies active transaction delete visibility") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_fixed_active_txn_delete_visibility";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table =
+            std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_active_txn_delete");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  NUM_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 5); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> deleted_rows{0, 3, 128, 255, 256, 511};
+        vector_t row_ids(&env.resource, logical_type::BIGINT, deleted_rows.size());
+        for (uint64_t i = 0; i < deleted_rows.size(); i++) {
+            row_ids.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(deleted_rows[i])});
+        }
+
+        transaction_manager_t txn_manager;
+        auto writer_session = components::session::session_id_t::generate_uid();
+        auto& writer_txn = txn_manager.begin_transaction(writer_session);
+        auto delete_state = loaded->initialize_delete({});
+        REQUIRE(loaded->delete_rows(*delete_state,
+                                    row_ids,
+                                    deleted_rows.size(),
+                                    writer_txn.transaction_id()) == deleted_rows.size());
+
+        std::vector<uint64_t> all_rows;
+        all_rows.reserve(NUM_ROWS);
+        std::vector<uint64_t> committed_visible_rows;
+        committed_visible_rows.reserve(NUM_ROWS - deleted_rows.size());
+        for (uint64_t row = 0; row < NUM_ROWS; row++) {
+            all_rows.push_back(row);
+            if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+                committed_visible_rows.push_back(row);
+            }
+        }
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        const auto scan_and_check = [&](transaction_data txn, const std::vector<uint64_t>& expected_rows) {
+            row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, nullptr);
+            state.table_state.txn = txn;
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+            uint64_t scanned = 0;
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+
+                for (uint64_t i = 0; i < result.size(); i++) {
+                    const auto row = expected_rows[scanned + i];
+                    REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                    REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 5));
+                }
+                scanned += result.size();
+            }
+            REQUIRE(scanned == expected_rows.size());
+
+            const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+            REQUIRE(counts.pax_fixed_projected > 0);
+            REQUIRE(counts.regular == 0);
+        };
+
+        auto reader_session = components::session::session_id_t::generate_uid();
+        auto& reader_txn = txn_manager.begin_transaction(reader_session);
+        scan_and_check(reader_txn.data(), all_rows);
+        txn_manager.abort(reader_session);
+
+        const auto writer_txn_id = writer_txn.transaction_id();
+        const auto commit_id = txn_manager.commit(writer_session);
+        loaded->commit_all_deletes(writer_txn_id, commit_id);
+
+        auto fresh_session = components::session::session_id_t::generate_uid();
+        auto& fresh_txn = txn_manager.begin_transaction(fresh_session);
+        scan_and_check(fresh_txn.data(), committed_visible_rows);
+        txn_manager.abort(fresh_session);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan persists committed deletes") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_fixed_persisted_delete_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_persisted_delete");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  NUM_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    const std::vector<uint64_t> deleted_rows{0, 3, 128, 255, 256, 511};
+    std::vector<uint64_t> expected_rows;
+    for (uint64_t row = 0; row < NUM_ROWS; row++) {
+        if (std::find(deleted_rows.begin(), deleted_rows.end(), row) == deleted_rows.end()) {
+            expected_rows.push_back(row);
+        }
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        delete_committed_rows(*loaded, &env.resource, deleted_rows);
+
+        metadata_writer_t writer(meta_mgr);
+        loaded->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(row_group_test_access_t::delete_pointer_count(*first_row_group) == 1);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(row_group_test_access_t::delete_pointer_count(*first_row_group) == 1);
+        REQUIRE(loaded->calculate_size() == expected_rows.size());
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        table_scan_state helper_state(&env.resource);
+        loaded->initialize_scan(helper_state, projected_indices, nullptr);
+        data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        REQUIRE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                      helper_state.table_state,
+                                                                      helper_chunk));
+        REQUIRE(helper_chunk.size() == expected_rows.size());
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = expected_rows[scanned + i];
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected_rows.size());
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan applies update overlay") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_fixed_update_overlay";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_update");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  NUM_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> updated_rows{5, 128, 300};
+        update_fixed_column(*loaded,
+                            &env.resource,
+                            0,
+                            updated_rows,
+                            {logical_value_t{&env.resource, int64_t(100005)},
+                             logical_value_t{&env.resource, int64_t(100128)},
+                             logical_value_t{&env.resource, int64_t(100300)}},
+                            logical_type::BIGINT);
+        update_fixed_column(*loaded,
+                            &env.resource,
+                            1,
+                            updated_rows,
+                            {logical_value_t{&env.resource, uint32_t(9005)},
+                             logical_value_t{&env.resource, uint32_t(9128)},
+                             logical_value_t{&env.resource, uint32_t(9300)}},
+                            logical_type::UINTEGER);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        {
+            table_scan_state helper_state(&env.resource);
+            loaded->initialize_scan(helper_state, projected_indices, nullptr);
+            data_chunk_t helper_chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                          helper_state.table_state,
+                                                                          helper_chunk));
+            REQUIRE(helper_chunk.size() == NUM_ROWS);
+            REQUIRE(helper_chunk.data[0].value(5).value<int64_t>() == int64_t(100005));
+            REQUIRE(helper_chunk.data[1].value(5).value<uint32_t>() == uint32_t(9005));
+            REQUIRE(helper_chunk.data[0].value(128).value<int64_t>() == int64_t(100128));
+            REQUIRE(helper_chunk.data[1].value(128).value<uint32_t>() == uint32_t(9128));
+            REQUIRE(helper_chunk.data[0].value(300).value<int64_t>() == int64_t(100300));
+            REQUIRE(helper_chunk.data[1].value(300).value<uint32_t>() == uint32_t(9300));
+        }
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        std::pmr::vector<uint64_t> filter_columns(&env.resource);
+        filter_columns.push_back(0);
+        constant_filter_t filter(components::expressions::compare_type::gte,
+                                 logical_value_t{&env.resource, int64_t(100000)},
+                                 std::move(filter_columns));
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, &filter);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        loaded->scan(result, state);
+        REQUIRE(result.size() == updated_rows.size());
+        REQUIRE(result.data[0].value(0).value<int64_t>() == int64_t(100005));
+        REQUIRE(result.data[1].value(0).value<uint32_t>() == uint32_t(9005));
+        REQUIRE(result.data[0].value(1).value<int64_t>() == int64_t(100128));
+        REQUIRE(result.data[1].value(1).value<uint32_t>() == uint32_t(9128));
+        REQUIRE(result.data[0].value(2).value<int64_t>() == int64_t(100300));
+        REQUIRE(result.data[1].value(2).value<uint32_t>() == uint32_t(9300));
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan supports dml update predicate tree") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 768;
+    const auto table_path = test_db_path() + ".pax_fixed_update_predicate_tree";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("flag", logical_type::UINTEGER);
+        columns.emplace_back("version", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_update_tree");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row)});
+            chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, uint32_t{0}});
+            chunk.set_value(2, row_in_chunk, logical_value_t{&env.resource, uint32_t{1}});
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const std::vector<uint64_t> updated_rows{300, 305, 540, 600};
+        update_fixed_column(*loaded,
+                            &env.resource,
+                            1,
+                            updated_rows,
+                            {logical_value_t{&env.resource, uint32_t{0}},
+                             logical_value_t{&env.resource, uint32_t{1}},
+                             logical_value_t{&env.resource, uint32_t{1}},
+                             logical_value_t{&env.resource, uint32_t{1}}},
+                            logical_type::UINTEGER);
+        update_fixed_column(*loaded,
+                            &env.resource,
+                            2,
+                            updated_rows,
+                            {logical_value_t{&env.resource, uint32_t{2}},
+                             logical_value_t{&env.resource, uint32_t{1}},
+                             logical_value_t{&env.resource, uint32_t{2}},
+                             logical_value_t{&env.resource, uint32_t{2}}},
+                            logical_type::UINTEGER);
+
+        conjunction_and_filter_t filter;
+        std::pmr::vector<uint64_t> lower_filter_columns(&env.resource);
+        lower_filter_columns.push_back(0);
+        filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::gte,
+            logical_value_t{&env.resource, int64_t{260}},
+            std::move(lower_filter_columns)));
+        std::pmr::vector<uint64_t> upper_filter_columns(&env.resource);
+        upper_filter_columns.push_back(0);
+        filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::lt,
+            logical_value_t{&env.resource, int64_t{580}},
+            std::move(upper_filter_columns)));
+
+        auto changed_filter = std::make_unique<conjunction_or_filter_t>();
+        std::pmr::vector<uint64_t> flag_filter_columns(&env.resource);
+        flag_filter_columns.push_back(1);
+        changed_filter->child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::ne,
+            logical_value_t{&env.resource, uint32_t{0}},
+            std::move(flag_filter_columns)));
+        std::pmr::vector<uint64_t> version_filter_columns(&env.resource);
+        version_filter_columns.push_back(2);
+        changed_filter->child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::ne,
+            logical_value_t{&env.resource, uint32_t{1}},
+            std::move(version_filter_columns)));
+        filter.child_filters.push_back(std::move(changed_filter));
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1), storage_index_t(2)};
+        std::vector<size_t> projected_cols{0, 1, 2};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, &filter);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        const std::vector<uint64_t> expected_rows{300, 305, 540};
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = expected_rows[scanned + i];
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == (row == 300 ? uint32_t{0} : uint32_t{1}));
+                REQUIRE(result.data[2].value(i).value<uint32_t>() == (row == 305 ? uint32_t{1} : uint32_t{2}));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected_rows.size());
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_pruned_pages > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan survives append after checkpoint") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t BASE_ROWS = DEFAULT_VECTOR_CAPACITY * 2 + 100;
+    constexpr uint64_t APPEND_ROWS = 50;
+    const auto table_path = test_db_path() + ".pax_fixed_append_after_checkpoint";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_append");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  BASE_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        append_fixed_integer_pair(*loaded,
+                                  &env.resource,
+                                  APPEND_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(BASE_ROWS + row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>((BASE_ROWS + row) * 3); });
+
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        auto* second_row_group = loaded->row_group()->row_group(1);
+        auto* partial_row_group = loaded->row_group()->row_group(2);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(second_row_group != nullptr);
+        REQUIRE(partial_row_group != nullptr);
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+        row_group_test_access_t::reset_scan_path_counts(*second_row_group);
+        row_group_test_access_t::reset_scan_path_counts(*partial_row_group);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].validity().row_is_valid(i));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == BASE_ROWS + APPEND_ROWS);
+
+        const auto first_counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        const auto second_counts = row_group_test_access_t::scan_path_counts(*second_row_group);
+        const auto partial_counts = row_group_test_access_t::scan_path_counts(*partial_row_group);
+        REQUIRE(first_counts.pax_generic_projected == 0);
+        REQUIRE(second_counts.pax_generic_projected == 0);
+        REQUIRE(partial_counts.pax_generic_projected == 0);
+        REQUIRE(first_counts.pax_fixed_projected > 0);
+        REQUIRE(second_counts.pax_fixed_projected > 0);
+        REQUIRE(partial_counts.regular > 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Corruption-detection tier: a data block whose on-disk CRC32c no longer matches must be
+// rejected on reopen, not silently scanned. Before the read_blocks checksum fix, PAX data
+// blocks were loaded via the prefetch/batch path with no verification, so a flipped byte
+// produced wrong query results instead of an error. Metadata blocks were always verified.
+TEST_CASE("checkpoint_load: corrupted pax data block is detected on reopen scan") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t ROWS = 4096; // several row groups → real persisted PAX data blocks
+    const auto table_path = test_db_path() + ".pax_corrupt_detect";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+    uint64_t block_alloc_size = 0;
+
+    // Phase 1: build a PAX_ONLY table and checkpoint it to disk.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_corrupt");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        block_alloc_size = bm.block_allocation_size();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    // Phase 2: introspect the persisted layout to find a value-column PAX data block id.
+    uint64_t corrupt_block_id = INVALID_INDEX;
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        auto* rg0 = loaded->row_group()->row_group(0);
+        REQUIRE(rg0 != nullptr);
+        const auto& layout = row_group_test_access_t::pax_fixed_layout(*rg0);
+        REQUIRE(layout.has_value());
+        for (const auto& page : layout->pages) {
+            for (const auto& slice : page.slices) {
+                if (slice.column_index == 1) {
+                    corrupt_block_id = slice.data_pointer.block_pointer.block_id;
+                    break;
+                }
+            }
+            if (corrupt_block_id != INVALID_INDEX) {
+                break;
+            }
+        }
+        REQUIRE(corrupt_block_id != INVALID_INDEX);
+    }
+
+    // Phase 3: flip a payload byte inside that data block, invalidating its stored CRC32c.
+    {
+        const uint64_t payload_byte = BLOCK_START + corrupt_block_id * block_alloc_size + sizeof(uint64_t);
+        std::fstream f(table_path, std::ios::in | std::ios::out | std::ios::binary);
+        REQUIRE(f.is_open());
+        f.seekg(static_cast<std::streamoff>(payload_byte));
+        char b = 0;
+        f.read(&b, 1);
+        REQUIRE(f.good());
+        b = static_cast<char>(static_cast<unsigned char>(b) ^ 0xFFu);
+        f.seekp(static_cast<std::streamoff>(payload_byte));
+        f.write(&b, 1);
+        f.flush();
+        REQUIRE(f.good());
+    }
+
+    // Phase 4: reopen with a fresh buffer pool and scan. Metadata reopen succeeds (metadata
+    // blocks are intact); the corrupted data block must raise a checksum mismatch when the scan
+    // loads it — never silently return wrong values.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+
+        bool threw = false;
+        try {
+            auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+            std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+            std::vector<size_t> projected_cols{0, 1};
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+            }
+        } catch (const std::exception& e) {
+            threw = true;
+            REQUIRE(std::string(e.what()).find("checksum") != std::string::npos);
+        }
+        REQUIRE(threw);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Durability tier: a checkpoint that is interrupted *before* the header swap (data + metadata
+// blocks written and fsynced, but the new header never committed — i.e. a crash between the two
+// fsyncs of table_storage_t::checkpoint) must leave the previously committed state intact and
+// reopenable. The double-header swap is the atomic commit point; an un-swapped header still
+// points at the prior meta_block, so the orphaned new blocks are invisible — never torn state.
+TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves prior state") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t V1_ROWS = 2000;       // committed state
+    constexpr uint64_t V2_EXTRA = 1500;      // appended but never committed
+    const auto table_path = test_db_path() + ".pax_durability";
+    std::remove(table_path.c_str());
+
+    // Production-style commit: persist data/metadata, fsync, swap header, fsync.
+    const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table.checkpoint(writer);
+        writer.flush();
+        bm.set_meta_block(writer.get_block_pointer().block_pointer);
+        auto free_list_ptr = bm.serialize_free_list();
+        bm.file_sync();
+        database_header_t header;
+        header.initialize();
+        header.free_list = free_list_ptr.block_pointer;
+        bm.write_header(header);
+        bm.file_sync();
+    };
+
+    // Reopen through the on-disk header's meta_block (the real recovery path, not an explicit
+    // pointer) and scan, asserting exactly `expected` rows with value == row*3.
+    const auto reopen_and_count = [](test_env_t& env, const std::string& path, uint64_t expected) {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected);
+    };
+
+    // Phase 1: build a PAX_ONLY table with V1_ROWS and commit it (header swapped).
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_durability");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  V1_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+        commit(bm, *table);
+    }
+
+    // Phase 2: reopen, append V2_EXTRA, persist+fsync the new data/metadata — but DO NOT swap the
+    // header. This is exactly the on-disk state after a crash between checkpoint's two fsyncs.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        append_fixed_integer_pair(*loaded,
+                                  &env.resource,
+                                  V2_EXTRA,
+                                  [](uint64_t row) { return static_cast<int64_t>(V1_ROWS + row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>((V1_ROWS + row) * 3); });
+
+        metadata_manager_t meta_mgr2(bm);
+        metadata_writer_t writer2(meta_mgr2);
+        loaded->checkpoint(writer2);
+        writer2.flush();
+        bm.set_meta_block(writer2.get_block_pointer().block_pointer);
+        (void) bm.serialize_free_list();
+        bm.file_sync();
+        // crash here: header is never written, so the on-disk header still points at V1's meta_block.
+    }
+
+    // Phase 3: reopen with a fresh pool via the header — must observe exactly the committed V1.
+    {
+        test_env_t env;
+        reopen_and_count(env, table_path, V1_ROWS);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Minimal repro distilled from the fuzzer (trial 13): a single UINTEGER column, 111 rows
+// persisted via PAX, cold-reopened, then 205 more appended into the SAME (still sub-1024) row
+// group. The hybrid row group (PAX prefix + transient suffix) is scanned via the regular path.
+// Regression guard for the append-after-reopen VALUE corruption (FIXED): appending raw values
+// into a reopened DICTIONARY-compressed column segment, then scanning, decoded the raw bytes back
+// through the dictionary codec and returned garbage for the appended rows. Fixed by rolling the
+// append onto a fresh uncompressed segment (column_data_t::initialize_append).
+TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    const auto table_path = test_db_path() + ".pax_minrepro";
+
+    const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
+        metadata_manager_t mm(bm);
+        metadata_writer_t w(mm);
+        table.checkpoint(w);
+        w.flush();
+        bm.set_meta_block(w.get_block_pointer().block_pointer);
+        auto fl = bm.serialize_free_list();
+        bm.file_sync();
+        database_header_t h;
+        h.initialize();
+        h.free_list = fl.block_pointer;
+        bm.write_header(h);
+        bm.file_sync();
+    };
+
+    const auto val = [](uint64_t row) { return static_cast<uint32_t>(row * 2654435761ull + 7ull); };
+
+    // with_nulls=false isolates a pure value bug from any validity interaction.
+    for (bool with_nulls : {false, true}) {
+        std::remove(table_path.c_str());
+        constexpr uint64_t R1 = 111;
+        constexpr uint64_t R2 = 205;
+
+        const auto append_batch = [&](data_table_t& table, std::pmr::memory_resource* res, uint64_t start, uint64_t n) {
+            auto types = table.copy_types();
+            uint64_t off = 0;
+            while (off < n) {
+                const uint64_t b = std::min(n - off, uint64_t(DEFAULT_VECTOR_CAPACITY));
+                data_chunk_t chunk(res, types, b);
+                chunk.set_cardinality(b);
+                for (uint64_t i = 0; i < b; i++) {
+                    const uint64_t row = start + off + i;
+                    if (with_nulls && (row % 3 == 2)) {
+                        chunk.set_value(0, i, logical_value_t{res, nullptr});
+                    } else {
+                        chunk.set_value(0, i, logical_value_t{res, val(row)});
+                    }
+                }
+                table_append_state st(res);
+                table.append_lock(st);
+                table.initialize_append(st);
+                table.append(chunk, st);
+                table.finalize_append(st, transaction_data{0, 0});
+                off += b;
+            }
+        };
+
+        {
+            test_env_t env;
+            single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+            bm.create_new_database();
+            bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+            std::vector<column_definition_t> columns;
+            columns.emplace_back("v", logical_type::UINTEGER);
+            auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "minrepro");
+            append_batch(*table, &env.resource, 0, R1);
+            commit(bm, *table);
+        }
+        {
+            test_env_t env;
+            single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+            bm.load_existing_database();
+            metadata_manager_t mm(bm);
+            meta_block_pointer_t mp;
+            mp.block_pointer = bm.meta_block();
+            metadata_reader_t reader(mm, mp);
+            auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+            append_batch(*loaded, &env.resource, R1, R2);
+            commit(bm, *loaded);
+        }
+        {
+            test_env_t env;
+            single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+            bm.load_existing_database();
+            metadata_manager_t mm(bm);
+            meta_block_pointer_t mp;
+            mp.block_pointer = bm.meta_block();
+            metadata_reader_t reader(mm, mp);
+            auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+            std::vector<storage_index_t> idx{storage_index_t(0)};
+            std::vector<size_t> pcols{0};
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, idx, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), pcols, DEFAULT_VECTOR_CAPACITY);
+            uint64_t scanned = 0;
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+                for (uint64_t i = 0; i < result.size(); i++) {
+                    const uint64_t row = scanned + i;
+                    INFO("with_nulls=" << with_nulls << " row=" << row);
+                    const bool is_null = with_nulls && (row % 3 == 2);
+                    if (is_null) {
+                        REQUIRE_FALSE(result.data[0].validity().row_is_valid(i));
+                    } else {
+                        REQUIRE(result.data[0].validity().row_is_valid(i));
+                        REQUIRE(result.data[0].value(i).value<uint32_t>() == val(row));
+                    }
+                }
+                scanned += result.size();
+            }
+            REQUIRE(scanned == R1 + R2);
+        }
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Differential round-trip fuzzer — CATALOG mode. The highest-ROI guard against *silent*
+// corruption (wrong value / wrong null bit, no error). It does NOT abort on the first divergence:
+// it runs many seeded random trials (random schema over the PAX-supported scalar + string types,
+// random nulls, random row counts across row-group/page boundaries, append → cold-reopen →
+// append-after-reopen → cold-reopen → scan), and for every mismatch records a *signature*
+// (type / nullable / committed-vs-appended region / symptom). At the end it prints the distinct
+// bug classes with counts and an example seed for a deterministic repro, then asserts clean.
+// Crank trials with FUZZ_TRIALS=N. The dominant class (append-after-reopen VALUE corruption via
+// dictionary-segment append) is FIXED — default 150 trials are clean. Still tagged [!mayfail]
+// because deeper runs (FUZZ_TRIALS >= ~400) surface a RARE remaining validity edge
+// (committed-region null bit lost after reopen-append + re-checkpoint, ~0.3% of trials). Drop the
+// tag once that is fixed to make this a hard guard.
+TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reopen == oracle)", "[!mayfail]") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    const auto table_path = test_db_path() + ".pax_fuzz";
+
+    const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
+        metadata_manager_t mm(bm);
+        metadata_writer_t w(mm);
+        table.checkpoint(w);
+        w.flush();
+        bm.set_meta_block(w.get_block_pointer().block_pointer);
+        auto fl = bm.serialize_free_list();
+        bm.file_sync();
+        database_header_t h;
+        h.initialize();
+        h.free_list = fl.block_pointer;
+        bm.write_header(h);
+        bm.file_sync();
+    };
+
+    struct cell_t {
+        bool isnull = false;
+        int64_t i64 = 0;  // all integer types (bit pattern)
+        double f64 = 0.0; // FLOAT/DOUBLE
+        std::string str;  // STRING_LITERAL
+    };
+
+    const std::array<logical_type, 12> TYPES{logical_type::BOOLEAN,
+                                             logical_type::TINYINT,
+                                             logical_type::UTINYINT,
+                                             logical_type::SMALLINT,
+                                             logical_type::USMALLINT,
+                                             logical_type::INTEGER,
+                                             logical_type::UINTEGER,
+                                             logical_type::BIGINT,
+                                             logical_type::UBIGINT,
+                                             logical_type::FLOAT,
+                                             logical_type::DOUBLE,
+                                             logical_type::STRING_LITERAL};
+    const auto type_name = [](logical_type t) -> const char* {
+        switch (t) {
+            case logical_type::BOOLEAN: return "BOOLEAN";
+            case logical_type::TINYINT: return "TINYINT";
+            case logical_type::UTINYINT: return "UTINYINT";
+            case logical_type::SMALLINT: return "SMALLINT";
+            case logical_type::USMALLINT: return "USMALLINT";
+            case logical_type::INTEGER: return "INTEGER";
+            case logical_type::UINTEGER: return "UINTEGER";
+            case logical_type::BIGINT: return "BIGINT";
+            case logical_type::UBIGINT: return "UBIGINT";
+            case logical_type::FLOAT: return "FLOAT";
+            case logical_type::DOUBLE: return "DOUBLE";
+            case logical_type::STRING_LITERAL: return "STRING";
+            default: return "?";
+        }
+    };
+
+    // Generate a value for `t`, write it into the chunk and return the oracle cell.
+    const auto gen = [](std::mt19937_64& rng, std::pmr::memory_resource* res, logical_type t, data_chunk_t& chunk,
+                        uint64_t col, uint64_t i) -> cell_t {
+        cell_t cell;
+        switch (t) {
+            case logical_type::BOOLEAN: {
+                const bool v = (rng() & 1u) != 0;
+                cell.i64 = v ? 1 : 0;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::TINYINT: {
+                const int8_t v = static_cast<int8_t>(rng());
+                cell.i64 = v;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::UTINYINT: {
+                const uint8_t v = static_cast<uint8_t>(rng());
+                cell.i64 = static_cast<int64_t>(v);
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::SMALLINT: {
+                const int16_t v = static_cast<int16_t>(rng());
+                cell.i64 = v;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::USMALLINT: {
+                const uint16_t v = static_cast<uint16_t>(rng());
+                cell.i64 = static_cast<int64_t>(v);
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::INTEGER: {
+                const int32_t v = static_cast<int32_t>(static_cast<uint32_t>(rng()));
+                cell.i64 = v;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::UINTEGER: {
+                const uint32_t v = static_cast<uint32_t>(rng());
+                cell.i64 = static_cast<int64_t>(v);
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::BIGINT: {
+                const int64_t v = static_cast<int64_t>(rng());
+                cell.i64 = v;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::UBIGINT: {
+                const uint64_t v = rng();
+                cell.i64 = static_cast<int64_t>(v);
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::FLOAT: {
+                const float v = static_cast<float>(static_cast<int64_t>(rng())) / 64.0f;
+                cell.f64 = static_cast<double>(v);
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            case logical_type::DOUBLE: {
+                const double v = static_cast<double>(static_cast<int64_t>(rng())) / 1024.0;
+                cell.f64 = v;
+                chunk.set_value(col, i, logical_value_t{res, v});
+                break;
+            }
+            default: { // STRING_LITERAL
+                const uint64_t len = rng() % 25;
+                std::string s;
+                s.reserve(len);
+                for (uint64_t k = 0; k < len; k++) {
+                    s.push_back(static_cast<char>('a' + (rng() % 26)));
+                }
+                cell.str = s;
+                chunk.set_value(col, i, logical_value_t{res, s});
+                break;
+            }
+        }
+        return cell;
+    };
+
+    // Compare a scanned cell to its oracle. Returns "" on match, else a symptom string.
+    const auto check = [](logical_type t, const cell_t& cell, components::vector::vector_t& vec,
+                          uint64_t i) -> const char* {
+        const bool valid = vec.validity().row_is_valid(i);
+        if (cell.isnull) {
+            return valid ? "validity(expected-null,got-value)" : "";
+        }
+        if (!valid) {
+            return "validity(expected-value,got-null)";
+        }
+        const auto lv = vec.value(i);
+        switch (t) {
+            case logical_type::BOOLEAN:
+                return (lv.value<bool>() == (cell.i64 != 0)) ? "" : "value";
+            case logical_type::TINYINT:
+                return (lv.value<int8_t>() == static_cast<int8_t>(cell.i64)) ? "" : "value";
+            case logical_type::UTINYINT:
+                return (lv.value<uint8_t>() == static_cast<uint8_t>(cell.i64)) ? "" : "value";
+            case logical_type::SMALLINT:
+                return (lv.value<int16_t>() == static_cast<int16_t>(cell.i64)) ? "" : "value";
+            case logical_type::USMALLINT:
+                return (lv.value<uint16_t>() == static_cast<uint16_t>(cell.i64)) ? "" : "value";
+            case logical_type::INTEGER:
+                return (lv.value<int32_t>() == static_cast<int32_t>(cell.i64)) ? "" : "value";
+            case logical_type::UINTEGER:
+                return (lv.value<uint32_t>() == static_cast<uint32_t>(cell.i64)) ? "" : "value";
+            case logical_type::BIGINT:
+                return (lv.value<int64_t>() == cell.i64) ? "" : "value";
+            case logical_type::UBIGINT:
+                return (lv.value<uint64_t>() == static_cast<uint64_t>(cell.i64)) ? "" : "value";
+            case logical_type::FLOAT: {
+                const float got = lv.value<float>();
+                const float exp = static_cast<float>(cell.f64);
+                return (std::memcmp(&got, &exp, sizeof(float)) == 0) ? "" : "value";
+            }
+            case logical_type::DOUBLE: {
+                const double got = lv.value<double>();
+                return (std::memcmp(&got, &cell.f64, sizeof(double)) == 0) ? "" : "value";
+            }
+            default: {
+                const auto* got = lv.value<std::string*>();
+                return (got && *got == cell.str) ? "" : "value";
+            }
+        }
+    };
+
+    const int trials = std::getenv("FUZZ_TRIALS") ? std::atoi(std::getenv("FUZZ_TRIALS")) : 150;
+    std::map<std::string, std::pair<uint64_t, uint64_t>> catalog; // signature -> {count, example-seed}
+    const auto record = [&](const std::string& sig, uint64_t seed) {
+        auto& e = catalog[sig];
+        e.first++;
+        if (e.first == 1) {
+            e.second = seed;
+        }
+    };
+
+    const uint64_t seed_base = 12648430ull;
+    const uint64_t seed_mult = 2654435761ull;
+    for (int trial = 0; trial < trials; trial++) {
+        const uint64_t seed = seed_base + static_cast<uint64_t>(trial) * seed_mult;
+        std::mt19937_64 rng(seed);
+        std::remove(table_path.c_str());
+
+        const uint64_t ncols = 1 + (rng() % 4);
+        struct colspec_t {
+            logical_type type;
+            bool nullable;
+        };
+        std::vector<colspec_t> schema;
+        std::vector<column_definition_t> columns;
+        for (uint64_t c = 0; c < ncols; c++) {
+            const auto t = TYPES[rng() % TYPES.size()];
+            schema.push_back({t, (rng() % 3) != 0});
+            columns.emplace_back("c" + std::to_string(c), t);
+        }
+
+        std::vector<std::vector<cell_t>> oracle(ncols);
+        uint64_t total = 0;
+        const bool do_mid_reopen = (rng() & 1u) != 0; // distinguish reopen-append from plain append
+
+        const auto append_batch = [&](data_table_t& table, std::pmr::memory_resource* res, uint64_t n) {
+            auto types = table.copy_types();
+            uint64_t off = 0;
+            while (off < n) {
+                const uint64_t b = std::min(n - off, uint64_t(DEFAULT_VECTOR_CAPACITY));
+                data_chunk_t chunk(res, types, b);
+                chunk.set_cardinality(b);
+                for (uint64_t i = 0; i < b; i++) {
+                    for (uint64_t c = 0; c < ncols; c++) {
+                        if (schema[c].nullable && (rng() % 100) < 30) {
+                            cell_t nullcell;
+                            nullcell.isnull = true;
+                            oracle[c].push_back(nullcell);
+                            chunk.set_value(c, i, logical_value_t{res, nullptr});
+                        } else {
+                            oracle[c].push_back(gen(rng, res, schema[c].type, chunk, c, i));
+                        }
+                    }
+                }
+                table_append_state st(res);
+                table.append_lock(st);
+                table.initialize_append(st);
+                table.append(chunk, st);
+                table.finalize_append(st, transaction_data{0, 0});
+                off += b;
+                total += b;
+            }
+        };
+
+        const uint64_t r1 = (rng() % 3) * uint64_t(DEFAULT_VECTOR_CAPACITY) + (rng() % 400);
+        const uint64_t r2 = 1 + (rng() % 1200);
+
+        const auto reopen = [&](test_env_t& env, single_file_block_manager_t& bm) {
+            bm.load_existing_database();
+            metadata_manager_t mm(bm);
+            meta_block_pointer_t mp;
+            mp.block_pointer = bm.meta_block();
+            metadata_reader_t reader(mm, mp);
+            return data_table_t::load_from_disk(&env.resource, bm, reader); // metadata fully read here
+        };
+
+        bool trial_threw = false;
+        try {
+            if (do_mid_reopen) {
+                // append r1, commit, COLD-reopen, append r2 (append-after-reopen), commit.
+                {
+                    test_env_t env;
+                    single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+                    bm.create_new_database();
+                    bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+                    auto cols_copy = columns;
+                    auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
+                    append_batch(*table, &env.resource, r1);
+                    commit(bm, *table);
+                }
+                {
+                    test_env_t env;
+                    single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+                    auto loaded = reopen(env, bm);
+                    append_batch(*loaded, &env.resource, r2);
+                    commit(bm, *loaded);
+                }
+            } else {
+                // append r1+r2 in one process, single commit (no reopen between).
+                test_env_t env;
+                single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+                bm.create_new_database();
+                bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+                auto cols_copy = columns;
+                auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
+                append_batch(*table, &env.resource, r1);
+                append_batch(*table, &env.resource, r2);
+                commit(bm, *table);
+            }
+        } catch (const std::exception& e) {
+            trial_threw = true;
+            record(std::string("THREW-on-build: ") + e.what(), seed);
+        }
+        if (trial_threw) {
+            continue;
+        }
+
+        // Verify: cold reopen, scan, diff against oracle, recording one signature per column.
+        try {
+            test_env_t env;
+            single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+            auto loaded = reopen(env, bm);
+
+            std::vector<storage_index_t> idx;
+            std::vector<size_t> pcols;
+            for (uint64_t c = 0; c < ncols; c++) {
+                idx.push_back(storage_index_t(c));
+                pcols.push_back(c);
+            }
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, idx, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), pcols, DEFAULT_VECTOR_CAPACITY);
+
+            std::set<uint64_t> recorded_cols;
+            uint64_t scanned = 0;
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+                for (uint64_t i = 0; i < result.size(); i++) {
+                    const uint64_t row = scanned + i;
+                    for (uint64_t c = 0; c < ncols; c++) {
+                        if (recorded_cols.count(c) || row >= oracle[c].size()) {
+                            continue;
+                        }
+                        const char* sym = check(schema[c].type, oracle[c][row], result.data[c], i);
+                        if (sym[0] != '\0') {
+                            const char* region = (do_mid_reopen && row >= r1) ? "appended" : "committed";
+                            std::string sig = std::string("type=") + type_name(schema[c].type) +
+                                              " nullcol=" + (schema[c].nullable ? "1" : "0") + " region=" + region +
+                                              " reopen_append=" + (do_mid_reopen ? "1" : "0") + " symptom=" + sym;
+                            record(sig, seed);
+                            recorded_cols.insert(c);
+                        }
+                    }
+                }
+                scanned += result.size();
+            }
+            if (scanned != total) {
+                record("row-count-mismatch reopen_append=" + std::string(do_mid_reopen ? "1" : "0"), seed);
+            }
+        } catch (const std::exception& e) {
+            record(std::string("THREW-on-scan: ") + e.what(), seed);
+        }
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+
+    if (!catalog.empty()) {
+        std::fprintf(stderr, "\n==== PAX fuzzer bug catalog (%d trials) — %zu distinct classes ====\n",
+                     trials, catalog.size());
+        for (const auto& [sig, info] : catalog) {
+            std::fprintf(stderr, "  [%4llu x] %s  (example seed=%llu)\n",
+                         static_cast<unsigned long long>(info.first), sig.c_str(),
+                         static_cast<unsigned long long>(info.second));
+        }
+        std::fprintf(stderr, "====================================================================\n\n");
+    }
+    INFO("PAX fuzzer found " << catalog.size() << " distinct bug classes (see stderr catalog above)");
+    REQUIRE(catalog.empty());
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan decodes value encodings") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 512;
+    const auto table_path = test_db_path() + ".pax_fixed_encodings";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("constant_value", logical_type::BIGINT);
+        columns.emplace_back("run_value", logical_type::BIGINT);
+        columns.emplace_back("dict_value", logical_type::BIGINT);
+        columns.emplace_back("plain_value", logical_type::BIGINT);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_encodings");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, int64_t(42)});
+            chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row / 64)});
+            chunk.set_value(2, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row % 5)});
+            chunk.set_value(3, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row * 1000003)});
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        const auto& layout = row_group_test_access_t::pax_fixed_layout(*first_row_group);
+        REQUIRE(layout.has_value());
+
+        bool saw_constant = false;
+        bool saw_rle = false;
+        bool saw_dictionary = false;
+        bool saw_uncompressed = false;
+        for (const auto& page : layout->pages) {
+            for (const auto& slice : page.slices) {
+                const auto compression = slice.data_pointer.compression;
+                const auto raw_size = static_cast<uint64_t>(slice.data_pointer.tuple_count) * sizeof(int64_t);
+                switch (slice.column_index) {
+                    case 0:
+                        saw_constant = saw_constant ||
+                                       compression == components::table::compression::compression_type::CONSTANT;
+                        break;
+                    case 1:
+                        saw_rle = saw_rle || compression == components::table::compression::compression_type::RLE;
+                        break;
+                    case 2:
+                        saw_dictionary =
+                            saw_dictionary ||
+                            compression == components::table::compression::compression_type::DICTIONARY;
+                        break;
+                    case 3:
+                        saw_uncompressed =
+                            saw_uncompressed ||
+                            compression == components::table::compression::compression_type::UNCOMPRESSED;
+                        break;
+                    default:
+                        break;
+                }
+                if (compression != components::table::compression::compression_type::UNCOMPRESSED) {
+                    REQUIRE(slice.data_pointer.segment_size < raw_size);
+                }
+            }
+        }
+        REQUIRE(saw_constant);
+        REQUIRE(saw_rle);
+        REQUIRE(saw_dictionary);
+        REQUIRE(saw_uncompressed);
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        std::vector<storage_index_t> projected_indices{
+            storage_index_t(0), storage_index_t(1), storage_index_t(2), storage_index_t(3)};
+        std::vector<size_t> projected_cols{0, 1, 2, 3};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == 42);
+                REQUIRE(result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(row / 64));
+                REQUIRE(result.data[2].value(i).value<int64_t>() == static_cast<int64_t>(row % 5));
+                REQUIRE(result.data[3].value(i).value<int64_t>() == static_cast<int64_t>(row * 1000003));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == NUM_ROWS);
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_prefetched_blocks > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Forces decode windows with page_row_offset > 0: rows_per_page (100) does not divide
+// DEFAULT_VECTOR_CAPACITY, so a scan batch boundary cuts through a page and the next batch
+// decodes that page from a non-zero in-page offset. Exercises the windowed (offset>0) path of
+// the CONSTANT/RLE/DICTIONARY/UNCOMPRESSED decoders across all four columns.
+TEST_CASE("checkpoint_load: pax fixed projected scan decodes value encodings across page-split windows") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 2500;
+    constexpr uint16_t ROWS_PER_PAGE = 100;
+    static_assert(DEFAULT_VECTOR_CAPACITY % ROWS_PER_PAGE != 0,
+                  "rows_per_page must not divide the vector capacity, otherwise batches stay page-aligned");
+    const auto table_path = test_db_path() + ".pax_fixed_encodings_windowed";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_pax_rows_per_page(ROWS_PER_PAGE);
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("constant_value", logical_type::BIGINT);
+        columns.emplace_back("run_value", logical_type::BIGINT);
+        columns.emplace_back("dict_value", logical_type::BIGINT);
+        columns.emplace_back("plain_value", logical_type::BIGINT);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_encodings_windowed");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, int64_t(42)});
+            chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row / 64)});
+            chunk.set_value(2, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row % 5)});
+            chunk.set_value(3, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row * 1000003)});
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        REQUIRE(row_group_test_access_t::pax_fixed_layout(*first_row_group).has_value());
+
+        std::vector<storage_index_t> projected_indices{
+            storage_index_t(0), storage_index_t(1), storage_index_t(2), storage_index_t(3)};
+        std::vector<size_t> projected_cols{0, 1, 2, 3};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == 42);
+                REQUIRE(result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(row / 64));
+                REQUIRE(result.data[2].value(i).value<int64_t>() == static_cast<int64_t>(row % 5));
+                REQUIRE(result.data[3].value(i).value<int64_t>() == static_cast<int64_t>(row * 1000003));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == NUM_ROWS);
     }
 
     std::remove(table_path.c_str());
@@ -3443,6 +5938,16 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports simple filters") {
             REQUIRE(gt_result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row + 100));
         }
 
+        {
+            const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+            REQUIRE(counts.pax_generic_projected == 0);
+            REQUIRE(counts.pax_fixed_projected > 0);
+            REQUIRE(counts.pax_fixed_prefetched_blocks > 0);
+            REQUIRE(counts.regular == 0);
+        }
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         std::pmr::vector<uint64_t> miss_filter_columns(&env.resource);
         miss_filter_columns.push_back(0);
         constant_filter_t miss_filter(components::expressions::compare_type::gte,
@@ -3459,6 +5964,402 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports simple filters") {
         REQUIRE(counts.pax_generic_projected == 0);
         REQUIRE(counts.pax_fixed_projected > 0);
         REQUIRE(counts.pax_fixed_pruned_pages > 0);
+        REQUIRE(counts.pax_fixed_prefetched_blocks == 0);
+        REQUIRE(counts.pax_fixed_skipped_payload_pages > 0);
+        REQUIRE(counts.regular == 0);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: pax fixed projected scan filters fixed-width scalar types") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 300;
+    constexpr uint64_t TARGET_ROW = 37;
+    const auto table_path = test_db_path() + ".pax_fixed_filter_types";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+    auto status_enum = make_status_enum_type(&env.resource);
+    const auto decimal_i64_type = complex_logical_type::create_decimal(18, 3, "decimal_i64");
+    const auto decimal_i128_type = complex_logical_type::create_decimal(30, 4, "decimal_i128");
+
+    const auto tiny_value = [](uint64_t row) { return static_cast<int8_t>((row % 101) - 50); };
+    const auto utiny_value = [](uint64_t row) { return static_cast<uint8_t>((row * 3) % 251); };
+    const auto small_value = [](uint64_t row) { return static_cast<int16_t>(-1000 + static_cast<int64_t>(row * 5)); };
+    const auto usmall_value = [](uint64_t row) { return static_cast<uint16_t>(1000 + row * 7); };
+    const auto int_value = [](uint64_t row) { return static_cast<int32_t>(-50000 + static_cast<int64_t>(row * 11)); };
+    const auto uint_value = [](uint64_t row) { return static_cast<uint32_t>(50000 + row * 13); };
+    const auto ubig_value = [](uint64_t row) { return static_cast<uint64_t>(1000000000ULL + row * 17); };
+    const auto float_value = [](uint64_t row) { return static_cast<float>(0.25f + static_cast<float>(row) * 0.5f); };
+    const auto double_value = [](uint64_t row) { return 0.125 + static_cast<double>(row) * 0.25; };
+    const auto ts_value = [](uint64_t row) {
+        return core::date::timestamp_t{core::date::microseconds{static_cast<int64_t>(5000 + row * 19)}};
+    };
+    const auto tstz_value = [](uint64_t row) {
+        return core::date::timestamptz_t{core::date::microseconds{static_cast<int64_t>(7000 + row * 23)}};
+    };
+    const auto decimal_i64_value = [](uint64_t row) {
+        return static_cast<int64_t>(1000000000000LL + row * 29);
+    };
+    const auto decimal_i128_value = [](uint64_t row) {
+        return (int128_t{1} << 85) + static_cast<int64_t>(row * 31);
+    };
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("flag", logical_type::BOOLEAN);
+        columns.emplace_back("tiny_col", logical_type::TINYINT);
+        columns.emplace_back("utiny_col", logical_type::UTINYINT);
+        columns.emplace_back("small_col", logical_type::SMALLINT);
+        columns.emplace_back("usmall_col", logical_type::USMALLINT);
+        columns.emplace_back("int_col", logical_type::INTEGER);
+        columns.emplace_back("uint_col", logical_type::UINTEGER);
+        columns.emplace_back("ubig_col", logical_type::UBIGINT);
+        columns.emplace_back("huge_col", logical_type::HUGEINT);
+        columns.emplace_back("uhuge_col", logical_type::UHUGEINT);
+        columns.emplace_back("float_col", logical_type::FLOAT);
+        columns.emplace_back("ts_col", logical_type::TIMESTAMP);
+        columns.emplace_back("tstz_col", logical_type::TIMESTAMP_TZ);
+        columns.emplace_back("decimal_i64_col", decimal_i64_type);
+        columns.emplace_back("decimal_i128_col", decimal_i128_type);
+        columns.emplace_back("uuid_col", logical_type::UUID);
+        columns.emplace_back("double_col", logical_type::DOUBLE);
+        columns.emplace_back("status", status_enum);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_filter_types");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.data[0].data<bool>()[row_in_chunk] = (row % 2) == 0;
+            chunk.data[1].data<int8_t>()[row_in_chunk] = tiny_value(row);
+            chunk.data[2].data<uint8_t>()[row_in_chunk] = utiny_value(row);
+            chunk.data[3].data<int16_t>()[row_in_chunk] = small_value(row);
+            chunk.data[4].data<uint16_t>()[row_in_chunk] = usmall_value(row);
+            chunk.data[5].data<int32_t>()[row_in_chunk] = int_value(row);
+            chunk.data[6].data<uint32_t>()[row_in_chunk] = uint_value(row);
+            chunk.data[7].data<uint64_t>()[row_in_chunk] = ubig_value(row);
+            chunk.data[8].data<int128_t>()[row_in_chunk] = signed_huge_value(row);
+            chunk.data[9].data<uint128_t>()[row_in_chunk] = unsigned_huge_value(row);
+            chunk.data[10].data<float>()[row_in_chunk] = float_value(row);
+            chunk.data[11].data<int64_t>()[row_in_chunk] = ts_value(row).value.count();
+            chunk.data[12].data<int64_t>()[row_in_chunk] = tstz_value(row).value.count();
+            chunk.data[13].data<int64_t>()[row_in_chunk] = decimal_i64_value(row);
+            chunk.data[14].data<int128_t>()[row_in_chunk] = decimal_i128_value(row);
+            chunk.data[15].data<int128_t>()[row_in_chunk] = uuid_like_value(row);
+            chunk.data[16].data<double>()[row_in_chunk] = double_value(row);
+            chunk.data[17].data<int32_t>()[row_in_chunk] = static_cast<int32_t>(row % 3);
+
+            if (row >= 256 && row % 29 == 0) {
+                for (auto& vector : chunk.data) {
+                    vector.validity().set(row_in_chunk, false);
+                }
+            }
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        using compare_type = components::expressions::compare_type;
+
+        const auto scan_constant_filter = [&](uint64_t column_index,
+                                              compare_type filter_type,
+                                              logical_value_t constant,
+                                              auto&& check_value) {
+            std::vector<storage_index_t> projected_indices{storage_index_t(column_index)};
+            std::vector<size_t> projected_cols{static_cast<size_t>(column_index)};
+            std::pmr::vector<uint64_t> filter_columns(&env.resource);
+            filter_columns.push_back(column_index);
+            constant_filter_t filter(filter_type, std::move(constant), std::move(filter_columns));
+
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, &filter);
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+            uint64_t matched = 0;
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+                for (uint64_t i = 0; i < result.size(); i++) {
+                    REQUIRE_FALSE(result.data[column_index].is_null(i));
+                    check_value(result.data[column_index], i);
+                }
+                matched += result.size();
+            }
+            INFO("column_index=" << column_index << " filter_type=" << static_cast<int>(filter_type));
+            REQUIRE(matched > 0);
+        };
+
+        const auto scan_eq = [&](uint64_t column_index, logical_value_t constant, auto&& check_value) {
+            scan_constant_filter(column_index, compare_type::eq, std::move(constant), check_value);
+        };
+
+        const auto exercise_non_eq_filters =
+            [&]<typename MakeConstant, typename ReadValue, typename CompareValue>(
+                uint64_t column_index, MakeConstant make_constant, ReadValue read_value, CompareValue constant_value) {
+                scan_constant_filter(column_index, compare_type::ne, make_constant(), [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(read_value(values, i) != constant_value);
+                });
+                scan_constant_filter(column_index, compare_type::gt, make_constant(), [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(read_value(values, i) > constant_value);
+                });
+                scan_constant_filter(column_index, compare_type::gte, make_constant(), [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(read_value(values, i) >= constant_value);
+                });
+                scan_constant_filter(column_index, compare_type::lt, make_constant(), [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(read_value(values, i) < constant_value);
+                });
+                scan_constant_filter(column_index, compare_type::lte, make_constant(), [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(read_value(values, i) <= constant_value);
+                });
+            };
+
+        scan_eq(0, logical_value_t{&env.resource, false}, [](const vector_t& values, uint64_t i) {
+            REQUIRE_FALSE(values.data<bool>()[i]);
+        });
+        scan_eq(1, logical_value_t{&env.resource, tiny_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int8_t>()[i] == tiny_value(TARGET_ROW));
+        });
+        scan_eq(2, logical_value_t{&env.resource, utiny_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<uint8_t>()[i] == utiny_value(TARGET_ROW));
+        });
+        scan_eq(3, logical_value_t{&env.resource, small_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int16_t>()[i] == small_value(TARGET_ROW));
+        });
+        scan_eq(4, logical_value_t{&env.resource, usmall_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<uint16_t>()[i] == usmall_value(TARGET_ROW));
+        });
+        scan_eq(5, logical_value_t{&env.resource, int_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int32_t>()[i] == int_value(TARGET_ROW));
+        });
+        scan_eq(6, logical_value_t{&env.resource, uint_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<uint32_t>()[i] == uint_value(TARGET_ROW));
+        });
+        scan_eq(7, logical_value_t{&env.resource, ubig_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<uint64_t>()[i] == ubig_value(TARGET_ROW));
+        });
+        scan_eq(8, logical_value_t{&env.resource, signed_huge_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int128_t>()[i] == signed_huge_value(TARGET_ROW));
+        });
+        scan_eq(9,
+                logical_value_t{&env.resource, unsigned_huge_value(TARGET_ROW)},
+                [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(values.data<uint128_t>()[i] == unsigned_huge_value(TARGET_ROW));
+                });
+        scan_eq(10, logical_value_t{&env.resource, float_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<float>()[i] == Approx(float_value(TARGET_ROW)));
+        });
+        scan_eq(11, logical_value_t{&env.resource, ts_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int64_t>()[i] == ts_value(TARGET_ROW).value.count());
+        });
+        scan_eq(12, logical_value_t{&env.resource, tstz_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int64_t>()[i] == tstz_value(TARGET_ROW).value.count());
+        });
+        scan_eq(13,
+                logical_value_t::create_decimal(&env.resource, decimal_i64_type, decimal_i64_value(TARGET_ROW)),
+                [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(values.data<int64_t>()[i] == decimal_i64_value(TARGET_ROW));
+                });
+        scan_eq(14,
+                logical_value_t::create_decimal(&env.resource, decimal_i128_type, decimal_i128_value(TARGET_ROW)),
+                [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(values.data<int128_t>()[i] == decimal_i128_value(TARGET_ROW));
+                });
+        scan_eq(15, logical_value_t{&env.resource, uuid_like_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<int128_t>()[i] == uuid_like_value(TARGET_ROW));
+        });
+        scan_eq(16, logical_value_t{&env.resource, double_value(TARGET_ROW)}, [&](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<double>()[i] == Approx(double_value(TARGET_ROW)));
+        });
+        scan_eq(17,
+                logical_value_t::create_enum(&env.resource, status_enum, static_cast<int32_t>(TARGET_ROW % 3)),
+                [&](const vector_t& values, uint64_t i) {
+                    REQUIRE(values.data<int32_t>()[i] == static_cast<int32_t>(TARGET_ROW % 3));
+                });
+
+        scan_constant_filter(0, compare_type::ne, logical_value_t{&env.resource, false}, [](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<bool>()[i]);
+        });
+        scan_constant_filter(0, compare_type::gt, logical_value_t{&env.resource, false}, [](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<bool>()[i]);
+        });
+        scan_constant_filter(0, compare_type::gte, logical_value_t{&env.resource, true}, [](const vector_t& values, uint64_t i) {
+            REQUIRE(values.data<bool>()[i]);
+        });
+        scan_constant_filter(0, compare_type::lt, logical_value_t{&env.resource, true}, [](const vector_t& values, uint64_t i) {
+            REQUIRE_FALSE(values.data<bool>()[i]);
+        });
+        scan_constant_filter(0, compare_type::lte, logical_value_t{&env.resource, false}, [](const vector_t& values, uint64_t i) {
+            REQUIRE_FALSE(values.data<bool>()[i]);
+        });
+        exercise_non_eq_filters(
+            1,
+            [&] { return logical_value_t{&env.resource, tiny_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int8_t>()[i]; },
+            tiny_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            2,
+            [&] { return logical_value_t{&env.resource, utiny_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<uint8_t>()[i]; },
+            utiny_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            3,
+            [&] { return logical_value_t{&env.resource, small_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int16_t>()[i]; },
+            small_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            4,
+            [&] { return logical_value_t{&env.resource, usmall_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<uint16_t>()[i]; },
+            usmall_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            5,
+            [&] { return logical_value_t{&env.resource, int_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int32_t>()[i]; },
+            int_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            6,
+            [&] { return logical_value_t{&env.resource, uint_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<uint32_t>()[i]; },
+            uint_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            7,
+            [&] { return logical_value_t{&env.resource, ubig_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<uint64_t>()[i]; },
+            ubig_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            8,
+            [&] { return logical_value_t{&env.resource, signed_huge_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int128_t>()[i]; },
+            signed_huge_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            9,
+            [&] { return logical_value_t{&env.resource, unsigned_huge_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<uint128_t>()[i]; },
+            unsigned_huge_value(TARGET_ROW));
+        scan_constant_filter(10,
+                             compare_type::ne,
+                             logical_value_t{&env.resource, float_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE_FALSE(values.data<float>()[i] == Approx(float_value(TARGET_ROW)));
+                             });
+        scan_constant_filter(10,
+                             compare_type::gt,
+                             logical_value_t{&env.resource, float_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<float>()[i] > float_value(TARGET_ROW));
+                             });
+        scan_constant_filter(10,
+                             compare_type::gte,
+                             logical_value_t{&env.resource, float_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<float>()[i] >= float_value(TARGET_ROW));
+                             });
+        scan_constant_filter(10,
+                             compare_type::lt,
+                             logical_value_t{&env.resource, float_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<float>()[i] < float_value(TARGET_ROW));
+                             });
+        scan_constant_filter(10,
+                             compare_type::lte,
+                             logical_value_t{&env.resource, float_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<float>()[i] <= float_value(TARGET_ROW));
+                             });
+        exercise_non_eq_filters(
+            11,
+            [&] { return logical_value_t{&env.resource, ts_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int64_t>()[i]; },
+            ts_value(TARGET_ROW).value.count());
+        exercise_non_eq_filters(
+            12,
+            [&] { return logical_value_t{&env.resource, tstz_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int64_t>()[i]; },
+            tstz_value(TARGET_ROW).value.count());
+        exercise_non_eq_filters(
+            13,
+            [&] { return logical_value_t::create_decimal(&env.resource, decimal_i64_type, decimal_i64_value(TARGET_ROW)); },
+            [](const vector_t& values, uint64_t i) { return values.data<int64_t>()[i]; },
+            decimal_i64_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            14,
+            [&] { return logical_value_t::create_decimal(&env.resource, decimal_i128_type, decimal_i128_value(TARGET_ROW)); },
+            [](const vector_t& values, uint64_t i) { return values.data<int128_t>()[i]; },
+            decimal_i128_value(TARGET_ROW));
+        exercise_non_eq_filters(
+            15,
+            [&] { return logical_value_t{&env.resource, uuid_like_value(TARGET_ROW)}; },
+            [](const vector_t& values, uint64_t i) { return values.data<int128_t>()[i]; },
+            uuid_like_value(TARGET_ROW));
+        scan_constant_filter(16,
+                             compare_type::ne,
+                             logical_value_t{&env.resource, double_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE_FALSE(values.data<double>()[i] == Approx(double_value(TARGET_ROW)));
+                             });
+        scan_constant_filter(16,
+                             compare_type::gt,
+                             logical_value_t{&env.resource, double_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<double>()[i] > double_value(TARGET_ROW));
+                             });
+        scan_constant_filter(16,
+                             compare_type::gte,
+                             logical_value_t{&env.resource, double_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<double>()[i] >= double_value(TARGET_ROW));
+                             });
+        scan_constant_filter(16,
+                             compare_type::lt,
+                             logical_value_t{&env.resource, double_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<double>()[i] < double_value(TARGET_ROW));
+                             });
+        scan_constant_filter(16,
+                             compare_type::lte,
+                             logical_value_t{&env.resource, double_value(TARGET_ROW)},
+                             [&](const vector_t& values, uint64_t i) {
+                                 REQUIRE(values.data<double>()[i] <= double_value(TARGET_ROW));
+                             });
+        exercise_non_eq_filters(
+            17,
+            [&] { return logical_value_t::create_enum(&env.resource, status_enum, static_cast<int32_t>(TARGET_ROW % 3)); },
+            [](const vector_t& values, uint64_t i) { return values.data<int32_t>()[i]; },
+            static_cast<int32_t>(TARGET_ROW % 3));
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_prefetched_blocks > 0);
         REQUIRE(counts.regular == 0);
     }
 
@@ -3537,6 +6438,8 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports extended projectio
                                                                       helper_state.table_state,
                                                                       helper_chunk));
 
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
         std::vector<uint64_t> expected_rows;
         for (uint64_t row = 0; row < NUM_ROWS; row++) {
             if (10.0 + static_cast<double>(row) / 4.0 > 60.0) {
@@ -3564,6 +6467,12 @@ TEST_CASE("checkpoint_load: pax fixed projected scan supports extended projectio
             scanned += result.size();
         }
         REQUIRE(scanned == expected_rows.size());
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_generic_projected == 0);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.pax_fixed_prefetched_blocks > 0);
+        REQUIRE(counts.regular == 0);
     }
 
     std::remove(table_path.c_str());
@@ -3806,6 +6715,213 @@ TEST_CASE("checkpoint_load: pax fixed projected scan preserves null validity") {
     cleanup_test_file();
 }
 
+// Regression guard for the per-scan decode-buffer reuse: a column buffer is reused across pages
+// within a single filtered batch, so a page with cleared validity bits must not leak nulls into a
+// later all-valid page. rows_per_page=64 with 256 rows gives 4 pages in one batch; the nullable
+// projected column is ALL_INVALID on page 0, ALL_VALID on page 1, BITMASK on page 2, ALL_VALID on
+// page 3. A filter (id >= 0) selects every row, forcing the filtered per-page path. Without
+// resetting validity on buffer hand-out, page 1/3 rows would wrongly read as null.
+TEST_CASE("checkpoint_load: pax fixed projected scan resets reused buffer validity across pages") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 256;
+    constexpr uint16_t ROWS_PER_PAGE = 64;
+    const auto table_path = test_db_path() + ".pax_fixed_buffer_reuse_validity";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    auto payload_is_null = [](uint64_t row) {
+        if (row < 64) {
+            return true; // page 0: ALL_INVALID
+        }
+        if (row >= 128 && row < 192) {
+            return row % 2 == 0; // page 2: BITMASK
+        }
+        return false; // pages 1 and 3: ALL_VALID
+    };
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_pax_rows_per_page(ROWS_PER_PAGE);
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("payload", logical_type::BIGINT);
+        auto table =
+            std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_buffer_reuse_validity");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row)});
+            if (payload_is_null(row)) {
+                chunk.data[1].set_null(row_in_chunk, true);
+            } else {
+                chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row) * 10});
+            }
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        // Project both the filter column (copied from the reused filter buffer) and the nullable
+        // payload column (decoded into a reused scratch buffer) to exercise both reuse paths.
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        std::pmr::vector<uint64_t> filter_columns(&env.resource);
+        filter_columns.push_back(0);
+        constant_filter_t filter(components::expressions::compare_type::gte,
+                                 logical_value_t{&env.resource, int64_t(0)},
+                                 std::move(filter_columns));
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, &filter);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE_FALSE(result.data[0].is_null(i));
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].is_null(i) == payload_is_null(row));
+                if (!payload_is_null(row)) {
+                    REQUIRE(result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(row) * 10);
+                }
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == NUM_ROWS);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Locks in that multi-column AND page pruning actually fires: a two-column conjunction
+// (a >= 200 AND b < 1000000) where column `a`'s per-page min/max excludes whole pages. With two
+// distinct filter columns the scan takes the filter-tree statistics path (not the single-column
+// fast branch), so this guards that path against regressions. rows_per_page=64 over 256 rows gives
+// 4 pages; pages 0..2 (a max 63/127/191) are prunable, page 3 (192..255) is scanned.
+TEST_CASE("checkpoint_load: pax fixed projected scan prunes pages on multi-column AND filter") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 256;
+    constexpr uint16_t ROWS_PER_PAGE = 64;
+    const auto table_path = test_db_path() + ".pax_fixed_multicol_prune";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_pax_rows_per_page(ROWS_PER_PAGE);
+
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("a", logical_type::BIGINT);
+        columns.emplace_back("b", logical_type::BIGINT);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_fixed_multicol_prune");
+
+        append_rows(*table, &env.resource, NUM_ROWS, [&](data_chunk_t& chunk, uint64_t row, uint64_t row_in_chunk) {
+            chunk.set_value(0, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row)});
+            chunk.set_value(1, row_in_chunk, logical_value_t{&env.resource, static_cast<int64_t>(row) * 3});
+        });
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        auto* first_row_group = loaded->row_group()->row_group(0);
+        REQUIRE(first_row_group != nullptr);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        conjunction_and_filter_t filter;
+        std::pmr::vector<uint64_t> a_columns(&env.resource);
+        a_columns.push_back(0);
+        filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::gte, logical_value_t{&env.resource, int64_t(200)}, std::move(a_columns)));
+        std::pmr::vector<uint64_t> b_columns(&env.resource);
+        b_columns.push_back(1);
+        filter.child_filters.push_back(std::make_unique<constant_filter_t>(
+            components::expressions::compare_type::lt, logical_value_t{&env.resource, int64_t(1000000)}, std::move(b_columns)));
+
+        row_group_test_access_t::reset_scan_path_counts(*first_row_group);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, &filter);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = 200 + scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<int64_t>() == static_cast<int64_t>(row) * 3);
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == NUM_ROWS - 200);
+
+        const auto counts = row_group_test_access_t::scan_path_counts(*first_row_group);
+        REQUIRE(counts.pax_fixed_projected > 0);
+        REQUIRE(counts.regular == 0);
+        REQUIRE(counts.pax_fixed_pruned_pages == 3);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: pax fixed projected scan falls back for unsupported cases") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -3871,6 +6987,33 @@ TEST_CASE("checkpoint_load: pax fixed projected scan falls back for unsupported 
             std::vector<size_t> projected_cols{0, 2};
             table_scan_state state(&env.resource);
             loaded->initialize_scan(state, projected_indices, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE_FALSE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                                state.table_state,
+                                                                                result));
+        }
+
+        {
+            std::vector<storage_index_t> row_id_projection{storage_index_t(0), storage_index_t()};
+            std::vector<size_t> row_id_projected_cols{0, 1};
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, row_id_projection, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), row_id_projected_cols, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE_FALSE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
+                                                                                state.table_state,
+                                                                                result));
+        }
+
+        {
+            std::vector<storage_index_t> projected_indices{storage_index_t(0)};
+            std::vector<size_t> projected_cols{0};
+            std::pmr::vector<uint64_t> filter_columns(&env.resource);
+            filter_columns.push_back(0);
+            constant_filter_t invalid_filter(components::expressions::compare_type::invalid,
+                                             logical_value_t{&env.resource, int64_t{10}},
+                                             std::move(filter_columns));
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, &invalid_filter);
             data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
             REQUIRE_FALSE(row_group_test_access_t::try_scan_pax_fixed_projected(*first_row_group,
                                                                                 state.table_state,

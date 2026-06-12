@@ -106,16 +106,24 @@ namespace components::operators {
                                              ctx->session,
                                              table_oid_,
                                              std::move(row_ids),
-                                             count);
+                                             count,
+                                             ctx->txn);
             auto data = co_await std::move(ff);
 
             if (data) {
                 auto column_index = data->column_index(key_.as_string());
+                // The fetched column value carries the column's declared type
+                // (e.g. BIGINT), while value_ carries the SQL literal's type
+                // (e.g. INTEGER for `90`). logical_value_t comparison asserts
+                // matching types, so cast the probe value to the column type
+                // before re-filtering — mirroring single_field_index_t, which
+                // casts the probe to the stored type for the index search.
+                const auto casted_value = value_.cast_as(data->data[column_index].type(), ctx->session_tz);
                 vector::indexing_vector_t matched(resource_, data->size());
                 uint64_t matched_count = 0;
 
                 for (uint64_t i = 0; i < data->size(); i++) {
-                    if (compare_values(compare_type_, data->value(column_index, i), value_)) {
+                    if (compare_values(compare_type_, data->value(column_index, i), casted_value)) {
                         matched.set_index(matched_count++, i);
                     }
                 }

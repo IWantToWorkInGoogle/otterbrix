@@ -1,6 +1,7 @@
 #pragma once
 
 #include <integration/cpp/base_spaces.hpp>
+#include <services/dispatcher/dispatcher.hpp>
 #include <services/disk/manager_disk.hpp>
 #include <services/wal/manager_wal_replicate.hpp>
 #include <services/wal/wal_sync_mode.hpp>
@@ -43,6 +44,16 @@ public:
     auto wal_invoke(Fn fn, Args&&... args) {
         auto [_, future] =
             actor_zeta::otterbrix::send(manager_wal_->address(), fn, std::forward<Args>(args)...);
+        while (!future.available()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return std::move(future).get();
+    }
+
+    template<typename Fn, typename... Args>
+    auto dispatcher_invoke(Fn fn, Args&&... args) {
+        auto [_, future] =
+            actor_zeta::otterbrix::send(manager_dispatcher_->address(), fn, std::forward<Args>(args)...);
         while (!future.available()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }

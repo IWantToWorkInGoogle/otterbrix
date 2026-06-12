@@ -49,6 +49,7 @@ Temporary Items
 [._]*.sw[a-p]
 [._]s[a-v][a-z]
 [._]sw[a-p]
+!benchmark/**/_setup.sql
 
 # Session
 Session.vim

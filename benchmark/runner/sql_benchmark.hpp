@@ -16,6 +16,14 @@ struct sql_csv_entry_t {
     char delimiter = '|';
 };
 
+struct sql_setup_step_t {
+    enum class kind_t { sql, csv };
+
+    kind_t kind = kind_t::sql;
+    std::string sql;
+    sql_csv_entry_t csv;
+};
+
 struct sql_parameter_t {
     std::string name;
     std::string value;
@@ -40,6 +48,7 @@ private:
                     std::string sql,
                     std::string setup_sql,
                     std::vector<sql_csv_entry_t> csv_entries,
+                    std::vector<sql_setup_step_t> setup_steps,
                     std::filesystem::path benchmark_dir,
                     std::string database,
                     std::optional<uint64_t> expected_rows,
@@ -56,6 +65,7 @@ private:
     std::string sql_;
     std::string setup_sql_;
     std::vector<sql_csv_entry_t> csv_entries_;
+    std::vector<sql_setup_step_t> setup_steps_;
     std::filesystem::path benchmark_dir_;
     std::string database_;
     std::optional<uint64_t> expected_rows_;

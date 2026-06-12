@@ -4,6 +4,7 @@
 #include <actor-zeta/detail/memory.hpp>
 #include <components/configuration/configuration.hpp>
 #include <components/log/log.hpp>
+#include <components/table/row_group.hpp>
 #include <core/executor.hpp>
 
 #include <core/config.hpp>
@@ -44,6 +45,8 @@ namespace otterbrix {
 
         log_t& get_log();
         otterbrix::wrapper_dispatcher_t* dispatcher();
+        components::table::row_group_scan_path_counts_t user_table_scan_path_counts() const noexcept;
+        void reset_user_table_scan_path_counts() noexcept;
 #if defined(DEV_MODE)
         void disable_shutdown_checkpoint_for_tests() noexcept { checkpoint_on_shutdown_ = false; }
 #endif

@@ -64,6 +64,15 @@ namespace components::vector {
             return;
         }
         capacity_ = DEFAULT_VECTOR_CAPACITY;
+        // Reset every column's validity to all-valid. A scan only *sets* invalid bits
+        // (it never clears stale ones), so a chunk reused across scans — e.g.
+        // data_table_t::scan_table_segment iterating row groups — would otherwise
+        // accumulate NULL bits from earlier fills: row group N+1's chunk would carry
+        // row group N's NULLs, corrupting the null mask for every row group past the
+        // first. Data values don't show this because the scan overwrites them.
+        for (auto& column : data) {
+            column.validity().reset(capacity_);
+        }
         set_cardinality(0);
     }
 

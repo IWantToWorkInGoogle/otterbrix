@@ -12,6 +12,25 @@
 
 namespace components::operators {
 
+    namespace {
+
+        bool is_unprojected_placeholder(const vector::vector_t& vector) noexcept {
+            return vector.data() == nullptr && vector.auxiliary() == nullptr;
+        }
+
+        std::vector<size_t> materialized_columns(const vector::data_chunk_t& chunk) {
+            std::vector<size_t> result;
+            result.reserve(chunk.column_count());
+            for (size_t column = 0; column < chunk.column_count(); column++) {
+                if (!is_unprojected_placeholder(chunk.data[column])) {
+                    result.push_back(column);
+                }
+            }
+            return result;
+        }
+
+    } // namespace
+
     operator_delete::operator_delete(std::pmr::memory_resource* resource,
                                      log_t log,
                                      components::catalog::oid_t table_oid,
@@ -72,10 +91,31 @@ namespace components::operators {
         } else if (left_ && left_->output()) {
             output_ = left_->output(); // pass-through for downstream fk_cascade operators
             modified_ = operators::make_operator_write_data(left_->output()->resource());
-            auto& chunk = left_->output()->data_chunk();
-            auto types = chunk.types();
+            const auto& chunks = left_->output()->chunks();
+            std::pmr::vector<types::complex_logical_type> types(left_->output()->resource());
+            if (!chunks.empty()) {
+                types = chunks.front().types();
+            }
 
-            vector::vector_t ids(left_->output()->resource(), types::logical_type::BIGINT, chunk.size());
+            if (!expression_) {
+                size_t index = 0;
+                for (const auto& chunk : chunks) {
+                    const auto* row_ids = chunk.row_ids.data<int64_t>();
+                    for (size_t i = 0; i < chunk.size(); i++) {
+                        modified_->append(static_cast<size_t>(row_ids[i]));
+                        index++;
+                    }
+                }
+                for (const auto& type : types) {
+                    modified_->updated_types_map()[{std::pmr::string(type.alias(), left_->output()->resource()),
+                                                     type}] += index;
+                }
+                if (modified_->size() > 0 && table_oid_ != components::catalog::INVALID_OID) {
+                    async_wait();
+                }
+                return;
+            }
+
             auto predicate = expression_ ? predicates::create_predicate(left_->output()->resource(),
                                                                         pipeline_context->function_registry,
                                                                         expression_,
@@ -86,20 +126,14 @@ namespace components::operators {
                                          : predicates::create_all_true_predicate(left_->output()->resource());
 
             size_t index = 0;
-            for (size_t i = 0; i < chunk.size(); i++) {
-                auto check_result = predicate->check(chunk, i);
-                if (!check_result.has_error() && check_result.value()) {
-                    if (chunk.data.front().get_vector_type() == vector::vector_type::DICTIONARY) {
-                        ids.data<int64_t>()[index++] = static_cast<int64_t>(chunk.data.front().indexing().get_index(i));
-                    } else {
-                        ids.data<int64_t>()[index++] = chunk.row_ids.data<int64_t>()[i];
+            for (const auto& chunk : chunks) {
+                for (size_t i = 0; i < chunk.size(); i++) {
+                    auto check_result = predicate->check(chunk, i);
+                    if (!check_result.has_error() && check_result.value()) {
+                        modified_->append(static_cast<size_t>(chunk.row_ids.data<int64_t>()[i]));
+                        index++;
                     }
                 }
-            }
-            ids.resize(chunk.size(), index);
-            for (size_t i = 0; i < index; i++) {
-                size_t id = static_cast<size_t>(ids.data<int64_t>()[i]);
-                modified_->append(id);
             }
             for (const auto& type : types) {
                 modified_->updated_types_map()[{std::pmr::string(type.alias(), left_->output()->resource()), type}] +=
@@ -145,12 +179,7 @@ namespace components::operators {
             }
         }
 
-        // 1. Capture WAL row IDs.
-        std::pmr::vector<int64_t> wal_row_ids(resource_);
-        wal_row_ids.reserve(modified_size);
-        for (size_t i = 0; i < modified_size; i++) {
-            wal_row_ids.push_back(static_cast<int64_t>(ids[i]));
-        }
+        const bool write_wal = ctx->wal_address != actor_zeta::address_t::empty_address();
 
         // 2. storage_delete_rows.
         vector_t row_ids(resource_, types::logical_type::BIGINT, modified_size);
@@ -166,7 +195,12 @@ namespace components::operators {
         co_await std::move(df);
 
         // 3. WAL physical_delete.
-        if (ctx->wal_address != actor_zeta::address_t::empty_address()) {
+        if (write_wal) {
+            std::pmr::vector<int64_t> wal_row_ids(resource_);
+            wal_row_ids.reserve(modified_size);
+            for (size_t i = 0; i < modified_size; i++) {
+                wal_row_ids.push_back(static_cast<int64_t>(ids[i]));
+            }
             auto count = static_cast<uint64_t>(wal_row_ids.size());
             auto [_w, wf] = actor_zeta::send(ctx->wal_address,
                                              &services::wal::manager_wal_replicate_t::write_physical_delete,
@@ -184,42 +218,56 @@ namespace components::operators {
         // 4. Mirror to index (uses scan output for old data).
         if (ctx->index_address != actor_zeta::address_t::empty_address()) {
             if (auto scan_out = left_ ? left_->output() : nullptr) {
-                auto& sc = scan_out->data_chunk();
-                auto idx_data = std::make_unique<data_chunk_t>(resource_, sc.types(), modified_size);
-                auto idx_ids = std::pmr::vector<int64_t>(resource_);
-                idx_ids.reserve(modified_size);
+                const auto& scan_chunks = scan_out->chunks();
+                if (scan_chunks.empty()) {
+                    // No old row values available for index mirroring.
+                } else {
+                    const auto& first_chunk = scan_chunks.front();
+                    auto projected_cols = materialized_columns(first_chunk);
+                    auto idx_data = projected_cols.size() == first_chunk.column_count()
+                                        ? std::make_unique<data_chunk_t>(resource_, first_chunk.types(), modified_size)
+                                        : std::make_unique<data_chunk_t>(resource_,
+                                                                         first_chunk.types(),
+                                                                         projected_cols,
+                                                                         modified_size);
+                    auto idx_ids = std::pmr::vector<int64_t>(resource_);
+                    idx_ids.reserve(modified_size);
 
-                std::unordered_map<int64_t, uint64_t> row_positions;
-                row_positions.reserve(sc.size());
-                for (uint64_t i = 0; i < sc.size(); i++) {
-                    row_positions.emplace(sc.row_ids.data<int64_t>()[i], i);
-                }
-
-                for (size_t i = 0; i < modified_size; i++) {
-                    auto row_id = static_cast<int64_t>(ids[i]);
-                    auto pos = row_positions.find(row_id);
-                    if (pos == row_positions.end()) {
-                        continue;
+                    std::unordered_map<int64_t, bool> modified_rows;
+                    modified_rows.reserve(modified_size);
+                    for (size_t i = 0; i < modified_size; i++) {
+                        modified_rows.emplace(static_cast<int64_t>(ids[i]), true);
                     }
 
-                    for (size_t col = 0; col < sc.column_count(); col++) {
-                        components::vector::vector_ops::copy(sc.data[col],
-                                                             idx_data->data[col],
-                                                             pos->second + 1,
-                                                             pos->second,
-                                                             idx_ids.size());
+                    for (const auto& sc : scan_chunks) {
+                        for (uint64_t row = 0; row < sc.size(); row++) {
+                            const auto row_id = sc.row_ids.data<int64_t>()[row];
+                            if (modified_rows.find(row_id) == modified_rows.end()) {
+                                continue;
+                            }
+                            for (size_t col = 0; col < sc.column_count(); col++) {
+                                if (is_unprojected_placeholder(sc.data[col])) {
+                                    continue;
+                                }
+                                components::vector::vector_ops::copy(sc.data[col],
+                                                                     idx_data->data[col],
+                                                                     row + 1,
+                                                                     row,
+                                                                     idx_ids.size());
+                            }
+                            idx_ids.emplace_back(row_id);
+                        }
                     }
-                    idx_ids.emplace_back(row_id);
-                }
-                if (!idx_ids.empty()) {
-                    idx_data->set_cardinality(idx_ids.size());
-                    auto [_ix, ixf] = actor_zeta::send(ctx->index_address,
-                                                       &services::index::manager_index_t::delete_rows,
-                                                       exec_ctx,
-                                                       table_oid_,
-                                                       std::move(idx_data),
-                                                       std::move(idx_ids));
-                    co_await std::move(ixf);
+                    if (!idx_ids.empty()) {
+                        idx_data->set_cardinality(idx_ids.size());
+                        auto [_ix, ixf] = actor_zeta::send(ctx->index_address,
+                                                           &services::index::manager_index_t::delete_rows,
+                                                           exec_ctx,
+                                                           table_oid_,
+                                                           std::move(idx_data),
+                                                           std::move(idx_ids));
+                        co_await std::move(ixf);
+                    }
                 }
             }
         }

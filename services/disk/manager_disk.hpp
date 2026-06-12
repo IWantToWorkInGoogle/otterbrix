@@ -70,13 +70,15 @@ namespace services::disk {
                         std::vector<components::table::column_definition_t> columns,
                         const std::filesystem::path& otbx_path,
                         configuration::disk_layout_policy layout_policy =
-                            configuration::disk_layout_policy::auto_select);
+                            configuration::disk_layout_policy::auto_select,
+                        uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page);
 
         /// Disk mode: load existing table.otbx
         table_storage_t(std::pmr::memory_resource* resource,
                         const std::filesystem::path& otbx_path,
                         configuration::disk_layout_policy layout_policy =
-                            configuration::disk_layout_policy::auto_select);
+                            configuration::disk_layout_policy::auto_select,
+                        uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page);
 
         components::table::data_table_t& table() { return *table_; }
         storage_mode_t mode() const { return mode_; }
@@ -168,6 +170,8 @@ namespace services::disk {
                 return wal::id_t{0};
             return it->second->table_storage.checkpoint_wal_id();
         }
+        components::table::row_group_scan_path_counts_t user_table_scan_path_counts_sync() const noexcept;
+        void reset_user_table_scan_path_counts_sync() noexcept;
 #if defined(DEV_MODE)
         components::table::storage::row_group_layout_kind
         debug_first_row_group_layout_kind_sync(components::catalog::oid_t table_oid) const noexcept;
@@ -385,12 +389,14 @@ namespace services::disk {
                              std::unique_ptr<components::table::table_filter_t> filter,
                              int64_t limit,
                              std::vector<size_t> projected_cols,
+                             bool row_ids_only,
                              components::table::transaction_data txn);
         unique_future<std::unique_ptr<components::vector::data_chunk_t>>
         storage_fetch(session_id_t session,
                       components::catalog::oid_t table_oid,
                       components::vector::vector_t row_ids,
-                      uint64_t count);
+                      uint64_t count,
+                      components::table::transaction_data txn);
         unique_future<std::unique_ptr<components::vector::data_chunk_t>>
         storage_scan_segment(session_id_t session, components::catalog::oid_t table_oid, int64_t start, uint64_t count);
         unique_future<std::pair<uint64_t, uint64_t>>
@@ -542,9 +548,10 @@ namespace services::disk {
                                        const std::filesystem::path& otbx_path_in,
                                        configuration::disk_layout_policy layout_policy =
                                            configuration::disk_layout_policy::auto_select,
+                                       uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page,
                                        actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
                                        std::function<void()>* progress = nullptr)
-                : table_storage(resource, std::move(columns), otbx_path_in, layout_policy)
+                : table_storage(resource, std::move(columns), otbx_path_in, layout_policy, pax_rows_per_page)
                 , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
                                                                                          resource,
                                                                                          scheduler,
@@ -558,9 +565,10 @@ namespace services::disk {
                                        const std::filesystem::path& otbx_path_in,
                                        configuration::disk_layout_policy layout_policy =
                                            configuration::disk_layout_policy::auto_select,
+                                       uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page,
                                        actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
                                        std::function<void()>* progress = nullptr)
-                : table_storage(resource, otbx_path_in, layout_policy)
+                : table_storage(resource, otbx_path_in, layout_policy, pax_rows_per_page)
                 , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
                                                                                          resource,
                                                                                          scheduler,
@@ -593,7 +601,6 @@ namespace services::disk {
             }
         };
         std::unordered_map<components::catalog::oid_t, std::unique_ptr<collection_storage_entry_t>> storages_;
-
         components::storage::storage_t* get_storage(components::catalog::oid_t table_oid);
 
         void create_agent(int count_agents);

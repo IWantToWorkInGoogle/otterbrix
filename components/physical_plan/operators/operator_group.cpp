@@ -745,6 +745,13 @@ namespace components::operators {
             }
 
             agg_results.push_back(std::move(results));
+
+            // Release this aggregator's fully-materialized per-group input now that
+            // its result is extracted. Otherwise every aggregator in values_ keeps
+            // its gathered input chunk alive (the whole table for a non-grouped
+            // query), so peak memory grows N x the table — ClickBench Q30 has 90
+            // aggregates and OOMs the box well before the scan does.
+            aggregator->clear();
         }
 
         return build_result_chunk(num_groups, key_count, agg_results, in_chunks);

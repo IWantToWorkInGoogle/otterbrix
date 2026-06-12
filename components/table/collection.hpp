@@ -116,6 +116,7 @@ namespace components::table {
 
         uint64_t calculate_size();
         void cleanup_versions(uint64_t lowest_active_start_time);
+        bool has_persisted_pax_layout() const;
 
         void set_total_rows(uint64_t total) { total_rows_ = total; }
 

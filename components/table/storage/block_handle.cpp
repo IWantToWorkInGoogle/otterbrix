@@ -198,6 +198,21 @@ namespace components::table::storage {
         if (readers_ > 0) {
             return false;
         }
+        // Transient (in-memory-only) blocks have no backing store: load() returns
+        // an empty handle for block_id_ >= MAXIMUM_BLOCK, and unload discards the
+        // buffer without spilling it. Unloading one therefore loses its data for
+        // good, so a later pin() (e.g. checkpoint's row_group::write_to_disk
+        // scanning committed ranges of a large table) dereferences a null buffer
+        // and segfaults. Only BLOCK-condition transient blocks hold live,
+        // non-reconstructible table data (register_memory sets BLOCK when
+        // can_destroy is false) — pin them until checkpoint persists them.
+        // EVICTION-condition transient blocks are disposable (can_destroy) and
+        // MUST stay evictable, otherwise they leak and large tables exhaust the
+        // buffer pool, churning eviction into corruption/crashes at scale.
+        if (block_id_ >= MAXIMUM_BLOCK &&
+            destroy_condition_.load() == destroy_buffer_condition::BLOCK) {
+            return false;
+        }
         return true;
     }
 

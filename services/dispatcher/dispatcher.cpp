@@ -189,6 +189,31 @@ namespace services::dispatcher {
                 effective_root_node(static_cast<const components::logical_plan::node_t*>(n)));
         }
 
+        components::catalog::oid_t find_first_dml_table_oid(const components::logical_plan::node_t* n) {
+            if (!n) {
+                return components::catalog::INVALID_OID;
+            }
+            using nt = components::logical_plan::node_type;
+            switch (n->type()) {
+                case nt::insert_t:
+                case nt::update_t:
+                case nt::delete_t:
+                    if (n->table_oid() != components::catalog::INVALID_OID) {
+                        return n->table_oid();
+                    }
+                    break;
+                default:
+                    break;
+            }
+            for (const auto& child : n->children()) {
+                const auto oid = find_first_dml_table_oid(child.get());
+                if (oid != components::catalog::INVALID_OID) {
+                    return oid;
+                }
+            }
+            return components::catalog::INVALID_OID;
+        }
+
         // drop_* nodes no longer carry user-typed dbname/relname; their
         // sibling resolve_namespace / resolve_table nodes inside the wrapping
         // sequence_t do. Extract (db, rel) from the resolve siblings so
@@ -1650,7 +1675,8 @@ namespace services::dispatcher {
                 if (logic_plan->type() == node_type::alter_table_t) {
                     exec_result = {make_cursor(resource()), {}, {}, {}};
                 } else {
-                    exec_result = co_await execute_plan_impl(session, logic_plan, params->take_parameters(), txn_data);
+                    exec_result =
+                        co_await execute_plan_impl(session, logic_plan, params->take_parameters(), txn_data);
                 }
                 break;
             }
@@ -2133,7 +2159,10 @@ namespace services::dispatcher {
         // Populate index metadata for optimizer-driven index selection.
         // Keyed on table_oid (stamped by enrich_logical_plan).
         if (index_address_ != actor_zeta::address_t::empty_address()) {
-            const auto tbl_oid = logical_plan->table_oid();
+            auto tbl_oid = logical_plan->table_oid();
+            if (tbl_oid == components::catalog::INVALID_OID) {
+                tbl_oid = find_first_dml_table_oid(logical_plan.get());
+            }
             if (tbl_oid != components::catalog::INVALID_OID) {
                 auto [_ik, ikf] =
                     actor_zeta::send(index_address_, &index::manager_index_t::get_indexed_keys, session, tbl_oid);
@@ -2151,6 +2180,9 @@ namespace services::dispatcher {
         components::catalog::oid_t routing_oid = logical_plan->table_oid();
         if (routing_oid == components::catalog::INVALID_OID && !logical_plan->children().empty()) {
             routing_oid = logical_plan->children().front()->table_oid();
+        }
+        if (routing_oid == components::catalog::INVALID_OID) {
+            routing_oid = find_first_dml_table_oid(logical_plan.get());
         }
         if (routing_oid != components::catalog::INVALID_OID) {
             pool_idx = static_cast<std::size_t>(routing_oid) % executors_.size();

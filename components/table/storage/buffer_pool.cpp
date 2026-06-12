@@ -30,6 +30,13 @@ namespace components::table::storage {
     }
 
     bool eviction_queue_t::add_to_eviction_queue(buffer_eviction_node_t&& node) {
+        // q is a plain std::queue shared with try_dequeue_with_lock()/purge(),
+        // both of which serialize on purge_lock_. Parallel scan workers unpin
+        // blocks concurrently (buffer_handle destruction -> unpin ->
+        // add_to_eviction_queue), so this push must take the same lock or the
+        // queue's internal nodes race and corrupt. Without it, concurrent
+        // row-group scans segfault inside std::queue::push.
+        std::lock_guard lock(purge_lock_);
         q.push(std::move(node));
         return ++evict_queue_insertions_ % INSERT_INTERVAL == 0;
     }
@@ -114,13 +121,15 @@ namespace components::table::storage {
     void eviction_queue_t::iterate_unloadable_blocks(FN fn) {
         for (;;) {
             buffer_eviction_node_t node;
-            if (q.empty()) {
-                if (!try_dequeue_with_lock(node)) {
-                    return;
-                }
+            // Every pop must go through try_dequeue_with_lock (purge_lock_). The
+            // previous code peeked q.empty() unlocked and then did q.front()/
+            // q.pop() without the lock (and double-popped on the empty branch),
+            // so concurrent evictions from parallel scan workers raced on the
+            // std::queue and handed out dangling eviction nodes -> can_unload()
+            // dereferenced freed memory and segfaulted.
+            if (!try_dequeue_with_lock(node)) {
+                return;
             }
-            node = std::move(q.front());
-            q.pop();
 
             auto handle = node.try_get_block_handle();
             if (!handle) {

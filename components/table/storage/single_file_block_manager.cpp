@@ -110,9 +110,33 @@ namespace components::table::storage {
         }
     }
 
-    void single_file_block_manager_t::read_blocks(file_buffer_t& buffer, uint64_t start_block, uint64_t /*count*/) {
+    void single_file_block_manager_t::read_blocks(file_buffer_t& buffer, uint64_t start_block, uint64_t block_count) {
         auto location = block_location(start_block);
         buffer.read(*handle_, location);
+
+        // Verify every block's CRC32c. The single-block read() path already does this, but the
+        // batch/prefetch path (the primary cold-reopen read path for PAX *data* blocks) used to
+        // skip it — a corrupted data block was then scanned silently and returned wrong results
+        // instead of failing. Metadata blocks (read via read()) were protected; data blocks were
+        // not. Blocks sit at block_allocation_size() stride in the buffer (same stride batch_read
+        // slices payloads with); each block is [8-byte checksum][block_size() payload], matching
+        // checksum_and_write (payload = allocation_size - 8 = block_size()). Guard the stride so a
+        // smaller-than-expected buffer can never overrun.
+        auto* base = buffer.internal_buffer();
+        const auto stride = block_allocation_size();
+        const auto payload_size = block_size();
+        for (uint64_t i = 0; i < block_count; i++) {
+            if ((i + 1) * stride > buffer.allocation_size()) {
+                break;
+            }
+            auto* block_ptr = base + i * stride;
+            auto stored_checksum = *reinterpret_cast<uint64_t*>(block_ptr);
+            auto computed = static_cast<uint64_t>(static_cast<uint32_t>(absl::ComputeCrc32c(
+                {reinterpret_cast<const char*>(block_ptr + sizeof(uint64_t)), payload_size})));
+            if (stored_checksum != computed) {
+                throw std::runtime_error("Block checksum mismatch for block " + std::to_string(start_block + i));
+            }
+        }
     }
 
     void single_file_block_manager_t::write(file_buffer_t& buffer, uint64_t block_id) {

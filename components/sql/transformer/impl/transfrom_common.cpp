@@ -5,9 +5,18 @@
 #include <components/sql/transformer/transformer.hpp>
 #include <components/sql/transformer/utils.hpp>
 
+#include <variant>
+
 using namespace components::expressions;
 
 namespace components::sql::transform {
+    namespace {
+
+        bool contains_null_expression(const param_storage& param) {
+            return std::holds_alternative<expression_ptr>(param) && !std::get<expression_ptr>(param);
+        }
+
+    } // namespace
 
     expression_ptr transformer::transform_a_expr_arithmetic(A_Expr* node,
                                                             const name_collection_t& names,
@@ -23,12 +32,24 @@ namespace components::sql::transform {
         auto expr = make_scalar_expression(resource_, stype);
 
         if (node->lexpr) {
-            expr->append_param(transform_a_expr_operand(node->lexpr, names, params));
-            expr->append_param(transform_a_expr_operand(node->rexpr, names, params));
+            auto left = transform_a_expr_operand(node->lexpr, names, params);
+            if (error_.contains_error() || contains_null_expression(left)) {
+                return nullptr;
+            }
+            auto right = transform_a_expr_operand(node->rexpr, names, params);
+            if (error_.contains_error() || contains_null_expression(right)) {
+                return nullptr;
+            }
+            expr->append_param(left);
+            expr->append_param(right);
         } else {
             // Unary minus: proper unary operator with single operand
             expr = make_scalar_expression(resource_, scalar_type::unary_minus);
-            expr->append_param(transform_a_expr_operand(node->rexpr, names, params));
+            auto operand = transform_a_expr_operand(node->rexpr, names, params);
+            if (error_.contains_error() || contains_null_expression(operand)) {
+                return nullptr;
+            }
+            expr->append_param(operand);
         }
         return expr;
     }
@@ -98,14 +119,26 @@ namespace components::sql::transform {
                 return;
             }
             expr = make_scalar_expression(resource_, stype, expressions::key_t{resource_, std::move(expr_name)});
-            expr->append_param(resolve_select_operand(node->lexpr, names, params, group));
-            expr->append_param(resolve_select_operand(node->rexpr, names, params, group));
+            auto left = resolve_select_operand(node->lexpr, names, params, group);
+            if (error_.contains_error() || contains_null_expression(left)) {
+                return;
+            }
+            auto right = resolve_select_operand(node->rexpr, names, params, group);
+            if (error_.contains_error() || contains_null_expression(right)) {
+                return;
+            }
+            expr->append_param(left);
+            expr->append_param(right);
         } else {
             // Unary minus: proper unary operator with single operand
             expr = make_scalar_expression(resource_,
                                           scalar_type::unary_minus,
                                           expressions::key_t{resource_, std::move(expr_name)});
-            expr->append_param(resolve_select_operand(node->rexpr, names, params, group));
+            auto operand = resolve_select_operand(node->rexpr, names, params, group);
+            if (error_.contains_error() || contains_null_expression(operand)) {
+                return;
+            }
+            expr->append_param(operand);
         }
 
         group->append_expression(expr);
@@ -157,12 +190,20 @@ namespace components::sql::transform {
                         }
                         auto sub_scalar = make_scalar_expression(resource_, sub_stype);
                         if (sub_expr->lexpr) {
-                            sub_scalar->append_param(resolve_select_operand(sub_expr->lexpr, names, params, group));
+                            auto left = resolve_select_operand(sub_expr->lexpr, names, params, group);
+                            if (error_.contains_error() || contains_null_expression(left)) {
+                                return nullptr;
+                            }
+                            sub_scalar->append_param(left);
                         } else {
                             auto zero_id = params->add_parameter(types::logical_value_t(resource_, int64_t(0)));
                             sub_scalar->append_param(zero_id);
                         }
-                        sub_scalar->append_param(resolve_select_operand(sub_expr->rexpr, names, params, group));
+                        auto right = resolve_select_operand(sub_expr->rexpr, names, params, group);
+                        if (error_.contains_error() || contains_null_expression(right)) {
+                            return nullptr;
+                        }
+                        sub_scalar->append_param(right);
                         return sub_scalar;
                     }
                 }
@@ -187,16 +228,30 @@ namespace components::sql::transform {
                         } else if (nodeTag(arg_node) == T_A_Expr) {
                             auto sub = pg_ptr_cast<A_Expr>(arg_node);
                             if (sub->kind == AEXPR_OP && is_arithmetic_operator(strVal(sub->name->lst.front().data))) {
-                                args.emplace_back(resolve_select_operand(arg_node, names, params, group));
+                                auto arg = resolve_select_operand(arg_node, names, params, group);
+                                if (error_.contains_error() || contains_null_expression(arg)) {
+                                    return nullptr;
+                                }
+                                args.emplace_back(arg);
                             } else {
                                 args.emplace_back(add_param_value(arg_node, params));
+                                if (error_.contains_error()) {
+                                    return nullptr;
+                                }
                             }
                         } else if (nodeTag(arg_node) == T_CaseExpr) {
                             // CASE WHEN ... inside aggregate arg, e.g. SUM(CASE ...)
-                            args.emplace_back(
-                                case_expr_to_scalar(pg_ptr_cast<CaseExpr>(arg_node), nullptr, names, params, group));
+                            auto case_expr =
+                                case_expr_to_scalar(pg_ptr_cast<CaseExpr>(arg_node), nullptr, names, params, group);
+                            if (error_.contains_error() || !case_expr) {
+                                return nullptr;
+                            }
+                            args.emplace_back(case_expr);
                         } else {
                             args.emplace_back(add_param_value(arg_node, params));
+                            if (error_.contains_error()) {
+                                return nullptr;
+                            }
                         }
                     }
                 }
@@ -280,7 +335,7 @@ namespace components::sql::transform {
                 auto expr = make_compare_union_expression(params->parameters().resource(),
                                                           node->kind == AEXPR_AND ? compare_type::union_and
                                                                                   : compare_type::union_or);
-                auto append = [this, &params, &expr, &names](Node* node) {
+                auto append = [this, &params, &expr, &names](Node* node) -> bool {
                     expression_ptr child_expr;
                     if (nodeTag(node) == T_A_Expr) {
                         child_expr = transform_a_expr(pg_ptr_cast<A_Expr>(node), names, params);
@@ -308,14 +363,16 @@ namespace components::sql::transform {
                             for (auto& child : comp_expr->children()) {
                                 expr->append_child(child);
                             }
-                            return;
+                            return true;
                         }
                     }
                     expr->append_child(child_expr);
+                    return true;
                 };
 
-                append(node->lexpr);
-                append(node->rexpr);
+                if (!append(node->lexpr) || !append(node->rexpr)) {
+                    return nullptr;
+                }
                 return expr;
             }
             case AEXPR_OP: {
@@ -467,7 +524,13 @@ namespace components::sql::transform {
                 };
 
                 param_storage left = get_arg(node->lexpr);
+                if (error_.contains_error() || contains_null_expression(left)) {
+                    return nullptr;
+                }
                 param_storage right = get_arg(node->rexpr);
+                if (error_.contains_error() || contains_null_expression(right)) {
+                    return nullptr;
+                }
                 return make_compare_expression(params->parameters().resource(), comp_type, left, right);
             }
             case AEXPR_NOT: {
@@ -487,6 +550,9 @@ namespace components::sql::transform {
                     error_ = core::error_t(
                         core::error_code_t::sql_parse_error,
                         std::pmr::string{"Unsupported expression: unknown expr type in transform_a_expr", resource_});
+                    return nullptr;
+                }
+                if (error_.contains_error() || !right) {
                     return nullptr;
                 }
                 auto expr = make_compare_union_expression(params->parameters().resource(), compare_type::union_not);
@@ -620,16 +686,30 @@ namespace components::sql::transform {
                 pin_side_to_left_if_unset(key.field);
                 args.emplace_back(std::move(key.field));
             } else if (nodeTag(arg.data) == T_FuncCall) {
-                args.emplace_back(transform_a_expr_func(pg_ptr_cast<FuncCall>(arg.data), names, params));
+                auto nested = transform_a_expr_func(pg_ptr_cast<FuncCall>(arg.data), names, params);
+                if (error_.contains_error() || !nested) {
+                    return nullptr;
+                }
+                args.emplace_back(nested);
             } else if (nodeTag(arg.data) == T_A_Expr) {
                 auto sub = pg_ptr_cast<A_Expr>(arg.data);
                 if (sub->kind == AEXPR_OP && is_arithmetic_operator(strVal(sub->name->lst.front().data))) {
-                    args.emplace_back(transform_a_expr_arithmetic(sub, names, params));
+                    auto arithmetic = transform_a_expr_arithmetic(sub, names, params);
+                    if (error_.contains_error() || !arithmetic) {
+                        return nullptr;
+                    }
+                    args.emplace_back(arithmetic);
                 } else {
                     args.emplace_back(add_param_value(pg_ptr_cast<Node>(arg.data), params));
+                    if (error_.contains_error()) {
+                        return nullptr;
+                    }
                 }
             } else {
                 args.emplace_back(add_param_value(pg_ptr_cast<Node>(arg.data), params));
+                if (error_.contains_error()) {
+                    return nullptr;
+                }
             }
         }
         return make_function_expression(params->parameters().resource(), std::move(funcname), std::move(args));
@@ -706,9 +786,15 @@ namespace components::sql::transform {
                 auto cond_node = pg_ptr_cast<Node>(when->expr);
                 if (nodeTag(cond_node) == T_A_Expr) {
                     auto condition = transform_a_expr(pg_ptr_cast<A_Expr>(cond_node), names, params);
+                    if (error_.contains_error() || !condition) {
+                        return nullptr;
+                    }
                     expr->append_param(condition);
                 } else if (nodeTag(cond_node) == T_FuncCall) {
                     auto condition = transform_a_expr_func(pg_ptr_cast<FuncCall>(cond_node), names, params);
+                    if (error_.contains_error() || !condition) {
+                        return nullptr;
+                    }
                     expr->append_param(condition);
                 } else {
                     error_ = core::error_t(core::error_code_t::sql_parse_error,
@@ -719,13 +805,21 @@ namespace components::sql::transform {
 
             // Result: any value expression
             auto result_node = pg_ptr_cast<Node>(when->result);
-            expr->append_param(resolve_select_operand(result_node, names, params, group));
+            auto result = resolve_select_operand(result_node, names, params, group);
+            if (error_.contains_error() || contains_null_expression(result)) {
+                return nullptr;
+            }
+            expr->append_param(result);
         }
 
         // Default (ELSE clause)
         if (node->defresult) {
             auto def_node = pg_ptr_cast<Node>(node->defresult);
-            expr->append_param(resolve_select_operand(def_node, names, params, group));
+            auto def = resolve_select_operand(def_node, names, params, group);
+            if (error_.contains_error() || contains_null_expression(def)) {
+                return nullptr;
+            }
+            expr->append_param(def);
         }
 
         return expr;
@@ -884,8 +978,11 @@ namespace components::sql::transform {
                         return nullptr;
                     }
                     auto left = resolve_having_operand(a_expr->lexpr, names, params, group);
+                    if (error_.contains_error() || contains_null_expression(left)) {
+                        return nullptr;
+                    }
                     auto right = resolve_having_operand(a_expr->rexpr, names, params, group);
-                    if (error_.contains_error()) {
+                    if (error_.contains_error() || contains_null_expression(right)) {
                         return nullptr;
                     }
                     return make_compare_expression(params->parameters().resource(), comp_type, left, right);
@@ -894,8 +991,16 @@ namespace components::sql::transform {
                 auto expr = make_compare_union_expression(params->parameters().resource(),
                                                           a_expr->kind == AEXPR_AND ? compare_type::union_and
                                                                                     : compare_type::union_or);
-                expr->append_child(transform_having_expr(a_expr->lexpr, names, params, group));
-                expr->append_child(transform_having_expr(a_expr->rexpr, names, params, group));
+                auto left = transform_having_expr(a_expr->lexpr, names, params, group);
+                if (error_.contains_error() || !left) {
+                    return nullptr;
+                }
+                auto right = transform_having_expr(a_expr->rexpr, names, params, group);
+                if (error_.contains_error() || !right) {
+                    return nullptr;
+                }
+                expr->append_child(left);
+                expr->append_child(right);
                 return expr;
             }
         }

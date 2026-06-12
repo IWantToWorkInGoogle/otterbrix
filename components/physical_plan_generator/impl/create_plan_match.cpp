@@ -77,8 +77,31 @@ namespace services::planner::impl {
                 }
             }
 
+            // Union nodes (AND/OR/NOT) carry their operands in children_ (validated just
+            // above); make_compare_union_expression always constructs them with left_/right_
+            // set to a null expression_ptr, so the holds_alternative<expression_ptr> check
+            // below would spuriously reject EVERY conjunction and force it onto the
+            // unfiltered operator_match path — no filter pushdown into the scan, hence no
+            // PAX zone-map page pruning (a WHERE a>=x AND a<y range stays a full scan).
+            // Only union_and is pushed here: it lowers to conjunction_and_filter_t, which the
+            // PAX projected scan prunes per-page via min/max zone maps. union_or/union_not
+            // pushdown is a separate follow-up (different scan-filter semantics to validate).
+            if (comp_expr->is_union()) {
+                return comp_expr->type() == compare_type::union_and;
+            }
+
             if (std::holds_alternative<expression_ptr>(comp_expr->left()) ||
                 std::holds_alternative<expression_ptr>(comp_expr->right())) {
+                return false;
+            }
+            // A pushable leaf must be exactly (column key) op (constant param): transform_predicate
+            // lowers it to a constant_filter on that one column. A comparison with NO column key
+            // — `5 = 5`, or a constant folded to all_true/all_false — or with two column keys
+            // (`a = b`) has nothing transform_predicate can lower; pushing it (especially as a
+            // conjunction child, where it would leave the AND with <2 real filters) errors the
+            // query. Leave those on the operator_match path, as before conjunction pushdown.
+            if (std::holds_alternative<expr::key_t>(comp_expr->left()) ==
+                std::holds_alternative<expr::key_t>(comp_expr->right())) {
                 return false;
             }
             return true;
@@ -88,7 +111,8 @@ namespace services::planner::impl {
                                                                components::catalog::oid_t table_oid,
                                                                const components::expressions::expression_ptr& expr,
                                                                components::logical_plan::limit_t limit,
-                                                               const std::vector<size_t>& projected_cols) {
+                                                               const std::vector<size_t>& projected_cols,
+                                                               bool row_ids_only) {
             if (context.has_table_oid(table_oid)) {
                 // TODO: function_expr in scans
                 if (is_pure_compare(expr)) {
@@ -118,7 +142,8 @@ namespace services::planner::impl {
                                                                                      table_oid,
                                                                                      comp_expr,
                                                                                      limit,
-                                                                                     projected_cols));
+                                                                                     projected_cols,
+                                                                                     row_ids_only));
                 } else {
                     // For now we do a full scan and apply function after
                     auto match_operator =
@@ -151,7 +176,8 @@ namespace services::planner::impl {
     components::operators::operator_ptr create_plan_match(const context_storage_t& context,
                                                           const components::logical_plan::node_ptr& node,
                                                           components::logical_plan::limit_t limit,
-                                                          const std::vector<size_t>& projected_cols) {
+                                                          const std::vector<size_t>& projected_cols,
+                                                          bool row_ids_only) {
         if (node->expressions().empty()) {
             // Build projected_cols (storage chunk indices). For relkind='g' read
             // live columns by their chunk_position (resolved at resolve-table time).
@@ -186,7 +212,8 @@ namespace services::planner::impl {
                                       match_node->table_oid(),
                                       match_node->expressions()[0],
                                       limit,
-                                      projected_cols);
+                                      projected_cols,
+                                      row_ids_only);
         }
     }
 

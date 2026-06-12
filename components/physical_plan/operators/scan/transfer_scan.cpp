@@ -35,6 +35,7 @@ namespace components::operators {
                                          std::unique_ptr<table::table_filter_t>(nullptr),
                                          scan_limit,
                                          projected_cols_,
+                                         false,
                                          ctx->txn);
         auto batches_ptr = co_await std::move(sf);
         std::pmr::vector<vector::data_chunk_t> batches(resource_);

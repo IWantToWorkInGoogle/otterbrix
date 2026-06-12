@@ -9,10 +9,13 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
+
+#include <core/date/date_parse.hpp>
 
 namespace otterbrix::benchmark {
 
@@ -41,6 +44,20 @@ std::string format_sql_error(const components::cursor::cursor_t_ptr& cursor) {
     msg += " what=";
     msg += std::string_view(err.what);
     return msg;
+}
+
+std::string compact_sql_for_error(std::string sql) {
+    for (char& ch : sql) {
+        if (ch == '\n' || ch == '\r' || ch == '\t') {
+            ch = ' ';
+        }
+    }
+    constexpr std::size_t max_len = 220;
+    if (sql.size() > max_len) {
+        sql.resize(max_len);
+        sql += "...";
+    }
+    return sql;
 }
 
 std::string strip_comments_and_directives(const std::string& raw) {
@@ -210,6 +227,132 @@ std::string resolve_tpch_parameters(std::string sql, const std::vector<sql_param
         replace_all(sql, parameter.name, parameter.value);
     }
     return sql;
+}
+
+std::string sql_quote_literal(std::string_view value) {
+    std::string result = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            result += "''";
+        } else {
+            result += ch;
+        }
+    }
+    result += "'";
+    return result;
+}
+
+std::string normalize_tpch_interval_literals(const std::string& sql) {
+    static const std::regex interval_literal(
+        R"(interval\s+'([0-9]+)'\s+(year|yr|month|mon|week|day|hour|minute|min|second|sec)(?:\s*\(\s*[0-9]+\s*\))?)",
+        std::regex_constants::icase);
+
+    std::string result;
+    std::size_t last = 0;
+    for (std::sregex_iterator it(sql.begin(), sql.end(), interval_literal), end; it != end; ++it) {
+        const auto& match = *it;
+        result.append(sql, last, static_cast<std::size_t>(match.position()) - last);
+
+        auto unit = to_lower_ascii(match[2].str());
+        result += "interval '";
+        result += match[1].str();
+        result += " ";
+        result += unit;
+        result += "'";
+
+        last = static_cast<std::size_t>(match.position() + match.length());
+    }
+    result.append(sql, last, std::string::npos);
+    return result;
+}
+
+std::string format_iso_date(std::chrono::sys_days date) {
+    const auto ymd = std::chrono::year_month_day{date};
+    std::ostringstream out;
+    out << static_cast<int>(ymd.year()) << "-" << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned>(ymd.month()) << "-" << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned>(ymd.day());
+    return out.str();
+}
+
+std::optional<std::string> evaluate_tpch_date_interval(std::string_view date_text,
+                                                       std::string_view op,
+                                                       std::string_view interval_text) {
+    auto date = core::date::parse_date(date_text);
+    auto interval = core::date::parse_interval(interval_text);
+    if (!date || !interval) {
+        return std::nullopt;
+    }
+
+    const int sign = op == "-" ? -1 : 1;
+    auto result = core::date::to_sys_days(*date);
+    if (interval->month.count()) {
+        result = core::date::apply_months(result, sign * interval->month.count());
+    }
+    result += std::chrono::days{sign * interval->day.count()};
+    return format_iso_date(result);
+}
+
+std::string rewrite_tpch_date_literals_for_string_columns(const std::string& sql) {
+    static const std::regex date_interval(
+        R"(date\s+'([0-9]{4}-[0-9]{2}-[0-9]{2})'\s*([+-])\s*interval\s+'([^']+)')",
+        std::regex_constants::icase);
+    static const std::regex date_literal(R"(date\s+'([0-9]{4}-[0-9]{2}-[0-9]{2})')",
+                                         std::regex_constants::icase);
+
+    std::string arithmetic_rewritten;
+    std::size_t last = 0;
+    for (std::sregex_iterator it(sql.begin(), sql.end(), date_interval), end; it != end; ++it) {
+        const auto& match = *it;
+        arithmetic_rewritten.append(sql, last, static_cast<std::size_t>(match.position()) - last);
+
+        if (auto evaluated = evaluate_tpch_date_interval(match[1].str(), match[2].str(), match[3].str())) {
+            arithmetic_rewritten += sql_quote_literal(*evaluated);
+        } else {
+            arithmetic_rewritten += match.str();
+        }
+
+        last = static_cast<std::size_t>(match.position() + match.length());
+    }
+    arithmetic_rewritten.append(sql, last, std::string::npos);
+
+    std::string result;
+    last = 0;
+    for (std::sregex_iterator it(arithmetic_rewritten.begin(), arithmetic_rewritten.end(), date_literal), end;
+         it != end;
+         ++it) {
+        const auto& match = *it;
+        result.append(arithmetic_rewritten, last, static_cast<std::size_t>(match.position()) - last);
+        result += sql_quote_literal(match[1].str());
+        last = static_cast<std::size_t>(match.position() + match.length());
+    }
+    result.append(arithmetic_rewritten, last, std::string::npos);
+    return result;
+}
+
+std::string rewrite_tpch_extract_year_for_string_columns(const std::string& sql) {
+    static const std::regex extract_year(
+        R"(extract\s*\(\s*year\s+from\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\))",
+        std::regex_constants::icase);
+
+    std::string result;
+    std::size_t last = 0;
+    for (std::sregex_iterator it(sql.begin(), sql.end(), extract_year), end; it != end; ++it) {
+        const auto& match = *it;
+        result.append(sql, last, static_cast<std::size_t>(match.position()) - last);
+        result += "substring(";
+        result += match[1].str();
+        result += ", 1, 4)";
+        last = static_cast<std::size_t>(match.position() + match.length());
+    }
+    result.append(sql, last, std::string::npos);
+    return result;
+}
+
+std::string adapt_tpch_sql_to_supported_dialect(std::string sql) {
+    sql = normalize_tpch_interval_literals(sql);
+    sql = rewrite_tpch_date_literals_for_string_columns(sql);
+    return rewrite_tpch_extract_year_for_string_columns(sql);
 }
 
 std::optional<std::string> find_unresolved_tpch_parameter(const std::string& sql) {
@@ -456,6 +599,7 @@ void record_cursor_result(benchmark_state_t& state,
 struct setup_data_t {
     std::string sql;
     std::vector<sql_csv_entry_t> csv_entries;
+    std::vector<sql_setup_step_t> steps;
     std::string database;
 };
 
@@ -470,6 +614,18 @@ setup_data_t parse_setup_file(const std::filesystem::path& path) {
     std::string line;
     std::string sql_lines;
 
+    auto flush_sql_step = [&]() {
+        auto cleaned = strip_comments_and_directives(sql_lines);
+        cleaned = trim(cleaned);
+        if (!cleaned.empty()) {
+            sql_setup_step_t step;
+            step.kind = sql_setup_step_t::kind_t::sql;
+            step.sql = std::move(cleaned);
+            data.steps.push_back(std::move(step));
+        }
+        sql_lines.clear();
+    };
+
     while (std::getline(file, line)) {
         auto trimmed = trim(line);
 
@@ -481,6 +637,7 @@ setup_data_t parse_setup_file(const std::filesystem::path& path) {
 
         // Parse @load_csv directives from comments
         if (trimmed.starts_with("-- @load_csv ")) {
+            flush_sql_step();
             auto args = trimmed.substr(13); // strlen("-- @load_csv ")
             std::istringstream iss(args);
             sql_csv_entry_t entry;
@@ -490,17 +647,30 @@ setup_data_t parse_setup_file(const std::filesystem::path& path) {
                 entry.delimiter = delim[0];
             }
             if (!entry.path.empty() && !entry.table.empty()) {
-                data.csv_entries.push_back(std::move(entry));
+                data.csv_entries.push_back(entry);
+
+                sql_setup_step_t step;
+                step.kind = sql_setup_step_t::kind_t::csv;
+                step.csv = std::move(entry);
+                data.steps.push_back(std::move(step));
             }
             continue;
         }
 
         sql_lines += line + "\n";
     }
+    flush_sql_step();
 
     // Strip comments from the SQL portion
-    data.sql = strip_comments_and_directives(sql_lines);
-    data.sql = trim(data.sql);
+    for (const auto& step : data.steps) {
+        if (step.kind != sql_setup_step_t::kind_t::sql || step.sql.empty()) {
+            continue;
+        }
+        if (!data.sql.empty()) {
+            data.sql += "\n";
+        }
+        data.sql += step.sql;
+    }
 
     return data;
 }
@@ -566,6 +736,7 @@ sql_benchmark_t::sql_benchmark_t(std::string name,
                                  std::string sql,
                                  std::string setup_sql,
                                  std::vector<sql_csv_entry_t> csv_entries,
+                                 std::vector<sql_setup_step_t> setup_steps,
                                  std::filesystem::path benchmark_dir,
                                  std::string database,
                                  std::optional<uint64_t> expected_rows,
@@ -576,6 +747,7 @@ sql_benchmark_t::sql_benchmark_t(std::string name,
     , sql_(std::move(sql))
     , setup_sql_(std::move(setup_sql))
     , csv_entries_(std::move(csv_entries))
+    , setup_steps_(std::move(setup_steps))
     , benchmark_dir_(std::move(benchmark_dir))
     , database_(std::move(database))
     , expected_rows_(expected_rows)
@@ -597,7 +769,7 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
             if (!stmt.empty()) {
                 auto cursor = state.dispatcher->execute_sql(state.session, stmt);
                 if (cursor->is_error()) {
-                    state.error = format_sql_error(cursor);
+                    state.error = format_sql_error(cursor) + " while executing: " + compact_sql_for_error(stmt);
                     state.failed = true;
                     return;
                 }
@@ -613,7 +785,7 @@ void sql_benchmark_t::execute_sql_block(benchmark_state_t& state, const std::str
     if (!stmt.empty()) {
         auto cursor = state.dispatcher->execute_sql(state.session, stmt);
         if (cursor->is_error()) {
-            state.error = format_sql_error(cursor);
+            state.error = format_sql_error(cursor) + " while executing: " + compact_sql_for_error(stmt);
             state.failed = true;
             return;
         }
@@ -863,6 +1035,18 @@ void sql_benchmark_t::load(benchmark_state_t& state) {
         }
     }
 
+    if (!setup_steps_.empty()) {
+        for (const auto& step : setup_steps_) {
+            if (step.kind == sql_setup_step_t::kind_t::sql) {
+                execute_sql_block(state, qualify_sql(step.sql));
+            } else {
+                load_csv_file(state, step.csv);
+            }
+            if (state.failed) return;
+        }
+        return;
+    }
+
     if (!setup_sql_.empty()) {
         execute_sql_block(state, qualify_sql(setup_sql_));
         if (state.failed) return;
@@ -940,6 +1124,7 @@ sql_benchmark_t::load_from_file(const std::filesystem::path& path, const std::fi
     if (is_tpch_suite_group(group)) {
         auto parameters = tpch_parameters_for_query(base_name);
         auto resolved = resolve_tpch_parameters(cleaned, parameters);
+        resolved = adapt_tpch_sql_to_supported_dialect(std::move(resolved));
         auto resolved_queries = split_queries(resolved);
         if (resolved_queries.empty()) {
             throw std::runtime_error("No SQL queries found after TPC-H parameter substitution in: " + path.string());
@@ -956,6 +1141,7 @@ sql_benchmark_t::load_from_file(const std::filesystem::path& path, const std::fi
                                 std::move(sql),
                                 setup.sql,
                                 setup.csv_entries,
+                                setup.steps,
                                 benchmark_dir,
                                 setup.database,
                                 expected_rows,
@@ -967,14 +1153,14 @@ sql_benchmark_t::load_from_file(const std::filesystem::path& path, const std::fi
     if (queries.size() == 1) {
         result.push_back(std::unique_ptr<sql_benchmark_t>(
             new sql_benchmark_t(base_name, group, std::move(queries[0]),
-                                setup.sql, setup.csv_entries, benchmark_dir,
+                                setup.sql, setup.csv_entries, setup.steps, benchmark_dir,
                                 setup.database, expected_rows, {}, false)));
     } else {
         for (size_t i = 0; i < queries.size(); ++i) {
             auto name = base_name + "/q" + std::to_string(i + 1);
             result.push_back(std::unique_ptr<sql_benchmark_t>(
                 new sql_benchmark_t(name, group, std::move(queries[i]),
-                                    setup.sql, setup.csv_entries, benchmark_dir,
+                                    setup.sql, setup.csv_entries, setup.steps, benchmark_dir,
                                     setup.database, expected_rows, {}, false)));
         }
     }

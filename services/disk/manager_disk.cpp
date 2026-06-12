@@ -111,7 +111,7 @@ namespace services::disk {
 
     table_storage_t::table_storage_t(std::pmr::memory_resource* resource)
         : mode_(storage_mode_t::IN_MEMORY)
-        , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
+        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_)
         , block_manager_(std::make_unique<components::table::storage::in_memory_block_manager_t>(
               buffer_manager_,
@@ -124,7 +124,7 @@ namespace services::disk {
     table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
                                      std::vector<components::table::column_definition_t> columns)
         : mode_(storage_mode_t::IN_MEMORY)
-        , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
+        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_)
         , block_manager_(std::make_unique<components::table::storage::in_memory_block_manager_t>(
               buffer_manager_,
@@ -134,9 +134,10 @@ namespace services::disk {
     table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
                                      std::vector<components::table::column_definition_t> columns,
                                      const std::filesystem::path& otbx_path,
-                                     configuration::disk_layout_policy layout_policy)
+                                     configuration::disk_layout_policy layout_policy,
+                                     uint16_t pax_rows_per_page)
         : mode_(storage_mode_t::DISK)
-        , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
+        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_) {
         if (layout_policy == configuration::disk_layout_policy::pax_only) {
             std::string error_message;
@@ -148,6 +149,7 @@ namespace services::disk {
                                                                                             fs_,
                                                                                             otbx_path.string());
         bm->set_layout_policy(to_storage_layout_policy(layout_policy));
+        bm->set_pax_rows_per_page(pax_rows_per_page);
         bm->create_new_database();
         block_manager_ = std::move(bm);
         table_ = std::make_unique<components::table::data_table_t>(resource, *block_manager_, std::move(columns));
@@ -155,14 +157,16 @@ namespace services::disk {
 
     table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
                                      const std::filesystem::path& otbx_path,
-                                     configuration::disk_layout_policy layout_policy)
+                                     configuration::disk_layout_policy layout_policy,
+                                     uint16_t pax_rows_per_page)
         : mode_(storage_mode_t::DISK)
-        , buffer_pool_(resource, uint64_t(1) << 32, false, uint64_t(1) << 24)
+        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
         , buffer_manager_(resource, fs_, buffer_pool_) {
         auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
                                                                                             fs_,
                                                                                             otbx_path.string());
         bm->set_layout_policy(to_storage_layout_policy(layout_policy));
+        bm->set_pax_rows_per_page(pax_rows_per_page);
         bm->load_existing_database();
         block_manager_ = std::move(bm);
 

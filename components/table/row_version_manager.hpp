@@ -1,6 +1,7 @@
 #pragma once
 
 #include <components/vector/indexing_vector.hpp>
+#include <cstddef>
 #include <stdexcept>
 #include <vector>
 
@@ -184,8 +185,13 @@ namespace components::table {
                                            uint64_t vector_idx,
                                            vector::indexing_vector_t& indexing_vector,
                                            uint64_t max_count);
-        bool fetch(transaction_data transaction, uint64_t row);
-        bool supports_threaded_scan() const;
+	        bool fetch(transaction_data transaction, uint64_t row);
+	        bool supports_threaded_scan() const;
+	        bool has_version_entries() const;
+	        bool has_visibility_changes() const;
+	        std::vector<std::byte> serialize_committed_deletes(uint64_t row_count) const;
+        void deserialize_committed_deletes(const std::byte* data, uint64_t size);
+        void mark_committed_deleted(uint64_t absolute_row, uint64_t commit_id = 0);
 
         void append_version_info(transaction_data transaction,
                                  uint64_t count,
