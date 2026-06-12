@@ -728,6 +728,199 @@ TEST_CASE("checkpoint_load: single INT64 column, 1000 rows") {
     cleanup_test_file();
 }
 
+TEST_CASE("checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-fixed table") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 2500; // spans row groups (1024) and pages (256)
+    meta_block_pointer_t table_pointer;
+    const auto is_null = [](uint64_t r) { return (r % 7) == 0; };
+    const auto expected = [](uint64_t r) { return static_cast<uint32_t>(r * 2654435761u + 12345u); };
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("u", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pt");
+        auto types = table->copy_types();
+        uint64_t off = 0;
+        while (off < NUM_ROWS) {
+            const uint64_t b = std::min<uint64_t>(NUM_ROWS - off, DEFAULT_VECTOR_CAPACITY);
+            data_chunk_t chunk(&env.resource, types, b);
+            chunk.set_cardinality(b);
+            for (uint64_t i = 0; i < b; i++) {
+                const uint64_t r = off + i;
+                if (is_null(r)) {
+                    chunk.data[0].set_null(i, true);
+                } else {
+                    chunk.set_value(0, i, logical_value_t{&env.resource, expected(r)});
+                }
+            }
+            table_append_state st(&env.resource);
+            table->append_lock(st);
+            table->initialize_append(st);
+            table->append(chunk, st);
+            table->finalize_append(st, transaction_data{0, 0});
+            off += b;
+        }
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+        bm.file_sync();
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        REQUIRE(loaded->column_count() == 1);
+
+        // Probe a scattered set, deliberately hitting page (256) and row-group (1024) boundaries
+        // and both null and non-null rows.
+        const std::vector<uint64_t> probe = {0,   1,    6,    7,    8,    255,  256,  257,
+                                             511, 512,  1023, 1024, 1025, 1791, 2047, 2048,
+                                             2049, 2299, 2300, 2499};
+        const uint64_t n = probe.size();
+        std::vector<storage_index_t> column_ids;
+        column_ids.emplace_back(0);
+        vector_t rows(&env.resource, logical_type::BIGINT, n);
+        for (uint64_t i = 0; i < n; i++) {
+            rows.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(probe[i])});
+        }
+        data_chunk_t result(&env.resource, loaded->copy_types(), n);
+        column_fetch_state state;
+        loaded->fetch(result, column_ids, rows, n, state);
+
+        for (uint64_t i = 0; i < n; i++) {
+            const uint64_t r = probe[i];
+            INFO("probe row " << r);
+            if (is_null(r)) {
+                REQUIRE_FALSE(result.data[0].validity().row_is_valid(i));
+            } else {
+                REQUIRE(result.data[0].validity().row_is_valid(i));
+                REQUIRE(result.data[0].value(i).value<uint32_t>() == expected(r));
+            }
+        }
+    }
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-generic table") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 2500;
+    meta_block_pointer_t table_pointer;
+    // Mixed fixed+string schema routes to PAX_GENERIC; exercises string_fetch_row (dict offset reads)
+    // and fixed fetch under the generic layout on a reopened table.
+    const auto u_null = [](uint64_t r) { return (r % 7) == 0; };
+    const auto s_null = [](uint64_t r) { return (r % 11) == 0; };
+    const auto u_val = [](uint64_t r) { return static_cast<int32_t>(static_cast<uint32_t>(r) * 7u + 3u); };
+    const auto s_val = [](uint64_t r) { return std::string("row-") + std::to_string(r) + "-payload"; };
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("i", logical_type::INTEGER);
+        columns.emplace_back("s", logical_type::STRING_LITERAL);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "ptg");
+        auto types = table->copy_types();
+        uint64_t off = 0;
+        while (off < NUM_ROWS) {
+            const uint64_t b = std::min<uint64_t>(NUM_ROWS - off, DEFAULT_VECTOR_CAPACITY);
+            data_chunk_t chunk(&env.resource, types, b);
+            chunk.set_cardinality(b);
+            for (uint64_t i = 0; i < b; i++) {
+                const uint64_t r = off + i;
+                if (u_null(r)) {
+                    chunk.data[0].set_null(i, true);
+                } else {
+                    chunk.set_value(0, i, logical_value_t{&env.resource, u_val(r)});
+                }
+                if (s_null(r)) {
+                    chunk.data[1].set_null(i, true);
+                } else {
+                    chunk.set_value(1, i, logical_value_t{&env.resource, s_val(r)});
+                }
+            }
+            table_append_state st(&env.resource);
+            table->append_lock(st);
+            table->initialize_append(st);
+            table->append(chunk, st);
+            table->finalize_append(st, transaction_data{0, 0});
+            off += b;
+        }
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+        bm.file_sync();
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, test_db_path());
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        REQUIRE(loaded->column_count() == 2);
+
+        const std::vector<uint64_t> probe = {0,   1,    6,    7,    11,   255,  256,  257,
+                                             511, 512,  1023, 1024, 1025, 1791, 2047, 2048,
+                                             2049, 2299, 2300, 2499};
+        const uint64_t n = probe.size();
+        std::vector<storage_index_t> column_ids;
+        column_ids.emplace_back(0);
+        column_ids.emplace_back(1);
+        vector_t rows(&env.resource, logical_type::BIGINT, n);
+        for (uint64_t i = 0; i < n; i++) {
+            rows.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(probe[i])});
+        }
+        data_chunk_t result(&env.resource, loaded->copy_types(), n);
+        column_fetch_state state;
+        loaded->fetch(result, column_ids, rows, n, state);
+
+        for (uint64_t i = 0; i < n; i++) {
+            const uint64_t r = probe[i];
+            INFO("probe row " << r);
+            if (u_null(r)) {
+                REQUIRE_FALSE(result.data[0].validity().row_is_valid(i));
+            } else {
+                REQUIRE(result.data[0].validity().row_is_valid(i));
+                REQUIRE(result.data[0].value(i).value<int32_t>() == u_val(r));
+            }
+            if (s_null(r)) {
+                REQUIRE_FALSE(result.data[1].validity().row_is_valid(i));
+            } else {
+                REQUIRE(result.data[1].validity().row_is_valid(i));
+                REQUIRE(*result.data[1].value(i).value<std::string*>() == s_val(r));
+            }
+        }
+    }
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: three columns INT64 + STRING + DOUBLE") {
     using namespace components::table;
     using namespace components::table::storage;
