@@ -5251,8 +5251,9 @@ TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") 
 // corruption (wrong value / wrong null bit, no error). It does NOT abort on the first divergence:
 // it runs many seeded random trials (random schema over the PAX-supported scalar + string types,
 // random nulls, random row counts across row-group/page boundaries, append → cold-reopen →
-// append-after-reopen → cold-reopen → scan), and for every mismatch records a *signature*
-// (type / nullable / committed-vs-appended region / symptom). At the end it prints the distinct
+// append-after-reopen → cold-reopen → scan, with random DELETEs and UPDATEs interleaved at every
+// append/reopen point and mirrored into the oracle), and for every mismatch records a *signature*
+// (type / nullable / committed-vs-appended region / del / upd / symptom). At the end it prints the distinct
 // bug classes with counts and an example seed for a deterministic repro, then asserts clean.
 // Crank trials with FUZZ_TRIALS=N. To deterministically repro one catalog seed, run with
 // FUZZ_ONLY_SEED=<seed> (executes exactly that one trial). This is a HARD guard — every class it
@@ -5492,6 +5493,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
 
         std::vector<std::vector<cell_t>> oracle(ncols);
         uint64_t total = 0;
+        std::set<uint64_t> deleted_rows; // rows removed via DELETE — excluded from the visible oracle
+        bool had_update = false;         // whether any UPDATE was applied this trial (signature tag)
         const bool do_mid_reopen = (rng() & 1u) != 0; // distinguish reopen-append from plain append
 
         const auto append_batch = [&](data_table_t& table, std::pmr::memory_resource* res, uint64_t n) {
@@ -5523,6 +5526,76 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             }
         };
 
+        // Apply random DELETEs and UPDATEs to the live table, mirroring each into the oracle (updated
+        // cell value / deleted-row set). Called at every append/reopen point so the checkpoint +
+        // cold-reopen path is differentially verified for mutations, not only appends.
+        const auto mutate = [&](data_table_t& table, std::pmr::memory_resource* res) {
+            if (total == 0) {
+                return;
+            }
+            const auto live_rows = [&]() {
+                std::vector<uint64_t> v;
+                for (uint64_t r = 0; r < total; r++) {
+                    if (deleted_rows.find(r) == deleted_rows.end()) {
+                        v.push_back(r);
+                    }
+                }
+                return v;
+            };
+            const auto pick_distinct = [&](const std::vector<uint64_t>& pool, uint64_t k) {
+                std::set<uint64_t> picks;
+                for (uint64_t t = 0; t < k * 4 && picks.size() < k; t++) {
+                    picks.insert(pool[rng() % pool.size()]);
+                }
+                return std::vector<uint64_t>(picks.begin(), picks.end());
+            };
+
+            // UPDATE a random column on a random subset of live rows (~half the mutation points).
+            if ((rng() & 1u) != 0) {
+                auto live = live_rows();
+                if (!live.empty()) {
+                    const uint64_t c = rng() % ncols;
+                    const uint64_t k = 1 + rng() % std::min<uint64_t>(live.size(), 40);
+                    auto rows = pick_distinct(live, k);
+                    vector_t row_ids(res, logical_type::BIGINT, rows.size());
+                    data_chunk_t upd(res, {schema[c].type}, rows.size());
+                    upd.set_cardinality(rows.size());
+                    for (uint64_t i = 0; i < rows.size(); i++) {
+                        row_ids.set_value(i, logical_value_t{res, static_cast<int64_t>(rows[i])});
+                        if (schema[c].nullable && (rng() % 100) < 30) {
+                            cell_t nc;
+                            nc.isnull = true;
+                            oracle[c][rows[i]] = nc;
+                            upd.data[0].set_null(i, true);
+                        } else {
+                            // gen() writes the value straight into the update chunk and returns the cell.
+                            oracle[c][rows[i]] = gen(rng, res, schema[c].type, upd, 0, i);
+                        }
+                    }
+                    table.update_column(row_ids, {c}, upd);
+                    had_update = true;
+                }
+            }
+
+            // DELETE a random subset of live rows (~1/3 of the mutation points).
+            if ((rng() % 3) == 0) {
+                auto live = live_rows();
+                if (!live.empty()) {
+                    const uint64_t k = 1 + rng() % std::min<uint64_t>(live.size(), 30);
+                    auto rows = pick_distinct(live, k);
+                    vector_t row_ids(res, logical_type::BIGINT, rows.size());
+                    for (uint64_t i = 0; i < rows.size(); i++) {
+                        row_ids.set_value(i, logical_value_t{res, static_cast<int64_t>(rows[i])});
+                    }
+                    auto del_state = table.initialize_delete({});
+                    table.delete_rows(*del_state, row_ids, rows.size(), 0);
+                    for (auto r : rows) {
+                        deleted_rows.insert(r);
+                    }
+                }
+            }
+        };
+
         const uint64_t r1 = (rng() % 3) * uint64_t(DEFAULT_VECTOR_CAPACITY) + (rng() % 400);
         const uint64_t r2 = 1 + (rng() % 1200);
 
@@ -5547,13 +5620,16 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                     auto cols_copy = columns;
                     auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
                     append_batch(*table, &env.resource, r1);
+                    mutate(*table, &env.resource); // mutate in-memory r1 rows before commit #1
                     commit(bm, *table);
                 }
                 {
                     test_env_t env;
                     single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
                     auto loaded = reopen(env, bm);
+                    mutate(*loaded, &env.resource); // mutate persisted/committed rows after reopen
                     append_batch(*loaded, &env.resource, r2);
+                    mutate(*loaded, &env.resource); // mutate mixed committed+appended before commit #2
                     commit(bm, *loaded);
                 }
             } else {
@@ -5566,6 +5642,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(cols_copy), "pax_fuzz");
                 append_batch(*table, &env.resource, r1);
                 append_batch(*table, &env.resource, r2);
+                mutate(*table, &env.resource); // mutate in-memory rows before the single commit
                 commit(bm, *table);
             }
         } catch (const std::exception& e) {
@@ -5592,8 +5669,21 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             loaded->initialize_scan(state, idx, nullptr);
             data_chunk_t result(&env.resource, loaded->copy_types(), pcols, DEFAULT_VECTOR_CAPACITY);
 
+            // The scan returns surviving rows in ascending row-id order; map the k-th scanned row to
+            // the k-th non-deleted original row so the oracle lookup accounts for DELETEs.
+            std::vector<uint64_t> visible;
+            visible.reserve(total);
+            for (uint64_t r = 0; r < total; r++) {
+                if (deleted_rows.find(r) == deleted_rows.end()) {
+                    visible.push_back(r);
+                }
+            }
+            const char* del_tag = deleted_rows.empty() ? "0" : "1";
+            const char* upd_tag = had_update ? "1" : "0";
+
             std::set<uint64_t> recorded_cols;
             uint64_t scanned = 0;
+            bool overflow = false;
             while (true) {
                 result.reset();
                 loaded->scan(result, state);
@@ -5601,7 +5691,12 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                     break;
                 }
                 for (uint64_t i = 0; i < result.size(); i++) {
-                    const uint64_t row = scanned + i;
+                    const uint64_t scan_idx = scanned + i;
+                    if (scan_idx >= visible.size()) {
+                        overflow = true; // a deleted/extra row surfaced — flagged by the count check below
+                        continue;
+                    }
+                    const uint64_t row = visible[scan_idx];
                     for (uint64_t c = 0; c < ncols; c++) {
                         if (recorded_cols.count(c) || row >= oracle[c].size()) {
                             continue;
@@ -5611,7 +5706,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                             const char* region = (do_mid_reopen && row >= r1) ? "appended" : "committed";
                             std::string sig = std::string("type=") + type_name(schema[c].type) +
                                               " nullcol=" + (schema[c].nullable ? "1" : "0") + " region=" + region +
-                                              " reopen_append=" + (do_mid_reopen ? "1" : "0") + " symptom=" + sym;
+                                              " reopen_append=" + (do_mid_reopen ? "1" : "0") + " del=" + del_tag +
+                                              " upd=" + upd_tag + " symptom=" + sym;
                             record(sig, seed);
                             recorded_cols.insert(c);
                         }
@@ -5619,8 +5715,10 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 }
                 scanned += result.size();
             }
-            if (scanned != total) {
-                record("row-count-mismatch reopen_append=" + std::string(do_mid_reopen ? "1" : "0"), seed);
+            if (overflow || scanned != visible.size()) {
+                record("row-count-mismatch reopen_append=" + std::string(do_mid_reopen ? "1" : "0") + " del=" +
+                           del_tag + " upd=" + upd_tag,
+                       seed);
             }
         } catch (const std::exception& e) {
             record(std::string("THREW-on-scan: ") + e.what(), seed);
