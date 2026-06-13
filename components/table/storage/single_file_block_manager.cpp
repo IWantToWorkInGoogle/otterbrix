@@ -1,6 +1,7 @@
 #include "single_file_block_manager.hpp"
 
 #include <cassert>
+#include <cstddef>
 #include <cstring>
 #include <stdexcept>
 
@@ -12,6 +13,17 @@
 #include <core/file/local_file_system.hpp>
 
 namespace components::table::storage {
+
+    namespace {
+        // CRC32c over the meaningful header fields (everything before the checksum field); the
+        // checksum field itself and the trailing padding are excluded. A torn/partial header write or
+        // a flipped field then fails this check on load instead of being silently accepted as the
+        // active header (which would steer recovery into a garbage meta_block).
+        uint64_t compute_header_checksum(const database_header_t& header) {
+            return static_cast<uint64_t>(static_cast<uint32_t>(absl::ComputeCrc32c(
+                {reinterpret_cast<const char*>(&header), offsetof(database_header_t, checksum)})));
+        }
+    } // namespace
 
     single_file_block_manager_t::single_file_block_manager_t(buffer_manager_t& buffer_manager,
                                                              core::filesystem::local_file_system_t& fs,
@@ -42,15 +54,18 @@ namespace components::table::storage {
 
         main_header_t main_header;
         main_header.initialize();
-        handle_->write(&main_header, sizeof(main_header), 0);
+        if (!handle_->write(&main_header, sizeof(main_header), 0)) {
+            throw std::runtime_error("create_new_database: failed to write main header");
+        }
 
         database_header_t db_header;
         db_header.initialize();
         db_header.block_alloc_size = block_allocation_size();
-        handle_->write(&db_header, sizeof(db_header), SECTOR_SIZE);
-        handle_->write(&db_header, sizeof(db_header), 2 * SECTOR_SIZE);
-
-        handle_->sync();
+        // Stamp the integrity checksum on the initial header too, or a create-then-reopen (no
+        // checkpoint in between) would fail header validation on load.
+        db_header.checksum = compute_header_checksum(db_header);
+        write_header_slot(db_header, SECTOR_SIZE);
+        write_header_slot(db_header, 2 * SECTOR_SIZE);
 
         iteration_ = 0;
         max_block_ = 0;
@@ -84,7 +99,18 @@ namespace components::table::storage {
             throw std::runtime_error("Failed to read database header 2");
         }
 
-        const database_header_t& active = (header1.iteration >= header2.iteration) ? header1 : header2;
+        // Reject a slot whose integrity checksum does not match before selecting the active header.
+        // A torn header write leaves one slot inconsistent; recovering from the other intact slot
+        // (instead of promoting the torn one by raw iteration) is the point of the double-header.
+        const bool valid1 = header1.checksum == compute_header_checksum(header1);
+        const bool valid2 = header2.checksum == compute_header_checksum(header2);
+        if (!valid1 && !valid2) {
+            throw std::runtime_error(
+                "load_existing_database: both database header slots failed checksum (torn or corrupt header)");
+        }
+        const database_header_t& active = (valid1 && valid2)
+                                              ? ((header1.iteration >= header2.iteration) ? header1 : header2)
+                                              : (valid1 ? header1 : header2);
 
         iteration_ = active.iteration;
         meta_block_ = active.meta_block;
@@ -261,21 +287,38 @@ namespace components::table::storage {
         write_header.block_count = max_block_;
         write_header.block_alloc_size = block_allocation_size();
         write_header.meta_block = meta_block_;
+        // Stamp the integrity checksum LAST, over the finalized fields. Validated on load; a torn or
+        // bit-flipped header is then rejected rather than silently promoted.
+        write_header.checksum = compute_header_checksum(write_header);
 
         // double-header protocol: alternate between slot 1 and slot 2
         uint64_t slot = (iteration_ % 2 == 1) ? SECTOR_SIZE : (2 * SECTOR_SIZE);
-        handle_->write(&write_header, sizeof(write_header), slot);
-        handle_->sync();
+        write_header_slot(write_header, slot);
 
         // write to the other slot as well for redundancy
         uint64_t other_slot = (slot == SECTOR_SIZE) ? (2 * SECTOR_SIZE) : SECTOR_SIZE;
-        handle_->write(&write_header, sizeof(write_header), other_slot);
-        handle_->sync();
+        write_header_slot(write_header, other_slot);
+    }
+
+    void single_file_block_manager_t::write_header_slot(const database_header_t& header, uint64_t slot) {
+        // Propagate I/O failures: a discarded write()/sync() error would let a non-durable checkpoint
+        // report success. write() and sync() return false on failure.
+        if (!handle_->write(const_cast<database_header_t*>(&header), sizeof(header), slot)) {
+            throw std::runtime_error("write_header: failed to write database header slot");
+        }
+        if (!handle_->sync()) {
+            throw std::runtime_error("write_header: failed to fsync database header slot");
+        }
     }
 
     void single_file_block_manager_t::file_sync() {
         if (handle_) {
-            handle_->sync();
+            // Propagate fsync failure: this is the checkpoint commit's durability barrier (called
+            // before and after the header swap). A discarded failure would let a non-durable
+            // checkpoint report success — "committed" must mean the bytes reached stable storage.
+            if (!handle_->sync()) {
+                throw std::runtime_error("file_sync: fsync failed (checkpoint not durable)");
+            }
         }
     }
 

@@ -5089,6 +5089,89 @@ TEST_CASE("checkpoint_load: pax fixed projected scan survives append after check
 // rejected on reopen, not silently scanned. Before the read_blocks checksum fix, PAX data
 // blocks were loaded via the prefetch/batch path with no verification, so a flipped byte
 // produced wrong query results instead of an error. Metadata blocks were always verified.
+TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact slot or throws") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t ROWS = 1000;
+    const auto table_path = test_db_path() + ".hdr_fault";
+    std::remove(table_path.c_str());
+
+    // Phase 1: build + checkpoint. write_header stamps BOTH header slots with valid checksums.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("v", logical_type::BIGINT);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "hdr");
+        append_int64_data(*table, &env.resource, ROWS);
+
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        bm.set_meta_block(writer.get_block_pointer().block_pointer);
+        database_header_t header;
+        header.initialize();
+        header.meta_block = writer.get_block_pointer().block_pointer;
+        bm.write_header(header);
+        bm.file_sync();
+    }
+
+    // Flip a byte inside the checksummed region (the meta_block field) of a header slot, so its
+    // stored checksum no longer matches AND its meta_block would be garbage if wrongly trusted.
+    const auto corrupt_header_slot = [&](uint64_t slot_offset) {
+        std::fstream f(table_path, std::ios::in | std::ios::out | std::ios::binary);
+        REQUIRE(f.is_open());
+        const auto pos = static_cast<std::streamoff>(slot_offset + sizeof(uint64_t)); // meta_block field
+        f.seekg(pos);
+        char b = 0;
+        f.read(&b, 1);
+        REQUIRE(f.good());
+        b = static_cast<char>(static_cast<unsigned char>(b) ^ 0xFFu);
+        f.seekp(pos);
+        f.write(&b, 1);
+        f.flush();
+        REQUIRE(f.good());
+    };
+
+    // Phase 2: corrupt ONE slot — reopen must reject it (checksum) and recover from the intact slot,
+    // reading the table back correctly via the header's (valid-slot) meta_block.
+    corrupt_header_slot(SECTOR_SIZE);
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        REQUIRE_NOTHROW(bm.load_existing_database());
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t mp;
+        mp.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, mp);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        uint64_t scanned = 0;
+        loaded->scan_table_segment(0, ROWS, [&](data_chunk_t& chunk) {
+            for (uint64_t i = 0; i < chunk.size(); i++) {
+                REQUIRE(chunk.data[0].value(i).value<int64_t>() == static_cast<int64_t>(scanned + i));
+            }
+            scanned += chunk.size();
+        });
+        REQUIRE(scanned == ROWS);
+    }
+
+    // Phase 3: corrupt the OTHER slot too — both invalid → load must throw, never silently proceed.
+    corrupt_header_slot(2 * SECTOR_SIZE);
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        REQUIRE_THROWS_AS(bm.load_existing_database(), std::runtime_error);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: corrupted pax data block is detected on reopen scan") {
     using namespace components::table;
     using namespace components::table::storage;
