@@ -201,7 +201,7 @@ TEST_CASE("per-segment statistics: check_segment_zonemap") {
                                                  complex_logical_type{logical_type::BIGINT},
                                                  0,
                                                  block_manager.block_size(),
-                                                 262144);
+                                                 block_manager.block_size());
     {
         base_statistics_t s1(&resource, logical_type::BIGINT);
         s1.set_min(logical_value_t{&resource, int64_t(1)});
@@ -213,7 +213,7 @@ TEST_CASE("per-segment statistics: check_segment_zonemap") {
                                                  complex_logical_type{logical_type::BIGINT},
                                                  50,
                                                  block_manager.block_size(),
-                                                 262144);
+                                                 block_manager.block_size());
     {
         base_statistics_t s2(&resource, logical_type::BIGINT);
         s2.set_min(logical_value_t{&resource, int64_t(51)});
