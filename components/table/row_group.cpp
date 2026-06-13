@@ -5313,12 +5313,27 @@ namespace components::table {
         bool pax_generic_requires_v2 = false;
         bool pax_generic_requires_v3 = false;
 
+        // The columnar checkpoint flushes only a column's own top-level data segments
+        // (column_data_checkpointer) plus, now, its validity child. A NESTED column's data-bearing
+        // children (struct fields, list/array elements) are NOT persisted and would be silently lost
+        // on reopen. Fail closed — refuse to write a lossy checkpoint — rather than corrupt on reload.
+        auto reject_nested_columnar = [](column_data_t& column) {
+            if (dynamic_cast<struct_column_data_t*>(&column) != nullptr ||
+                dynamic_cast<list_column_data_t*>(&column) != nullptr ||
+                dynamic_cast<array_column_data_t*>(&column) != nullptr) {
+                throw std::logic_error("columnar checkpoint cannot persist nested column '" +
+                                       column.type().alias() +
+                                       "': child columns are not flushed and would be lost on reopen");
+            }
+        };
+
         auto checkpoint_columnar_or_throw = [&](uint64_t column_index) {
             auto& column = get_column(column_index);
             if (force_pax) {
                 throw std::logic_error("explicit PAX layout cannot persist column '" + column.type().alias() +
                                        "' through the columnar fallback path");
             }
+            reject_nested_columnar(column);
             auto persistent = column.checkpoint(partial_block_manager);
             pointer.columnar_data_pointers[column_index] = std::move(persistent.data_pointers);
             persist_columnar_validity(column_index, column);
@@ -5452,6 +5467,7 @@ namespace components::table {
                     continue;
                 }
                 auto& column = get_column(i);
+                reject_nested_columnar(column);
                 auto persistent = column.checkpoint(partial_block_manager);
                 pointer.columnar_data_pointers[i] = std::move(persistent.data_pointers);
                 persist_columnar_validity(i, column);

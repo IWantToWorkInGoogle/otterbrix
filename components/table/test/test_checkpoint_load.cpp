@@ -2314,6 +2314,44 @@ TEST_CASE("checkpoint_load: pax generic string scan restores overflow strings") 
     cleanup_test_file();
 }
 
+TEST_CASE("checkpoint_load: columnar layout refuses to persist a nested column (fail-closed)") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    const auto table_path = test_db_path() + ".columnar_nested_reject";
+    std::remove(table_path.c_str());
+    auto struct_type = make_person_struct_type();
+
+    single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+    bm.create_new_database();
+    // COLUMNAR layout forces the struct onto the columnar checkpoint, which does not persist child
+    // columns — it must refuse (throw) rather than silently drop the children and corrupt on reopen.
+    bm.set_layout_policy(row_group_layout_policy::COLUMNAR_ONLY);
+
+    std::vector<column_definition_t> columns;
+    columns.emplace_back("person", struct_type);
+    auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "cn");
+    auto value_fn = [&](uint64_t row) {
+        std::vector<logical_value_t> fields;
+        fields.emplace_back(&env.resource, row % 2 == 0);
+        fields.emplace_back(&env.resource, static_cast<int64_t>(row * 11));
+        fields.emplace_back(&env.resource, padded_name(row));
+        return logical_value_t::create_struct(&env.resource, struct_type, fields);
+    };
+    append_struct_data(*table, &env.resource, 64, value_fn);
+
+    metadata_manager_t meta_mgr(bm);
+    metadata_writer_t writer(meta_mgr);
+    REQUIRE_THROWS_AS(table->checkpoint(writer), std::logic_error);
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: pax generic struct column restores fixed and string children") {
     using namespace components::table;
     using namespace components::table::storage;
