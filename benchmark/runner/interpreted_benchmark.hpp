@@ -39,7 +39,6 @@ private:
     std::string description_;
     std::string load_sql_;
     std::string run_sql_;
-    std::string verify_sql_;
     std::string cleanup_sql_;
     int64_t expected_rows_ = -1;
     uint64_t nruns_ = 5;

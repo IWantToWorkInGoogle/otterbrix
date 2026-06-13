@@ -1,8 +1,8 @@
 #include "interpreted_benchmark.hpp"
 
-#include <chrono>
+#include "benchmark_checkpoint.hpp"
+
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -12,7 +12,7 @@ namespace otterbrix::benchmark {
 namespace {
 
 const std::vector<std::string> directives = {
-    "name", "group", "description", "runs", "timeout", "load", "run", "verify", "result", "cleanup", "load_csv"};
+    "name", "group", "description", "runs", "timeout", "load", "run", "result", "cleanup", "load_csv"};
 
 bool is_directive(const std::string& line) {
     for (const auto& d : directives) {
@@ -28,15 +28,6 @@ std::string trim(const std::string& s) {
     if (start == std::string::npos) return "";
     auto end = s.find_last_not_of(" \t\r\n");
     return s.substr(start, end - start + 1);
-}
-
-std::string format_sql_error(const components::cursor::cursor_t_ptr& cursor) {
-    const auto err = cursor->get_error();
-    std::string msg = "SQL error: code=";
-    msg += std::to_string(static_cast<int>(err.type));
-    msg += " what=";
-    msg += std::string_view(err.what);
-    return msg;
 }
 
 std::vector<std::string> split_csv_line(const std::string& line, char delimiter) {
@@ -146,8 +137,6 @@ void interpreted_benchmark_t::parse(const std::filesystem::path& path) {
             load_sql_ = body;
         } else if (current_section == "run") {
             run_sql_ = body;
-        } else if (current_section == "verify") {
-            verify_sql_ = body;
         } else if (current_section == "result") {
             expected_rows_ = std::stoll(body);
         } else if (current_section == "cleanup") {
@@ -164,8 +153,7 @@ void interpreted_benchmark_t::parse(const std::filesystem::path& path) {
         auto trimmed = trim(line);
         if (trimmed.empty() || trimmed[0] == '#') {
             if (!current_section.empty() &&
-                (current_section == "load" || current_section == "run" || current_section == "verify" ||
-                 current_section == "cleanup")) {
+                (current_section == "load" || current_section == "run" || current_section == "cleanup")) {
                 current_body += "\n";
             }
             continue;
@@ -207,7 +195,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
             if (!stmt.empty()) {
                 auto cursor = state.dispatcher->execute_sql(state.session, stmt);
                 if (cursor->is_error()) {
-                    state.error = format_sql_error(cursor);
+                    std::cerr << "SQL error: " << cursor->get_error().what << "\n";
                     state.failed = true;
                     return;
                 }
@@ -222,7 +210,7 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
     if (!stmt.empty()) {
         auto cursor = state.dispatcher->execute_sql(state.session, stmt);
         if (cursor->is_error()) {
-            state.error = format_sql_error(cursor);
+            std::cerr << "SQL error: " << cursor->get_error().what << "\n";
             state.failed = true;
             return;
         }
@@ -230,7 +218,6 @@ void interpreted_benchmark_t::execute_sql_block(benchmark_state_t& state, const 
 }
 
 void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_load_entry_t& entry) {
-    auto load_start = std::chrono::high_resolution_clock::now();
     auto csv_path = std::filesystem::path(entry.path);
     if (!csv_path.is_absolute()) {
         csv_path = benchmark_dir_ / csv_path;
@@ -262,10 +249,15 @@ void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_
     constexpr size_t batch_size = 100;
     std::vector<std::string> value_tuples;
     uint64_t row_num = 0;
+    uint64_t bytes_since_checkpoint = 0;
     std::string line;
 
     auto flush_batch = [&]() {
         if (value_tuples.empty()) return;
+        uint64_t batch_bytes = 0;
+        for (const auto& tuple : value_tuples) {
+            batch_bytes += tuple.size();
+        }
         std::string sql = "INSERT INTO " + entry.table + " (" + col_list + ") VALUES ";
         for (size_t i = 0; i < value_tuples.size(); ++i) {
             if (i > 0) sql += ", ";
@@ -273,13 +265,13 @@ void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_
         }
         auto cursor = state.dispatcher->execute_sql(state.session, sql);
         if (cursor->is_error()) {
-            std::string msg = "CSV load SQL error for " + entry.table + ": ";
-            msg += std::string_view(cursor->get_error().what);
-            state.error = std::move(msg);
+            std::cerr << "CSV load SQL error for " << entry.table << ": " << cursor->get_error().what << "\n";
             state.failed = true;
+            value_tuples.clear();
             return;
         }
         value_tuples.clear();
+        csv_load_after_batch(state, bytes_since_checkpoint, batch_bytes);
     };
 
     while (std::getline(file, line)) {
@@ -307,14 +299,24 @@ void interpreted_benchmark_t::load_csv_file(benchmark_state_t& state, const csv_
 
         if (value_tuples.size() >= batch_size) {
             flush_batch();
+            if (state.failed) {
+                return;
+            }
         }
     }
     flush_batch();
+    if (state.failed) {
+        return;
+    }
+    if (state.io.csv_checkpoint_interval_bytes == 0 || bytes_since_checkpoint > 0) {
+        checkpoint_if_disk(state, "after CSV file");
+        if (state.failed) {
+            return;
+        }
+    }
 
-    auto load_end = std::chrono::high_resolution_clock::now();
-    auto load_ms = std::chrono::duration<double, std::milli>(load_end - load_start).count();
     std::cout << "  Loaded " << row_num << " rows from " << csv_path.filename().string() << " into " << entry.table
-              << " in " << std::fixed << std::setprecision(3) << load_ms << " ms\n";
+              << "\n";
 }
 
 void interpreted_benchmark_t::load(benchmark_state_t& state) {
@@ -337,11 +339,10 @@ void interpreted_benchmark_t::cleanup(benchmark_state_t& state) {
 std::string interpreted_benchmark_t::verify(benchmark_state_t& state) {
     if (expected_rows_ < 0) return "";
 
-    const auto& sql = verify_sql_.empty() ? run_sql_ : verify_sql_;
-    auto cursor = state.dispatcher->execute_sql(state.session, sql);
+    auto cursor = state.dispatcher->execute_sql(state.session, run_sql_);
     if (cursor->is_error()) {
         std::ostringstream oss;
-        oss << "Verification " << format_sql_error(cursor);
+        oss << "Verification SQL error: " << cursor->get_error().what;
         return oss.str();
     }
 

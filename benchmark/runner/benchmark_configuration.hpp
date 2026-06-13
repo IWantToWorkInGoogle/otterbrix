@@ -5,14 +5,19 @@
 
 namespace otterbrix::benchmark {
 
-struct benchmark_configuration_t {
-    enum class disk_layout_policy : uint8_t
-    {
-        auto_select = 0,
-        columnar_only = 1,
-        pax_only = 2
-    };
+inline constexpr uint64_t csv_checkpoint_megabyte_bytes = uint64_t{1} << 20;
 
+struct benchmark_configuration_t;
+
+struct benchmark_io_options_t {
+    bool disk_on = false;
+    bool verbose = false;
+    uint64_t csv_checkpoint_interval_bytes = 0;
+
+    static benchmark_io_options_t from_config(const benchmark_configuration_t& config);
+};
+
+struct benchmark_configuration_t {
     std::string name_pattern;
     std::string group_pattern;
     uint64_t nruns = 0;
@@ -24,16 +29,18 @@ struct benchmark_configuration_t {
     std::string output_file;
     std::string single_file;
     bool disk_on = false;
-    disk_layout_policy layout_policy = disk_layout_policy::auto_select;
     bool wal_on = false;
     bool verbose = false;
     bool skip_load = false;
     bool load_only = false;
-    bool shared_load = false;
-    bool no_warmup = false; // skip the untimed warmup run so the first timed run is cold-cache
-    uint16_t pax_page_rows = 256;
+    bool no_setup = false;
+    uint64_t csv_checkpoint_interval_bytes = 0;
     std::string config_file;
     std::string generate_config;
 };
+
+inline benchmark_io_options_t benchmark_io_options_t::from_config(const benchmark_configuration_t& config) {
+    return {config.disk_on, config.verbose, config.csv_checkpoint_interval_bytes};
+}
 
 } // namespace otterbrix::benchmark

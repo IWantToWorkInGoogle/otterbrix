@@ -1,7 +1,6 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
-#include <limits>
 #include <string>
 
 #include "benchmark_configuration.hpp"
@@ -24,14 +23,12 @@ void print_usage() {
               << "  --benchmarks=DIR    Directory with .benchmark/.sql files\n"
               << "  --file=PATH         Run a single .benchmark or .sql file\n"
               << "  --disk              Enable disk persistence\n"
-              << "  --layout=MODE       Disk layout policy: auto|pax|columnar\n"
-              << "  --pax-page-rows=N   PAX rows per page for disk benchmarks (default: 256)\n"
               << "  --wal               Enable WAL\n"
               << "  --config=FILE       Load benchmark config (enable/disable benchmarks)\n"
               << "  --generate-config=FILE  Generate config file from loaded benchmarks\n"
               << "  --skip-load         Skip setup/load phase (use with --disk)\n"
               << "  --load-only         Only run setup/load, then exit (use with --disk)\n"
-              << "  --shared-load       Load each group once, then time benchmarks in the same process\n"
+              << "  --csv-checkpoint-mb=N  Periodic CHECKPOINT every N mb during CSV load (disabled by default)\n"
               << "  --verbose           Verbose output\n"
               << "  --help              Show this help\n"
               << "  [pattern]           Regex filter for benchmark names\n"
@@ -73,40 +70,21 @@ int main(int argc, char* argv[]) {
             config.show_query = true;
         } else if (arg == "--disk") {
             config.disk_on = true;
-        } else if (arg.starts_with("--layout=")) {
-            auto mode = arg.substr(9);
-            if (mode == "auto") {
-                config.layout_policy = otterbrix::benchmark::benchmark_configuration_t::disk_layout_policy::auto_select;
-            } else if (mode == "pax") {
-                config.layout_policy = otterbrix::benchmark::benchmark_configuration_t::disk_layout_policy::pax_only;
-            } else if (mode == "columnar") {
-                config.layout_policy =
-                    otterbrix::benchmark::benchmark_configuration_t::disk_layout_policy::columnar_only;
-            } else {
-                std::cerr << "Unknown layout mode: " << mode << "\n";
-                print_usage();
-                return 1;
-            }
-        } else if (arg.starts_with("--pax-page-rows=")) {
-            auto value = std::stoull(arg.substr(16));
-            if (value == 0 || value > std::numeric_limits<uint16_t>::max()) {
-                std::cerr << "Invalid --pax-page-rows value: " << value << "\n";
-                print_usage();
-                return 1;
-            }
-            config.pax_page_rows = static_cast<uint16_t>(value);
         } else if (arg == "--wal") {
             config.wal_on = true;
         } else if (arg == "--skip-load") {
             config.skip_load = true;
         } else if (arg == "--load-only") {
             config.load_only = true;
-        } else if (arg == "--shared-load") {
-            config.shared_load = true;
-        } else if (arg == "--no-warmup") {
-            config.no_warmup = true;
         } else if (arg == "--verbose" || arg == "-v") {
             config.verbose = true;
+        } else if (arg.starts_with("--csv-checkpoint-mb=")) {
+            const auto mb = std::stoull(arg.substr(20));
+            if (mb == 0) {
+                std::cerr << "--csv-checkpoint-mb must be positive\n";
+                return 1;
+            }
+            config.csv_checkpoint_interval_bytes = mb * otterbrix::benchmark::csv_checkpoint_megabyte_bytes;
         } else if (arg.starts_with("--out=")) {
             config.output_file = arg.substr(6);
         } else if (arg.starts_with("--runs=")) {

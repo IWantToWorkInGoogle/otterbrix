@@ -16,19 +16,6 @@ struct sql_csv_entry_t {
     char delimiter = '|';
 };
 
-struct sql_setup_step_t {
-    enum class kind_t { sql, csv };
-
-    kind_t kind = kind_t::sql;
-    std::string sql;
-    sql_csv_entry_t csv;
-};
-
-struct sql_parameter_t {
-    std::string name;
-    std::string value;
-};
-
 class sql_benchmark_t final : public benchmark_t {
 public:
     std::string name() const override;
@@ -48,30 +35,22 @@ private:
                     std::string sql,
                     std::string setup_sql,
                     std::vector<sql_csv_entry_t> csv_entries,
-                    std::vector<sql_setup_step_t> setup_steps,
                     std::filesystem::path benchmark_dir,
                     std::string database,
-                    std::optional<uint64_t> expected_rows,
-                    std::vector<sql_parameter_t> parameters,
-                    bool logical_multi_statement);
+                    std::optional<uint64_t> expected_rows);
 
     void execute_sql_block(benchmark_state_t& state, const std::string& sql);
     void load_csv_file(benchmark_state_t& state, const sql_csv_entry_t& entry);
     std::string qualify_sql(const std::string& sql) const;
-    void write_resolved_artifacts(const std::string& executable_sql) const;
 
     std::string name_;
     std::string group_;
     std::string sql_;
     std::string setup_sql_;
     std::vector<sql_csv_entry_t> csv_entries_;
-    std::vector<sql_setup_step_t> setup_steps_;
     std::filesystem::path benchmark_dir_;
     std::string database_;
     std::optional<uint64_t> expected_rows_;
-    std::vector<sql_parameter_t> parameters_;
-    bool logical_multi_statement_ = false;
-    mutable bool resolved_artifacts_written_ = false;
 };
 
 } // namespace otterbrix::benchmark
