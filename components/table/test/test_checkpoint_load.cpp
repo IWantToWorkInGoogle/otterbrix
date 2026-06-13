@@ -5650,6 +5650,54 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
         }
     };
 
+    // Oracle for a constant_filter on an integer column. The engine evaluates
+    // comparator(column_value, predicate) and a NULL column value always fails the filter
+    // (column_segment filter_selection: (!HAS_NULL || row_is_valid) && comparator(vec[i], predicate)).
+    // Filters are restricted to integer types so the comparison is exact (no float epsilon / string).
+    const auto cmp_apply = [](components::expressions::compare_type c, auto x, auto y) -> bool {
+        using ct = components::expressions::compare_type;
+        switch (c) {
+            case ct::eq: return x == y;
+            case ct::ne: return x != y;
+            case ct::gt: return x > y;
+            case ct::gte: return x >= y;
+            case ct::lt: return x < y;
+            case ct::lte: return x <= y;
+            default: return false;
+        }
+    };
+    const auto cell_matches = [&cmp_apply](logical_type t, components::expressions::compare_type c, const cell_t& a,
+                                           const cell_t& b) -> bool {
+        if (a.isnull) {
+            return false;
+        }
+        switch (t) {
+            case logical_type::TINYINT: return cmp_apply(c, static_cast<int8_t>(a.i64), static_cast<int8_t>(b.i64));
+            case logical_type::UTINYINT: return cmp_apply(c, static_cast<uint8_t>(a.i64), static_cast<uint8_t>(b.i64));
+            case logical_type::SMALLINT: return cmp_apply(c, static_cast<int16_t>(a.i64), static_cast<int16_t>(b.i64));
+            case logical_type::USMALLINT:
+                return cmp_apply(c, static_cast<uint16_t>(a.i64), static_cast<uint16_t>(b.i64));
+            case logical_type::INTEGER: return cmp_apply(c, static_cast<int32_t>(a.i64), static_cast<int32_t>(b.i64));
+            case logical_type::UINTEGER: return cmp_apply(c, static_cast<uint32_t>(a.i64), static_cast<uint32_t>(b.i64));
+            case logical_type::BIGINT: return cmp_apply(c, static_cast<int64_t>(a.i64), static_cast<int64_t>(b.i64));
+            case logical_type::UBIGINT: return cmp_apply(c, static_cast<uint64_t>(a.i64), static_cast<uint64_t>(b.i64));
+            default: return false;
+        }
+    };
+    const auto is_filterable = [](logical_type t) {
+        switch (t) {
+            case logical_type::TINYINT:
+            case logical_type::UTINYINT:
+            case logical_type::SMALLINT:
+            case logical_type::USMALLINT:
+            case logical_type::INTEGER:
+            case logical_type::UINTEGER:
+            case logical_type::BIGINT:
+            case logical_type::UBIGINT: return true;
+            default: return false;
+        }
+    };
+
     const int trials = std::getenv("FUZZ_TRIALS") ? std::atoi(std::getenv("FUZZ_TRIALS")) : 150;
     std::map<std::string, std::pair<uint64_t, uint64_t>> catalog; // signature -> {count, example-seed}
     const auto record = [&](const std::string& sig, uint64_t seed) {
@@ -5872,21 +5920,64 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 idx.push_back(storage_index_t(c));
                 pcols.push_back(c);
             }
+
+            // ~half the trials (when an integer column exists) apply a random constant filter, which
+            // exercises the filtered/projected scan + PAX zone-map page pruning. The same predicate is
+            // applied to the oracle's visible set below.
+            std::optional<constant_filter_t> filter;
+            uint64_t filter_col = 0;
+            components::expressions::compare_type filter_cmp = components::expressions::compare_type::eq;
+            cell_t filter_threshold;
+            bool has_filter = false;
+            {
+                std::vector<uint64_t> filterable;
+                for (uint64_t c = 0; c < ncols; c++) {
+                    if (is_filterable(schema[c].type)) {
+                        filterable.push_back(c);
+                    }
+                }
+                // Gated to PAX: columnar filtered scans currently disagree with the oracle (wrong row
+                // count + values) — a separate columnar bug tracked apart from PAX. PAX filtered scans
+                // (incl. zone-map page pruning) match the oracle exactly.
+                if (!use_columnar && !filterable.empty() && (rng() & 1u) != 0) {
+                    filter_col = filterable[rng() % filterable.size()];
+                    static const components::expressions::compare_type cmps[] = {
+                        components::expressions::compare_type::eq,  components::expressions::compare_type::ne,
+                        components::expressions::compare_type::gt,  components::expressions::compare_type::gte,
+                        components::expressions::compare_type::lt,  components::expressions::compare_type::lte};
+                    filter_cmp = cmps[rng() % 6];
+                    data_chunk_t tchunk(&env.resource, {schema[filter_col].type}, 1);
+                    tchunk.set_cardinality(1);
+                    filter_threshold = gen(rng, &env.resource, schema[filter_col].type, tchunk, 0, 0);
+                    std::pmr::vector<uint64_t> fcols(&env.resource);
+                    fcols.push_back(filter_col);
+                    filter.emplace(filter_cmp, tchunk.data[0].value(0), std::move(fcols));
+                    has_filter = true;
+                }
+            }
+
             table_scan_state state(&env.resource);
-            loaded->initialize_scan(state, idx, nullptr);
+            loaded->initialize_scan(state, idx, has_filter ? &*filter : nullptr);
             data_chunk_t result(&env.resource, loaded->copy_types(), pcols, DEFAULT_VECTOR_CAPACITY);
 
             // The scan returns surviving rows in ascending row-id order; map the k-th scanned row to
-            // the k-th non-deleted original row so the oracle lookup accounts for DELETEs.
+            // the k-th non-deleted original row that also satisfies the filter, so the oracle lookup
+            // accounts for both DELETEs and the predicate.
             std::vector<uint64_t> visible;
             visible.reserve(total);
             for (uint64_t r = 0; r < total; r++) {
-                if (deleted_rows.find(r) == deleted_rows.end()) {
-                    visible.push_back(r);
+                if (deleted_rows.find(r) != deleted_rows.end()) {
+                    continue;
                 }
+                if (has_filter &&
+                    !cell_matches(schema[filter_col].type, filter_cmp, oracle[filter_col][r], filter_threshold)) {
+                    continue;
+                }
+                visible.push_back(r);
             }
             const char* del_tag = deleted_rows.empty() ? "0" : "1";
             const char* upd_tag = had_update ? "1" : "0";
+            const char* filt_tag = has_filter ? "1" : "0";
 
             std::set<uint64_t> recorded_cols;
             uint64_t scanned = 0;
@@ -5915,7 +6006,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                                               type_name(schema[c].type) +
                                               " nullcol=" + (schema[c].nullable ? "1" : "0") + " region=" + region +
                                               " reopen_append=" + (do_mid_reopen ? "1" : "0") + " del=" + del_tag +
-                                              " upd=" + upd_tag + " symptom=" + sym;
+                                              " upd=" + upd_tag + " filt=" + filt_tag + " symptom=" + sym;
                             record(sig, seed);
                             recorded_cols.insert(c);
                         }
@@ -5925,7 +6016,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             }
             if (overflow || scanned != visible.size()) {
                 record("layout=" + std::string(layout_tag) + " row-count-mismatch reopen_append=" +
-                           std::string(do_mid_reopen ? "1" : "0") + " del=" + del_tag + " upd=" + upd_tag,
+                           std::string(do_mid_reopen ? "1" : "0") + " del=" + del_tag + " upd=" + upd_tag +
+                           " filt=" + filt_tag,
                        seed);
             }
         } catch (const std::exception& e) {

@@ -4550,6 +4550,14 @@ namespace components::table {
             }
 
             uint64_t count;
+            // state.valid_indexing is a scratch buffer reused across row groups. A PAX-projected scan
+            // of an earlier row group that ends on a partial last vector with deletes leaves it sized
+            // to that vector's (smaller) visible-indexing (see the projected paths). The version-manager
+            // visibility path below writes up to max_count entries into it, so guarantee capacity first
+            // — otherwise a later regular scan with a larger max_count overflows the buffer.
+            if (state.valid_indexing.capacity() < max_count) {
+                state.valid_indexing = vector::indexing_vector_t(result.resource(), vector::DEFAULT_VECTOR_CAPACITY);
+            }
             const auto version_vector_idx = current_version_vector_index(*this, state);
             if (TYPE == table_scan_type::REGULAR) {
                 count = (state.txn.transaction_id != 0 || state.txn.start_time != 0)
