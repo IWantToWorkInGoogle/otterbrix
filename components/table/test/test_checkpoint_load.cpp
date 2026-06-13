@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -8106,5 +8107,375 @@ TEST_CASE("checkpoint_load: small segment — 2 rows edge case") {
         REQUIRE(scanned == NUM_ROWS);
     }
 
+    cleanup_test_file();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Commit-path fault injection (durability). The two tests below inject real I/O failures (EIO)
+// through the POSIX fsync/pwrite test hooks to prove that a checkpoint which cannot be made
+// durable FAILS CLOSED — it throws, and the prior committed state survives intact (the header is
+// never swapped, so orphaned blocks stay invisible). Without these, a failed sync/write at commit
+// could be swallowed and a non-durable checkpoint would falsely report success.
+#if defined(DEV_MODE) && defined(PLATFORM_POSIX)
+namespace {
+    // Capture-less function-pointer hooks can't hold per-test state, so it lives at TU scope. The
+    // RAII guard clears the hooks on scope exit (incl. when a REQUIRE/throw unwinds), so an injected
+    // fault never leaks into a later test. Catch2 runs test cases serially within a binary.
+    bool g_fault_fsync_fail = false;                          // every fsync fails with EIO
+    uint64_t g_fault_pwrite_fail_at_or_above = UINT64_MAX;    // fail pwrites whose offset >= this
+
+    int fault_fsync_hook(int fd) {
+        if (g_fault_fsync_fail) {
+            errno = EIO;
+            return -1;
+        }
+        return ::fsync(fd);
+    }
+    int64_t fault_pwrite_hook(int fd, const void* buffer, size_t nr_bytes, uint64_t location) {
+        if (location >= g_fault_pwrite_fail_at_or_above) {
+            errno = EIO;
+            return -1;
+        }
+        return ::pwrite(fd, buffer, nr_bytes, static_cast<off_t>(location));
+    }
+    struct fault_injection_guard_t {
+        fault_injection_guard_t() {
+            g_fault_fsync_fail = false;
+            g_fault_pwrite_fail_at_or_above = UINT64_MAX;
+        }
+        ~fault_injection_guard_t() {
+            core::filesystem::testing::reset_posix_positioned_io_hooks();
+            g_fault_fsync_fail = false;
+            g_fault_pwrite_fail_at_or_above = UINT64_MAX;
+        }
+    };
+} // namespace
+
+TEST_CASE("checkpoint_load: fsync failure during checkpoint aborts commit and preserves prior state") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t V1_ROWS = 1500;  // durably committed
+    constexpr uint64_t V2_EXTRA = 800;  // appended, commit aborted by fsync EIO
+    const auto table_path = test_db_path() + ".fsync_fault";
+    std::remove(table_path.c_str());
+
+    fault_injection_guard_t guard;
+
+    // Production-style commit: persist data/metadata, fsync, swap header, fsync.
+    const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table.checkpoint(writer);
+        writer.flush();
+        bm.set_meta_block(writer.get_block_pointer().block_pointer);
+        auto free_list_ptr = bm.serialize_free_list();
+        bm.file_sync();
+        database_header_t header;
+        header.initialize();
+        header.free_list = free_list_ptr.block_pointer;
+        bm.write_header(header);
+        bm.file_sync();
+    };
+
+    const auto reopen_and_count = [](test_env_t& env, const std::string& path, uint64_t expected) {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected);
+    };
+
+    // Phase 1: build V1 and commit it durably (hooks inactive).
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "fsync_fault");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  V1_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+        commit(bm, *table);
+    }
+
+    // Phase 2: reopen, append V2, attempt commit with fsync forced to fail. file_sync() must throw
+    // (checkpoint not durable); the header is never swapped.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        append_fixed_integer_pair(*loaded,
+                                  &env.resource,
+                                  V2_EXTRA,
+                                  [](uint64_t row) { return static_cast<int64_t>(V1_ROWS + row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>((V1_ROWS + row) * 3); });
+
+        core::filesystem::testing::set_posix_fsync_hook(&fault_fsync_hook);
+        g_fault_fsync_fail = true;
+        REQUIRE_THROWS_AS(commit(bm, *loaded), std::runtime_error);
+        g_fault_fsync_fail = false;
+        core::filesystem::testing::set_posix_fsync_hook(nullptr);
+    }
+
+    // Phase 3: reopen via the on-disk header — must observe exactly the committed V1.
+    {
+        test_env_t env;
+        reopen_and_count(env, table_path, V1_ROWS);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+TEST_CASE("checkpoint_load: block-write failure during checkpoint aborts commit and preserves prior state") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t V1_ROWS = 1500;  // durably committed
+    constexpr uint64_t V2_EXTRA = 800;  // appended, commit aborted by block-write EIO
+    const auto table_path = test_db_path() + ".write_fault";
+    std::remove(table_path.c_str());
+
+    fault_injection_guard_t guard;
+
+    const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table.checkpoint(writer);
+        writer.flush();
+        bm.set_meta_block(writer.get_block_pointer().block_pointer);
+        auto free_list_ptr = bm.serialize_free_list();
+        bm.file_sync();
+        database_header_t header;
+        header.initialize();
+        header.free_list = free_list_ptr.block_pointer;
+        bm.write_header(header);
+        bm.file_sync();
+    };
+
+    const auto reopen_and_count = [](test_env_t& env, const std::string& path, uint64_t expected) {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        uint64_t scanned = 0;
+        while (true) {
+            result.reset();
+            loaded->scan(result, state);
+            if (result.size() == 0) {
+                break;
+            }
+            for (uint64_t i = 0; i < result.size(); i++) {
+                const auto row = scanned + i;
+                REQUIRE(result.data[0].value(i).value<int64_t>() == static_cast<int64_t>(row));
+                REQUIRE(result.data[1].value(i).value<uint32_t>() == static_cast<uint32_t>(row * 3));
+            }
+            scanned += result.size();
+        }
+        REQUIRE(scanned == expected);
+    };
+
+    // Phase 1: build V1 and commit it durably (hooks inactive).
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "write_fault");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  V1_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+        commit(bm, *table);
+    }
+
+    // Phase 2: reopen, append V2, attempt commit while every data/metadata block write (offset >=
+    // BLOCK_START, leaving the header slots writable) fails with EIO. checksum_and_write must throw
+    // (not silently swallow the failed write); the header is never swapped. This is the regression
+    // guard for the swallowed-write durability fix.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        metadata_manager_t meta_mgr(bm);
+        meta_block_pointer_t meta_ptr;
+        meta_ptr.block_pointer = bm.meta_block();
+        metadata_reader_t reader(meta_mgr, meta_ptr);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+        append_fixed_integer_pair(*loaded,
+                                  &env.resource,
+                                  V2_EXTRA,
+                                  [](uint64_t row) { return static_cast<int64_t>(V1_ROWS + row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>((V1_ROWS + row) * 3); });
+
+        core::filesystem::testing::set_posix_pwrite_hook(&fault_pwrite_hook);
+        g_fault_pwrite_fail_at_or_above = BLOCK_START;
+        REQUIRE_THROWS_AS(commit(bm, *loaded), std::runtime_error);
+        g_fault_pwrite_fail_at_or_above = UINT64_MAX;
+        core::filesystem::testing::set_posix_pwrite_hook(nullptr);
+    }
+
+    // Phase 3: reopen via the on-disk header — must observe exactly the committed V1.
+    {
+        test_env_t env;
+        reopen_and_count(env, table_path, V1_ROWS);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+#endif // DEV_MODE && PLATFORM_POSIX
+
+// Corruption tier (metadata): the existing torn-block test corrupts a PAX *data* block; this one
+// corrupts the *metadata* block (the row-group-pointer tree — the index to everything). A flipped
+// payload byte invalidates its CRC32c, so reopening and rebuilding the table from disk must raise a
+// checksum mismatch rather than walking a corrupt pointer tree.
+TEST_CASE("checkpoint_load: corrupted metadata block is detected on reopen") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    constexpr uint64_t ROWS = 2048;
+    const auto table_path = test_db_path() + ".meta_corrupt";
+    std::remove(table_path.c_str());
+
+    meta_block_pointer_t meta_ptr;
+    uint64_t block_alloc_size = 0;
+
+    // Phase 1: build a PAX_ONLY table and commit it; capture the metadata block pointer.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "meta_corrupt");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        writer.flush();
+        meta_ptr = writer.get_block_pointer();
+        bm.set_meta_block(meta_ptr.block_pointer);
+        block_alloc_size = bm.block_allocation_size();
+        bm.file_sync();
+        database_header_t header;
+        header.initialize();
+        header.meta_block = meta_ptr.block_pointer;
+        bm.write_header(header);
+        bm.file_sync();
+    }
+
+    // Phase 2: flip a payload byte inside the metadata block, invalidating its stored CRC32c.
+    {
+        const uint64_t meta_block_id = meta_ptr.block_id();
+        const uint64_t payload_byte = BLOCK_START + meta_block_id * block_alloc_size + sizeof(uint64_t);
+        std::fstream f(table_path, std::ios::in | std::ios::out | std::ios::binary);
+        REQUIRE(f.is_open());
+        f.seekg(static_cast<std::streamoff>(payload_byte));
+        char b = 0;
+        f.read(&b, 1);
+        REQUIRE(f.good());
+        b = static_cast<char>(static_cast<unsigned char>(b) ^ 0xFFu);
+        f.seekp(static_cast<std::streamoff>(payload_byte));
+        f.write(&b, 1);
+        f.flush();
+        REQUIRE(f.good());
+    }
+
+    // Phase 3: reopen. The header is intact, so load_existing_database succeeds, but rebuilding the
+    // table walks the corrupted metadata block — which must raise a checksum mismatch, never garbage.
+    {
+        test_env_t env;
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database(); // header intact → succeeds
+        metadata_manager_t meta_mgr(bm);
+
+        bool threw = false;
+        try {
+            // The reader's ctor pins (reads + CRC-verifies) the first metadata block, so the mismatch
+            // may surface here rather than in load_from_disk — keep both inside the try.
+            metadata_reader_t reader(meta_mgr, meta_ptr);
+            auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+            // If the metadata block were read lazily, force it by scanning.
+            std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+            std::vector<size_t> projected_cols{0, 1};
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, nullptr);
+            data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            while (true) {
+                result.reset();
+                loaded->scan(result, state);
+                if (result.size() == 0) {
+                    break;
+                }
+            }
+        } catch (const std::exception& e) {
+            threw = true;
+            REQUIRE(std::string(e.what()).find("checksum") != std::string::npos);
+        }
+        REQUIRE(threw);
+    }
+
+    std::remove(table_path.c_str());
     cleanup_test_file();
 }

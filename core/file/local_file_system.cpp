@@ -48,14 +48,18 @@ namespace core::filesystem {
     namespace testing {
         static posix_pread_hook_t g_posix_pread_hook = nullptr;
         static posix_pwrite_hook_t g_posix_pwrite_hook = nullptr;
+        static posix_fsync_hook_t g_posix_fsync_hook = nullptr;
 
         void set_posix_pread_hook(posix_pread_hook_t hook) { g_posix_pread_hook = hook; }
 
         void set_posix_pwrite_hook(posix_pwrite_hook_t hook) { g_posix_pwrite_hook = hook; }
 
+        void set_posix_fsync_hook(posix_fsync_hook_t hook) { g_posix_fsync_hook = hook; }
+
         void reset_posix_positioned_io_hooks() {
             g_posix_pread_hook = nullptr;
             g_posix_pwrite_hook = nullptr;
+            g_posix_fsync_hook = nullptr;
         }
     } // namespace testing
 #endif
@@ -635,7 +639,17 @@ namespace core::filesystem {
 
     bool file_sync(local_file_system_t&, file_handle_t& handle) {
         int fd = reinterpret_cast<unix_file_handle_t&>(handle).fd;
-        if (fsync(fd) != 0) {
+        int rc;
+#if defined(DEV_MODE) && defined(PLATFORM_POSIX)
+        if (testing::g_posix_fsync_hook) {
+            rc = testing::g_posix_fsync_hook(fd);
+        } else {
+            rc = fsync(fd);
+        }
+#else
+        rc = fsync(fd);
+#endif
+        if (rc != 0) {
             return false;
         }
         return true;

@@ -84,9 +84,11 @@ namespace core::filesystem {
     namespace testing {
         using posix_pread_hook_t = int64_t (*)(int fd, void* buffer, size_t nr_bytes, uint64_t location);
         using posix_pwrite_hook_t = int64_t (*)(int fd, const void* buffer, size_t nr_bytes, uint64_t location);
+        using posix_fsync_hook_t = int (*)(int fd);
 
         void set_posix_pread_hook(posix_pread_hook_t hook);
         void set_posix_pwrite_hook(posix_pwrite_hook_t hook);
+        void set_posix_fsync_hook(posix_fsync_hook_t hook);
         void reset_posix_positioned_io_hooks();
     } // namespace testing
 #endif

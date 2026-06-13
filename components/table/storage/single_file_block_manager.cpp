@@ -260,8 +260,16 @@ namespace components::table::storage {
             static_cast<uint32_t>(absl::ComputeCrc32c({reinterpret_cast<const char*>(payload), payload_size})));
         *checksum_slot = crc;
 
+        // Durability: a block write that fails (EIO/ENOSPC/short write) MUST abort the checkpoint.
+        // file_buffer_t::write swallows the handle's bool result, so write directly and check it —
+        // otherwise a dropped data/metadata block would be "committed" once the header swaps, and the
+        // failure would only surface (if at all) as a CRC mismatch on a future read. Fail closed here,
+        // consistent with write_header_slot()/file_sync().
         auto location = block_location(block_id);
-        buffer.write(*handle_, location);
+        if (!handle_->write(data, alloc_size, location)) {
+            throw std::runtime_error("checksum_and_write: failed to write block " + std::to_string(block_id) +
+                                     " (checkpoint not durable)");
+        }
     }
 
     bool single_file_block_manager_t::verify_checksum(file_buffer_t& buffer) {
