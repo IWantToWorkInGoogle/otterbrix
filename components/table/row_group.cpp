@@ -5555,12 +5555,22 @@ namespace components::table {
                             if (!slice->validity_data_pointer.has_value()) {
                                 throw std::logic_error("missing pax_fixed validity payload");
                             }
+                            const uint64_t vsize = slice->validity_data_pointer->segment_size;
+                            const uint64_t voffset = slice->validity_data_pointer->block_pointer.offset;
+                            // Validate the disk-derived copy length BEFORE the memcpy: vsize is the copy
+                            // length into the right-sized (~128B) validity buffer, so a corrupt-but-CRC-
+                            // valid segment_size would otherwise be an OOB heap WRITE at load time, plus a
+                            // source over-read past the pinned block.
+                            if (vsize > validity_segment->segment_size() ||
+                                voffset > block_manager().block_size() ||
+                                voffset + vsize > block_manager().block_size()) {
+                                throw std::logic_error("pax_fixed validity payload out of bounds");
+                            }
                             auto source_block =
                                 block_manager().register_block(slice->validity_data_pointer->block_pointer.block_id);
                             auto source_handle = block_manager().buffer_manager.pin(source_block);
-                            auto* source_ptr =
-                                source_handle.ptr() + slice->validity_data_pointer->block_pointer.offset;
-                            std::memcpy(target_ptr, source_ptr, slice->validity_data_pointer->segment_size);
+                            auto* source_ptr = source_handle.ptr() + voffset;
+                            std::memcpy(target_ptr, source_ptr, vsize);
                             break;
                         }
                         case storage::pax_fixed_validity_kind::RLE:
@@ -5679,12 +5689,20 @@ namespace components::table {
                         if (!info.payload.has_value()) {
                             throw std::logic_error("missing pax_generic validity payload");
                         }
+                        const uint64_t vsize = info.payload->main_pointer.segment_size;
+                        const uint64_t voffset = info.payload->main_pointer.block_pointer.offset;
+                        // See the pax_fixed BITMASK case: bound the disk-derived copy length against the
+                        // destination validity buffer and the source block before the memcpy (OOB write
+                        // + over-read at load otherwise).
+                        if (vsize > validity_segment->segment_size() || voffset > block_manager().block_size() ||
+                            voffset + vsize > block_manager().block_size()) {
+                            throw std::logic_error("pax_generic validity payload out of bounds");
+                        }
                         auto source_block =
                             block_manager().register_block(info.payload->main_pointer.block_pointer.block_id);
                         auto source_handle = block_manager().buffer_manager.pin(source_block);
-                        auto* source_ptr =
-                            source_handle.ptr() + info.payload->main_pointer.block_pointer.offset;
-                        std::memcpy(target_ptr, source_ptr, info.payload->main_pointer.segment_size);
+                        auto* source_ptr = source_handle.ptr() + voffset;
+                        std::memcpy(target_ptr, source_ptr, vsize);
                         break;
                     }
                     case storage::pax_generic_codec_kind::STRING_SEGMENT:

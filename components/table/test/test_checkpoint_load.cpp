@@ -921,6 +921,28 @@ TEST_CASE("checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-gener
     cleanup_test_file();
 }
 
+TEST_CASE("checkpoint_load: column_segment rejects out-of-block-bounds data pointer") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    cleanup_test_file();
+
+    test_env_t env;
+    // A real transient block (carries a block_manager so the segment can query block_size()).
+    auto block = env.buffer_manager.register_transient_memory(1024, DEFAULT_BLOCK_ALLOC_SIZE);
+    const complex_logical_type t{logical_type::BIGINT};
+
+    // Valid: a small segment at offset 0 fits comfortably.
+    REQUIRE_NOTHROW(column_segment_t(block, t, 0, 0, INVALID_BLOCK, 0, 1024));
+    // A disk-derived segment_size larger than the block (corrupt-but-CRC-valid pointer) must throw at
+    // construction rather than letting later reads/writes slide off the fixed block buffer.
+    REQUIRE_THROWS_AS(column_segment_t(block, t, 0, 0, INVALID_BLOCK, 0, uint64_t(1) << 30), std::logic_error);
+    // A disk-derived offset past the block must also throw.
+    REQUIRE_THROWS_AS(column_segment_t(block, t, 0, 0, INVALID_BLOCK, uint64_t(1) << 30, 64), std::logic_error);
+
+    cleanup_test_file();
+}
+
 TEST_CASE("checkpoint_load: three columns INT64 + STRING + DOUBLE") {
     using namespace components::table;
     using namespace components::table::storage;

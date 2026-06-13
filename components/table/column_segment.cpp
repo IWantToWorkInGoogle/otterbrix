@@ -937,7 +937,18 @@ namespace components::table {
         , offset_(offset)
         , segment_size_(segment_size)
         , segment_statistics_(std::pmr::get_default_resource()) {
-        assert(!block || segment_size_ <= block_manager().block_size());
+        // Bound the segment against its physical block at construction. This is the broad net for
+        // every column/validity segment rebuilt from an on-disk data_pointer (a corrupt-but-CRC-valid
+        // offset_/segment_size_ would otherwise slide reads/writes off the fixed block buffer). A
+        // runtime throw, not the previous assert(), so it holds in release builds too.
+        if (this->block) {
+            const uint64_t block_size = block_manager().block_size();
+            if (offset_ > block_size || segment_size_ > block_size || offset_ + segment_size_ > block_size) {
+                throw std::logic_error("column_segment: data pointer out of block bounds (offset " +
+                                       std::to_string(offset_) + " + size " + std::to_string(segment_size_) +
+                                       " > block_size " + std::to_string(block_size) + ")");
+            }
+        }
 
         if (type.type() == types::logical_type::VALIDITY) {
             auto& buffer_manager = this->block->block_manager.buffer_manager;
