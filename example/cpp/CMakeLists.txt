@@ -11,7 +11,6 @@ add_executable(${PROJECT_NAME}  main.cpp)
 target_link_libraries(
         ${PROJECT_NAME} PRIVATE
         cpp_otterbrix
-        otterbrix::test_generaty
         spdlog::spdlog
         Catch2::Catch2
 )
