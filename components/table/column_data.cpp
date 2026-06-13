@@ -369,18 +369,9 @@ namespace components::table {
             apend_transient_segment(l, start_);
         }
         auto segment = data_.last_segment(l);
-        // A loaded-from-disk segment must not be appended into in place:
-        //  - shared-block segments (block_offset()!=0) are read-only (would trip the append assert);
-        //  - COMPRESSED segments (DICTIONARY/RLE/CONSTANT) hold encoded bytes, but the fixed-size
-        //    appender writes RAW values — those raw bytes then get decoded back through the segment's
-        //    codec on scan, yielding garbage (e.g. a dictionary reads the raw value as an index).
-        //    This is the append-after-reopen value-corruption bug: a reopened nullable/dictionary
-        //    column appended-to then scanned returned wrong values for the appended rows.
-        // In both cases roll over to a fresh UNCOMPRESSED in-memory segment positioned right after
-        // the last loaded one, so new rows land in appendable, codec-free storage.
-        //  - is_persisted() additionally catches a reopened UNCOMPRESSED validity segment, which the
-        //    block_offset()/compression() checks miss (block_offset()==0, compression==UNCOMPRESSED);
-        //    appending into it in place resurrects stale tail bits as spurious NULLs.
+        // Loaded-from-disk segments can't be appended to in place (shared-block segments are
+        // read-only, compressed/persisted ones hold encoded bytes). Roll over to a fresh
+        // uncompressed in-memory segment right after the last one.
         if (segment && (segment->is_persisted() || segment->block_offset() != 0 ||
                         segment->compression() != compression::compression_type::UNCOMPRESSED)) {
             apend_transient_segment(l, segment->start + static_cast<int64_t>(segment->count));
@@ -392,7 +383,7 @@ namespace components::table {
 
     void column_data_t::append(column_append_state& state, vector::vector_t& vector, uint64_t count) {
         statistics_.update(vector, count);
-        // Update per-segment statistics (conservative: full vector stats go to current segment)
+        // per-segment statistics
         if (state.current) {
             base_statistics_t batch_stats(resource_, type_.type());
             batch_stats.update(vector, count);
@@ -606,20 +597,10 @@ namespace components::table {
         const auto type_size = type_.size();
         auto vector_segment_size = block_size;
 
-        // A row group holds at most DEFAULT_VECTOR_CAPACITY rows per column, so a
-        // fixed-width column segment never needs more than DEFAULT_VECTOR_CAPACITY *
-        // type_size bytes. Reserving a whole block (256 KB) per such segment wasted
-        // ~32x and exhausted the buffer pool during large loads — the load silently
-        // truncated at ~528 row groups (~540k rows on an 8KB-bigint schema), since
-        // each row group pinned 31 cols * 256 KB. Right-size fixed-width segments
-        // (same shape as the MAX_ROW_ID branch and the validity right-size fix).
-        // Variable-width types (string / nested) keep the full block: their payload
-        // is packed into the segment block, not a separate heap.
-        //
-        // VALIDITY child columns get the same right-size as the reopen path
-        // (validity_mask_size ~= 128 B for a row group), not a whole block — during
-        // load every data column also pins a full-block validity segment, which on its
-        // own roughly halves the achievable row count.
+        // Fixed-width segments only need DEFAULT_VECTOR_CAPACITY * type_size bytes; reserving a
+        // whole block each wastes memory and exhausts the buffer pool on large loads. Variable-width
+        // types keep the full block (payload packed inline); validity children are right-sized to
+        // the row-group bitmask.
         if (type_.type() == components::types::logical_type::VALIDITY) {
             vector_segment_size = vector::validity_mask_t::validity_mask_size(vector::DEFAULT_VECTOR_CAPACITY);
         } else if (start_row == static_cast<uint64_t>(MAX_ROW_ID) ||
@@ -627,12 +608,8 @@ namespace components::table {
             vector_segment_size = vector::DEFAULT_VECTOR_CAPACITY * type_size;
         }
 
-        // A caller that knows the exact payload size (e.g. validity, which needs only
-        // validity_mask_size(tuple_count) bytes) overrides the default whole-block reservation.
-        // register_transient_memory routes any size < block_size to a right-sized tiny buffer,
-        // so this turns a 256 KB block per column-page into ~128 B. That is the fix for the
-        // buffer-pool OOM that crashed PAX restore past ~250k rows: thousands of non-evictable
-        // per-page validity segments no longer each pin a whole block.
+        // An explicit requested_size overrides the default; register_transient_memory routes any
+        // size < block_size to a right-sized tiny buffer.
         if (requested_size != 0) {
             vector_segment_size = requested_size;
         }
@@ -801,27 +778,11 @@ namespace components::table {
     }
 
     void column_data_t::initialize_column_validity(const persistent_column_data_t& persistent_data) {
-        // create transient in-memory segments matching the data pointers
-        // used for validity columns that don't have their own persistent data yet
-        //
-        // KNOWN BUG (columnar-only round-trip): for the PAX layout the scan reads
-        // validity straight from the persistent page, so these all-valid transient
-        // segments are harmless. For the COLUMNAR layout there is no persisted
-        // validity at all (column_data_checkpointer::checkpoint() flushes only the
-        // column's own data segments, never the validity child), so every reopened
-        // row reads back as VALID — NULLs are silently resurrected as values
-        // (e.g. NULL strings become ""). Verified via benchmark/runner/roundtrip_verify.py:
-        // ClickBench q6/q18/q24 give cold != warm on columnar, while PAX round-trips.
-        // Fix requires persisting the validity child at checkpoint and restoring it
-        // here from persistent_data.child_columns instead of zero-filling. PAX is
-        // unaffected. Tracked separately from PAX production-readiness work.
+        // Create transient in-memory validity segments matching the data pointers,
+        // for validity columns without their own persistent data yet.
         auto l = data_.lock();
         for (const auto& dp : persistent_data.data_pointers) {
-            // Size the transient validity segment to exactly the mask it must hold
-            // (validity_mask_size(tuple_count) == pax_fixed_validity_payload_size, the size
-            // memset/memcpy'd in by create_from_pointer), not a whole block. The PAX scan
-            // reads validity straight from the persistent block, so these segments are only
-            // ever written at load — a full block per page was pure buffer-pool waste.
+            // Size the transient validity segment to exactly the mask it holds, not a whole block.
             const auto validity_size = vector::validity_mask_t::validity_mask_size(dp.tuple_count);
             apend_transient_segment(l, static_cast<int64_t>(dp.row_start), validity_size);
             auto* seg = data_.last_segment(l);

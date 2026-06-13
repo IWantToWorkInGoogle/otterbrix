@@ -51,12 +51,9 @@ namespace components::table {
                                           uint64_t target_count) {
         assert(state.row_index == state.child_states[0].row_index);
         auto scan_count = column_data_t::scan(vector_index, state, result, target_count);
-        // The validity child writes null bits at child_states[0].result_offset, which the scan
-        // driver does not keep in sync with the parent's result_offset (templated_scan only
-        // updates the top-level column_scans entries). When several row groups stream into one
-        // growing chunk (result_offset > 0 for all but the first), a stale child offset writes
-        // the null mask over an already-filled earlier row group. Mirror the parent offset here
-        // so data and its validity always land at the same position.
+        // The scan driver doesn't sync the validity child's result_offset with the parent's,
+        // so mirror it here; otherwise multi-row-group scans into one chunk write the null mask
+        // over an earlier row group.
         state.child_states[0].result_offset = state.result_offset;
         validity.scan(vector_index, state.child_states[0], result, target_count);
         return scan_count;
@@ -69,8 +66,7 @@ namespace components::table {
                                                     uint64_t target_count) {
         assert(state.row_index == state.child_states[0].row_index);
         auto scan_count = column_data_t::scan_committed(vector_index, state, result, allow_updates, target_count);
-        // See scan(): keep the validity child's result_offset aligned with the parent so a
-        // multi-row-group scan into one chunk does not corrupt earlier rows' null masks.
+        // See scan(): keep the validity child's result_offset aligned with the parent.
         state.child_states[0].result_offset = state.result_offset;
         validity.scan_committed(vector_index, state.child_states[0], result, allow_updates, target_count);
         return scan_count;
@@ -162,10 +158,9 @@ namespace components::table {
     void standard_column_data_t::initialize_column(const persistent_column_data_t& persistent_data) {
         column_data_t::initialize_column(persistent_data);
 
-        // If the validity child was persisted (COLUMNAR layout), restore it from its real on-disk
-        // segments so reopened NULLs survive. Otherwise (PAX layout, where validity lives in the
-        // page layout and is restored separately by create_from_pointer, or an all-valid column with
-        // no persisted child) fall back to the matching all-valid transient segments.
+        // Restore the validity child from its on-disk segments when persisted (COLUMNAR layout);
+        // otherwise fall back to matching all-valid transient segments (PAX restores validity
+        // separately via create_from_pointer, and all-valid columns have no persisted child).
         if (!persistent_data.child_columns.empty() && persistent_data.child_columns[0] &&
             !persistent_data.child_columns[0]->data_pointers.empty()) {
             validity.initialize_column(*persistent_data.child_columns[0]);

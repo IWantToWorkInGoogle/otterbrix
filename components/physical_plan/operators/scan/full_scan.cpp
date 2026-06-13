@@ -10,9 +10,8 @@ namespace components::operators {
                         const std::pmr::vector<types::complex_logical_type>& types,
                         const logical_plan::storage_parameters* parameters,
                         core::date::timezone_offset_t session_tz) {
-        // The resulting filter crosses the executor -> disk actor boundary and is
-        // destroyed on the disk thread. Keep all filter-owned allocations on a
-        // thread-safe resource instead of the executor-local pmr arena.
+        // The filter is destroyed on the disk thread, so allocate its storage from a
+        // thread-safe resource rather than the executor-local arena.
         auto* filter_resource = std::pmr::new_delete_resource();
         if (!expression || expression->type() == expressions::compare_type::all_true) {
             return std::unique_ptr<table::table_filter_t>{};
@@ -203,11 +202,8 @@ namespace components::operators {
         int64_t offset_val = limit_.offset();
         int64_t limit_val = limit_.limit();
         int64_t scan_limit = (limit_val < 0) ? limit_val : limit_val + offset_val;
-        // The row-ids-only scan (empty projection) was only ever enabled for the
-        // now-removed in-place unsafe PAX DML path; the transactional MVCC delete
-        // path (index mirror, fk cascade, WAL) needs full column payloads, so the
-        // optimization stays disabled here. row_ids_only_ is retained on the
-        // planner/operator wiring but is not honored at scan time.
+        // The MVCC delete path needs full column payloads, so the row-ids-only scan
+        // stays off here. row_ids_only_ is kept on the wiring but ignored at scan time.
         const bool row_ids_only = false;
         (void) row_ids_only_;
         auto [_s, sf] = actor_zeta::send(ctx->disk_address,
@@ -248,8 +244,8 @@ namespace components::operators {
         // chunk. storage_scan_batched can return an empty vector at SSB-scale when
         // the disk service get_storage(table_oid) hits an oid-resolution race with
         // CSV ingest commit. Without this guard, operator_join.cpp:125 asserts.
-        // Keep the sparse projected shape here: downstream expressions use storage
-        // column indices, and cursor_t is the boundary that compacts placeholders.
+        // Keep the sparse projected shape: downstream expressions index by storage
+        // column, and cursor_t compacts the placeholders.
         if (batches.empty()) {
             if (projected_cols_.empty()) {
                 batches.emplace_back(resource_, types, 0);

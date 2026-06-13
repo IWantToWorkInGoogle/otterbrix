@@ -1415,7 +1415,7 @@ namespace services::dispatcher {
                         }
 
                         // Resolve key paths in node_select scalar expressions against incoming schema.
-                        // Aggregates are always in node_group_t now; scalar row/vector functions may appear here too.
+                        // Aggregates live in node_group_t; scalar row/vector functions may appear here too.
                         auto allowed_projection_function_types =
                             components::compute::create_mask(components::compute::function_type_t::row,
                                                              components::compute::function_type_t::vector);
@@ -1929,9 +1929,8 @@ namespace services::dispatcher {
                         }
                     }
 
-                    // Resolve node_select scalar expression key paths against the group output schema.
-                    // This includes both GROUP BY keys (possibly still table-qualified, e.g. c/name)
-                    // and aggregate aliases (e.g. total, avg_key).
+                    // Resolve node_select scalar expression key paths against the group output schema:
+                    // both GROUP BY keys (which may still be table-qualified) and aggregate aliases.
                     if (node_select) {
                         size_t agg_cursor = 0;
                         for (auto& expr : node_select->expressions()) {

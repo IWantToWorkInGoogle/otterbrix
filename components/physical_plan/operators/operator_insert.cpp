@@ -67,9 +67,8 @@ namespace components::operators {
         auto& out_chunk = output_->data_chunk();
         log_metadata_mismatches(out_chunk);
 
-        // 1. Capture WAL data only when WAL is active. The benchmark-only
-        // mutable PAX path requires WAL to be disabled, so avoid an otherwise
-        // full-chunk copy before PAX-tail append.
+        // 1. Capture WAL data only when WAL is active, to skip the full-chunk
+        // copy when it's disabled.
         const bool write_wal = ctx->wal_address != actor_zeta::address_t::empty_address();
         std::unique_ptr<data_chunk_t> wal_data;
         if (write_wal) {

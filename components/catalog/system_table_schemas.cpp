@@ -15,8 +15,7 @@
 //                 — no `reltype`             : composite-row types not implemented.
 //                 — adds `relstoragemode`    : 'd'/'m' for DISK/IN_MEMORY (otterbrix-specific).
 //                 — adds `relstorageformat`  : exact CREATE TABLE storage contract
-//                                              ('in_memory', 'disk_auto', 'disk_columnar',
-//                                              'disk_pax') when applicable.
+//                                              (in_memory/disk_auto/disk_columnar/disk_pax).
 //                 — relkind 'g' = computing : doc proposed 'c', but 'c' collides with
 //                                              PG's "composite type" relkind. 'g' aligns
 //                                              with PG GENERATED terminology.
@@ -92,7 +91,7 @@ namespace components::catalog {
             c.emplace_back("relstoragemode", str_col(), true); // 'd' DISK, 'm' IN_MEMORY (otterbrix-specific)
             c.emplace_back("relstorageformat",
                            str_col(),
-                           false); // nullable exact CREATE TABLE contract: in_memory/disk_auto/disk_columnar/disk_pax
+                           false); // nullable; storage format (see header)
             return c;
         }
 

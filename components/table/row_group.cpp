@@ -567,12 +567,9 @@ namespace {
         return std::min((block_size / 4) / 8 * 8, PAX_STRING_DEFAULT_BLOCK_LIMIT);
     }
 
-    // Bounds-check a disk-derived [offset, offset+length) slice against the pinned block BEFORE
-    // dereferencing it. The per-block CRC32c proves the bytes are intact, it does NOT prove that an
-    // offset/length decoded from those (CRC-valid but logically corrupt) bytes is in range. Without
-    // this guard a corrupt block_pointer.offset / segment_size would slide the read off the end of the
-    // pinned block on the hottest scan path. Fail closed instead. Checks are ordered so offset+length
-    // is only evaluated once both are <= block_size, so the addition cannot overflow.
+    // Bounds-check a disk-derived [offset, offset+length) slice against the pinned block: the CRC
+    // proves the bytes are intact, not that an offset/length decoded from them is in range. Checks
+    // are ordered so offset+length is only evaluated once both are <= block_size (no overflow).
     inline std::byte* checked_pax_block_ptr(components::table::storage::buffer_handle_t& handle,
                                             uint64_t offset,
                                             uint64_t length,
@@ -1648,11 +1645,9 @@ namespace {
                static_cast<int64_t>(local_vector_index * components::vector::DEFAULT_VECTOR_CAPACITY);
     }
 
-    // A PAX validity bitmask is stored at an arbitrary byte offset within its block, not guaranteed
-    // to be 8-aligned. validity_mask_t reads it as uint64_t — a misaligned load is UB (works on x86,
-    // can fault/misread on stricter targets such as ARM; UBSan flags it). Copy the bitmask into the
-    // caller-owned 8-aligned `out` (memcpy from a misaligned source is defined). The returned mask
-    // aliases out.data(), so `out` must outlive every use of the mask.
+    // A PAX validity bitmask sits at an arbitrary, possibly-unaligned byte offset in its block, but
+    // validity_mask_t reads it as uint64_t (misaligned load is UB). Copy it into the 8-aligned `out`.
+    // The returned mask aliases out.data(), so `out` must outlive every use of the mask.
     inline void copy_aligned_pax_validity(const std::byte* raw, uint64_t byte_size, std::vector<uint64_t>& out) {
         out.assign(static_cast<size_t>((byte_size + sizeof(uint64_t) - 1) / sizeof(uint64_t)), 0);
         std::memcpy(out.data(), raw, static_cast<size_t>(byte_size));
@@ -1699,9 +1694,8 @@ namespace {
         }
     }
 
-    // Broadcast a single fixed-width value into `count` contiguous slots starting at `dst`.
-    // Dispatches on type_size so the common power-of-two widths compile to a typed std::fill
-    // instead of a per-element memcpy loop. Falls back to a memcpy loop for any other width.
+    // Broadcast a single fixed-width value into `count` contiguous slots at `dst`. Common
+    // power-of-two widths use a typed std::fill; other widths fall back to a memcpy loop.
     inline void fill_fixed_value(std::byte* dst, const std::byte* value, uint64_t type_size, uint64_t count) {
         switch (type_size) {
             case 1:
@@ -1860,8 +1854,7 @@ namespace {
         const auto* indices = dictionary_values + dictionary_bytes;
         auto* target_ptr = result.data() + result_offset * type_size;
 
-        // Gather is inherently random-access; hoist the index-width branch out of the loop so each
-        // specialization is a tight typed-store loop with a single bounds check per row.
+        // Hoist the index-width branch out of the gather loop so each width is its own typed-store loop.
         if (index_size == 1) {
             const auto* idx = reinterpret_cast<const uint8_t*>(indices) + page_row_offset;
             for (uint64_t i = 0; i < copy_count; i++) {
@@ -2641,9 +2634,8 @@ namespace {
             return count;
         }
 
-        // `approved` starts all-zero; the first filter writes its matches directly into it, so we
-        // skip an initial all-ones fill plus a full AND pass. `matched` is only needed (and only
-        // allocated) for the second filter onward.
+        // `approved` starts all-zero and the first filter writes its matches straight into it.
+        // `matched` is only needed from the second filter onward, so allocate it lazily.
         std::vector<uint8_t> approved(count, 0);
         std::vector<uint8_t> matched;
         bool first_filter = true;
@@ -2988,9 +2980,8 @@ namespace {
                 page_validity_mask.emplace(page_validity_aligned.data());
             }
 
-            // The int32 offset array sits at an arbitrary byte offset in the block; reading it as
-            // int32_t* would be a misaligned load (UB; UBSan flags it, faults on ARM). Load each
-            // entry via memcpy instead.
+            // The int32 offset array sits at a possibly-unaligned byte offset, so load each entry
+            // via memcpy rather than dereferencing an int32_t* (misaligned load is UB).
             const auto* page_offsets_raw = base_ptr + PAX_STRING_DICTIONARY_HEADER_SIZE;
             const auto load_page_offset = [page_offsets_raw](uint64_t idx) {
                 int32_t v;
@@ -3057,9 +3048,8 @@ namespace {
                         get_or_pin_pax_generic_block(row_group, overflow_block_id, block_cache);
                     const uint64_t overflow_bs = row_group.block_manager().block_size();
                     const uint64_t overflow_pos = static_cast<uint64_t>(overflow_offset);
-                    // Bound the disk-derived overflow offset/length against the overflow block before
-                    // reading the length prefix and the string bytes (a corrupt-but-CRC-valid marker
-                    // would otherwise drive an OOB read past the overflow block buffer).
+                    // Bound the disk-derived offset/length against the overflow block before reading
+                    // the length prefix and the string bytes.
                     if (overflow_pos + sizeof(uint32_t) > overflow_bs) {
                         return false;
                     }
@@ -4186,12 +4176,9 @@ namespace components::table {
         pax_fixed_block_cache_t block_cache;
         const auto local_max_row_group_row = std::min(row_group_scan_limit, pax_tuple_count);
 
-        // Reusable per-column decode buffers, shared across all pages and batches of this scan.
-        // The filtered path previously allocated a fresh vector_t per filter/projected column per
-        // page (N_pages * M_columns heap allocations per batch); these buffers replace that with one
-        // allocation per distinct column for the whole scan. Capacity is the full vector capacity, so
-        // any page window fits. Validity carries over between uses, so each hand-out resets it to
-        // all-valid before the decoder re-applies the page's real validity.
+        // One reusable decode buffer per distinct column, shared across all pages of this scan.
+        // Capacity is the full vector capacity so any page window fits. Validity carries over
+        // between uses, so reset it to all-valid on each hand-out before the decoder re-applies it.
         std::unordered_map<uint32_t, std::unique_ptr<vector::vector_t>> decode_buffers;
         auto decode_buffer_for = [&](uint32_t column) -> vector::vector_t& {
             auto it = decode_buffers.find(column);
@@ -4208,9 +4195,8 @@ namespace components::table {
             return buffer;
         };
 
-        // Whether a filter column carries committed updates is invariant for the whole scan, so
-        // compute it once instead of per page-statistics check (the tree closure below otherwise
-        // calls has_updates() per leaf per page).
+        // Whether a filter column carries committed updates is fixed for the whole scan, so
+        // compute it once here rather than calling has_updates() per leaf per page below.
         std::unordered_map<uint32_t, bool> filter_column_has_updates;
         for (const auto column_index : fixed_filter_columns) {
             filter_column_has_updates.emplace(column_index,
@@ -4596,11 +4582,9 @@ namespace components::table {
             }
 
             uint64_t count;
-            // state.valid_indexing is a scratch buffer reused across row groups. A PAX-projected scan
-            // of an earlier row group that ends on a partial last vector with deletes leaves it sized
-            // to that vector's (smaller) visible-indexing (see the projected paths). The version-manager
-            // visibility path below writes up to max_count entries into it, so guarantee capacity first
-            // — otherwise a later regular scan with a larger max_count overflows the buffer.
+            // valid_indexing is reused across row groups and an earlier projected scan may have left
+            // it undersized. The visibility path below writes up to max_count entries, so ensure
+            // capacity first.
             if (state.valid_indexing.capacity() < max_count) {
                 state.valid_indexing = vector::indexing_vector_t(result.resource(), vector::DEFAULT_VECTOR_CAPACITY);
             }
@@ -5302,9 +5286,8 @@ namespace components::table {
         pointer.columnar_data_pointers.resize(col_count);
         pointer.columnar_validity_pointers.resize(col_count);
 
-        // Persist a columnar column's validity child alongside its data. Without this the reopened
-        // column has no persisted null mask and reads back all-valid (NULLs become values). Only
-        // standard columns carry a validity child; nested/other columns are unaffected here.
+        // Persist a columnar column's validity child alongside its data, otherwise the reopened
+        // column reads back all-valid. Only standard columns carry a validity child.
         auto persist_columnar_validity = [&](uint64_t column_index, column_data_t& column) {
             auto* standard_column = dynamic_cast<standard_column_data_t*>(&column);
             if (!standard_column) {
@@ -5351,10 +5334,9 @@ namespace components::table {
         bool pax_generic_requires_v2 = false;
         bool pax_generic_requires_v3 = false;
 
-        // The columnar checkpoint flushes only a column's own top-level data segments
-        // (column_data_checkpointer) plus, now, its validity child. A NESTED column's data-bearing
-        // children (struct fields, list/array elements) are NOT persisted and would be silently lost
-        // on reopen. Fail closed — refuse to write a lossy checkpoint — rather than corrupt on reload.
+        // The columnar checkpoint flushes only a column's own top-level data segments plus its
+        // validity child. A nested column's data-bearing children (struct fields, list/array
+        // elements) are not persisted, so reject them rather than write a lossy checkpoint.
         auto reject_nested_columnar = [](column_data_t& column) {
             if (dynamic_cast<struct_column_data_t*>(&column) != nullptr ||
                 dynamic_cast<list_column_data_t*>(&column) != nullptr ||
@@ -5571,9 +5553,8 @@ namespace components::table {
         for (uint64_t i = 0; i < min_count; i++) {
             persistent_column_data_t pcd(columns_[i]->resource());
             pcd.data_pointers = pointer.columnar_data_pointers[i];
-            // Hand the persisted validity-child pointers to initialize_column as a child column so a
-            // columnar column restores its real null mask instead of zero-filling to all-valid.
-            // Empty for PAX columns (their validity is restored from the page layout below).
+            // Pass the persisted validity-child pointers as a child column so a columnar column
+            // restores its real null mask. Empty for PAX columns (validity comes from the page layout).
             if (i < pointer.columnar_validity_pointers.size() && !pointer.columnar_validity_pointers[i].empty()) {
                 auto validity_child = std::make_unique<persistent_column_data_t>(columns_[i]->resource());
                 validity_child->data_pointers = pointer.columnar_validity_pointers[i];
@@ -5622,10 +5603,8 @@ namespace components::table {
                             }
                             const uint64_t vsize = slice->validity_data_pointer->segment_size;
                             const uint64_t voffset = slice->validity_data_pointer->block_pointer.offset;
-                            // Validate the disk-derived copy length BEFORE the memcpy: vsize is the copy
-                            // length into the right-sized (~128B) validity buffer, so a corrupt-but-CRC-
-                            // valid segment_size would otherwise be an OOB heap WRITE at load time, plus a
-                            // source over-read past the pinned block.
+                            // Validate the disk-derived copy length against both the destination
+                            // validity buffer and the source block before the memcpy.
                             if (vsize > validity_segment->segment_size() ||
                                 voffset > block_manager().block_size() ||
                                 voffset + vsize > block_manager().block_size()) {
@@ -5756,9 +5735,8 @@ namespace components::table {
                         }
                         const uint64_t vsize = info.payload->main_pointer.segment_size;
                         const uint64_t voffset = info.payload->main_pointer.block_pointer.offset;
-                        // See the pax_fixed BITMASK case: bound the disk-derived copy length against the
-                        // destination validity buffer and the source block before the memcpy (OOB write
-                        // + over-read at load otherwise).
+                        // Bound the disk-derived copy length against the destination validity buffer
+                        // and the source block before the memcpy.
                         if (vsize > validity_segment->segment_size() || voffset > block_manager().block_size() ||
                             voffset + vsize > block_manager().block_size()) {
                             throw std::logic_error("pax_generic validity payload out of bounds");

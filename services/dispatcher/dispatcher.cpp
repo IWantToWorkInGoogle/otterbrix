@@ -370,12 +370,9 @@ namespace services::dispatcher {
             return out;
         }
 
-        // Wrap a standalone uncorrelated-subquery sub-plan (a bare aggregate
-        // emitted by the transformer) with catalog_resolve_namespace /
-        // catalog_resolve_table front children for every (db, rel) it
-        // references. Mirrors the dispatcher's main resolve-wrap (see the
-        // pre-order walk in execute_plan) but produces a fresh sequence_t so the
-        // sub-plan can be resolved, validated and executed on its own.
+        // Wrap a sub-plan in a fresh sequence_t with catalog_resolve_namespace /
+        // catalog_resolve_table front children for every (db, rel) it references,
+        // so it can be resolved, validated and executed on its own.
         components::logical_plan::node_ptr
         wrap_subplan_with_resolves(std::pmr::memory_resource* resource,
                                    components::logical_plan::node_ptr subplan) {
@@ -896,13 +893,10 @@ namespace services::dispatcher {
                 impl::gather_plan_resolve_index(logic_plan.get(), dispatcher_idx);
             }
         }
-        // === Uncorrelated subquery pre-pass ===
-        // The transformer attaches uncorrelated subqueries (scalar in HAVING,
-        // IN in WHERE) to the plan root. Execute each one standalone now — after
-        // Pass 1 (read txn established) and before the main validate — and
-        // substitute its result into the main plan so the rest of the pipeline
-        // sees a subquery-free plan. Correlated subqueries are rejected at
-        // transform time, so everything here can run independently.
+        // Uncorrelated subqueries (scalar in HAVING, IN in WHERE) are attached to
+        // the plan root by the transformer. Execute each one standalone here, after
+        // Pass 1 and before the main validate, and substitute its result into the
+        // main plan so the rest of the pipeline sees a subquery-free plan.
         {
             std::vector<node_t*> sstack;
             sstack.push_back(logic_plan.get());
@@ -922,8 +916,8 @@ namespace services::dispatcher {
                 }
             }
             if (reqs) {
-                // Ensure a read txn exists for subquery execution (normally set
-                // by the Pass 1 block above; guard the no-resolve corner case).
+                // Ensure a read txn exists for subquery execution; the Pass 1
+                // block above normally sets it, but not in the no-resolve case.
                 if (ctx.txn.transaction_id == 0) {
                     auto t = txn_manager_.begin_transaction(session).data();
                     if (needs_statement_read_txn && !had_active_txn_at_entry) {
@@ -948,8 +942,8 @@ namespace services::dispatcher {
                         params->set_parameter(req.result_param, std::move(value));
                     } else {
                         // IN-list: fill the placeholder union_or with one
-                        // eq(col, value) per result row (same shape as a literal
-                        // IN-list). Zero rows → `col IN ()` is always false.
+                        // eq(col, value) per result row. Zero rows means
+                        // `col IN ()`, which is always false.
                         auto* placeholder =
                             static_cast<components::expressions::compare_expression_t*>(req.placeholder.get());
                         if (cur->size() == 0) {
@@ -2079,11 +2073,9 @@ namespace services::dispatcher {
                                                     parameter_node_ptr params,
                                                     components::execution_context_t ctx) {
         using namespace components::logical_plan;
-        // Mirror the main read path for a standalone sub-plan:
-        // optimize → resolve-wrap → Pass 1 → stamp → validate → enrich →
-        // post-validate optimize → execute. Reuses the dispatcher's existing
-        // resolve/validate/enrich helpers; the subquery runs in the parent's
-        // MVCC txn (ctx.txn) so it sees the same snapshot.
+        // Run the standalone sub-plan through the read path: optimize, resolve-wrap,
+        // Pass 1, stamp, validate, enrich, post-validate optimize, execute. The
+        // subquery runs in the parent's MVCC txn (ctx.txn) so it sees the same snapshot.
         subplan = components::planner::optimize(resource(), subplan, params.get());
         auto wrapped = wrap_subplan_with_resolves(resource(), std::move(subplan));
 

@@ -101,16 +101,10 @@ namespace components::operators {
         //    across tests → expr->function_uid() set from global doesn't match
         //    any local entry, predicate gets a null function pointer at runtime.
         if (auto* def_reg = components::compute::function_registry_t::get_default()) {
-            // The default registry is a process-wide singleton, so it accumulates
-            // entries across executor/space lifetimes. Earlier registrations of the
-            // same UDF name (e.g. from a previous space) may live at a different uid
-            // than the one the current per-executor registries just allocated.
-            // validate_logical_plan resolves aggregate/function names by iterating
-            // this registry (an unordered_map) and returns the first name match — a
-            // stale uid would then be absent from the current per-executor registry,
-            // producing a null function pointer at plan time. Drop any same-name
-            // entry that is not the uid we are about to (re)write so the lookup is
-            // deterministic and consistent with the per-executor registries.
+            // The default registry is a process-wide singleton, so an earlier
+            // registration of this name may sit at a stale uid that no current
+            // per-executor registry knows. Drop any same-name entry whose uid we
+            // aren't about to (re)write so name lookups stay deterministic.
             if (!uids.empty()) {
                 for (const auto& [existing_name, existing_uid] : def_reg->get_functions()) {
                     if (existing_name == func_name && existing_uid != uids.front()) {

@@ -616,10 +616,8 @@ namespace components::sql::transform {
     expression_ptr transformer::transform_in_sublink(SubLink* node,
                                                       const name_collection_t& names,
                                                       logical_plan::parameter_node_t* params) {
-        // Raw-parser shape of `col IN (subselect)` is ANY_SUBLINK with an
-        // implied "=" operator (operName NIL). `col = ANY (subselect)` carries
-        // operName "=". Both are the supported IN form. NOT IN (`<>ALL`,
-        // ALL_SUBLINK) and other sublink kinds stay unsupported.
+        // `col IN (subselect)` parses as ANY_SUBLINK with operName NIL or "=";
+        // both are the supported IN form. NOT IN and other sublink kinds aren't.
         const bool is_in = node->subLinkType == ANY_SUBLINK &&
                            (node->operName == nullptr || node->operName->lst.empty() ||
                             std::string_view(strVal(node->operName->lst.front().data)) == "=");
@@ -643,11 +641,9 @@ namespace components::sql::transform {
         if (error_.contains_error() || !subquery_plan) {
             return nullptr;
         }
-        // Empty union_or placeholder, already wired into the WHERE tree by the
-        // caller. The dispatcher appends eq(key_in, $value) per result row,
-        // reproducing the supported literal IN-list shape
-        // (union_or(col=v1, col=v2, ...)). A zero-row result leaves it empty,
-        // which the dispatcher rewrites to an always-false predicate.
+        // Empty union_or placeholder; the dispatcher appends eq(key_in, $value)
+        // per result row, turning the subquery into a literal IN-list. An empty
+        // result stays empty and is rewritten to an always-false predicate.
         auto placeholder = make_compare_union_expression(params->parameters().resource(), compare_type::union_or);
         logical_plan::subquery_request_t req{resource_};
         req.kind = logical_plan::subquery_request_t::kind_t::in_list;
@@ -854,11 +850,9 @@ namespace components::sql::transform {
                         }
                     }
                 }
-                // Aggregate appears only in HAVING, not in SELECT
-                // (e.g. `... GROUP BY x HAVING sum(y) > N` with y not projected).
-                // Build it and append to the group so operator_group_t computes
-                // it and the HAVING predicate can reference it by key. `group` is
-                // mutable through the intrusive_ptr despite the const& binding.
+                // Aggregate used in HAVING but not projected in SELECT: build it
+                // and append to the group so it gets computed and can be
+                // referenced by key. group is mutable via the intrusive_ptr.
                 if (func->args) {
                     auto agg_expr =
                         make_aggregate_expression(resource_, funcname, expressions::key_t{resource_, funcname});
@@ -886,7 +880,7 @@ namespace components::sql::transform {
                     group->append_expression(agg_expr);
                     return agg_expr->key();
                 }
-                // Parameterless aggregate fallback — keep the function name alias.
+                // Parameterless aggregate: use the function name as alias.
                 return expressions::key_t{resource_, funcname};
             }
             case T_ColumnRef: {
@@ -932,9 +926,8 @@ namespace components::sql::transform {
             }
             case T_SubLink: {
                 auto* sublink = pg_ptr_cast<SubLink>(node);
-                // Only a single-value scalar subquery is supported as a HAVING
-                // operand, and only when uncorrelated (it must run standalone).
-                // The dispatcher executes it once and fills `result_param`.
+                // Only an uncorrelated scalar subquery is supported here; the
+                // dispatcher runs it once and fills result_param.
                 if (sublink->subLinkType != EXPR_SUBLINK || !sublink->subselect ||
                     nodeTag(sublink->subselect) != T_SelectStmt) {
                     error_ = core::error_t(
@@ -946,8 +939,8 @@ namespace components::sql::transform {
                 if (error_.contains_error() || !subquery_plan) {
                     return nullptr;
                 }
-                // Reserve a parameter the dispatcher fills with the scalar
-                // result; the enclosing comparison references it like a literal.
+                // Placeholder param filled with the scalar result; the enclosing
+                // comparison references it like a literal.
                 auto result_param = params->add_parameter(
                     types::logical_value_t(resource_, types::complex_logical_type{types::logical_type::NA}));
                 logical_plan::subquery_request_t req{resource_};

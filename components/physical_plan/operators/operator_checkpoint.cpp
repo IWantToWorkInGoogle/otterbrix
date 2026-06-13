@@ -16,8 +16,7 @@ namespace components::operators {
 
     actor_zeta::unique_future<void> operator_checkpoint_t::await_async_and_resume(pipeline::context_t* ctx) {
         try {
-            // Step 1: flush dirty index btrees so any post-recovery rebuild starts from
-            // a consistent on-disk index state (matches legacy dispatcher checkpoint_t).
+            // Step 1: flush index btrees so recovery starts from a consistent on-disk index state.
             if (ctx->index_address != actor_zeta::address_t::empty_address()) {
                 auto [_fi, fif] = actor_zeta::send(ctx->index_address,
                                                    &services::index::manager_index_t::flush_all_indexes,
@@ -25,8 +24,7 @@ namespace components::operators {
                 co_await std::move(fif);
             }
 
-            // Step 2: snapshot the current WAL id BEFORE the checkpoint so the per-table
-            // W-TORN (prev/current) snapshot pins a known recovery boundary.
+            // Step 2: read the WAL id before the checkpoint so it marks the recovery boundary.
             services::wal::id_t wal_max_id{0};
             if (ctx->wal_address != actor_zeta::address_t::empty_address()) {
                 auto [_wi, wif] = actor_zeta::send(ctx->wal_address,

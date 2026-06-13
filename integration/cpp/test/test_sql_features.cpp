@@ -192,15 +192,8 @@ TEST_CASE("integration::cpp::test_sql_features::pax_projected_delete_sparse_scan
 }
 
 TEST_CASE("integration::cpp::test_sql_features::pax_range_conjunction_prunes_pages") {
-    // Regression guard for zone-map page pruning on range conjunctions.
-    // A `WHERE id >= x AND id < y` predicate must be pushed into the PAX scan so
-    // per-page min/max zone maps can skip non-matching pages. Before the
-    // is_pure_compare fix in create_plan_match.cpp, a union_and predicate was
-    // (wrongly) rejected from scan pushdown — make_compare_union_expression sets the
-    // node's left_/right_ to a null expression_ptr, which the leaf-operand check
-    // mistook for a non-pushable operand — so every conjunction ran as a full scan
-    // under operator_match with pax_fixed_pruned_pages stuck at 0. Single-sided
-    // ranges (id < y) always pruned; only the AND of two ranges regressed.
+    // A `WHERE id >= x AND id < y` range conjunction must be pushed into the PAX
+    // scan so per-page min/max zone maps can prune non-matching pages.
     auto config = test_create_config("/tmp/test_sql_features/pax_range_conjunction_prunes_pages");
     config.disk.on = true;
     config.disk.layout_policy = configuration::disk_layout_policy::pax_only;
@@ -222,7 +215,7 @@ TEST_CASE("integration::cpp::test_sql_features::pax_range_conjunction_prunes_pag
         REQUIRE(cur->is_success());
     }
     {
-        // Monotonic id (clustered) so a selective range leaves only a couple of pages.
+        // Monotonic id so a selective range maps to few pages.
         auto session = otterbrix::session_id_t();
         std::stringstream query;
         query << "INSERT INTO TestDatabase.RangeScan (id, payload) VALUES ";
@@ -260,8 +253,7 @@ TEST_CASE("integration::cpp::test_sql_features::pax_range_conjunction_prunes_pag
 #endif
 
     {
-        // Selective range near the start of the first row group: page [0,256) is kept,
-        // later pages of that row group are all > 200 and must be pruned.
+        // Selective range near the start: keeps the first page, prunes the later ones.
         auto session = otterbrix::session_id_t();
         auto cur = dispatcher->execute_sql(session,
                                            "SELECT COUNT(id) AS cnt FROM TestDatabase.RangeScan "
@@ -276,7 +268,6 @@ TEST_CASE("integration::cpp::test_sql_features::pax_range_conjunction_prunes_pag
         const auto counts = space.debug_first_row_group_scan_path_counts(table_oid);
         REQUIRE(counts.pax_fixed_projected > 0);
         REQUIRE(counts.regular == 0);
-        // The fix: the range conjunction reaches the scan and prunes pages.
         REQUIRE(counts.pax_fixed_pruned_pages > 0);
     }
 #endif
@@ -538,9 +529,8 @@ TEST_CASE("integration::cpp::test_sql_features::in_list") {
     }
 }
 
-// Uncorrelated subqueries (TPC-H q11 scalar-in-HAVING + q18 IN-in-WHERE shapes).
-// The dispatcher executes each subquery once and substitutes its result into the
-// main plan before it runs. Fixture: count 0..99.
+// Uncorrelated subqueries: the subquery is run once and its result substituted
+// into the main plan. Fixture: count 0..99.
 TEST_CASE("integration::cpp::test_sql_features::uncorrelated_subquery") {
     auto config = test_create_config("/tmp/test_sql_features/uncorrelated_subquery");
     test_clear_directory(config);
@@ -600,8 +590,7 @@ TEST_CASE("integration::cpp::test_sql_features::uncorrelated_subquery") {
     }
 
     INFO("scalar subquery in HAVING (q11 shape), avg threshold") {
-        // avg(count) over 0..99 is 49.5; GROUP BY count → sum(count)=count per
-        // group; count > 49.5 keeps 50..99 → 50 groups.
+        // avg is 49.5; sum(count)=count per group, so 50..99 pass -> 50 groups.
         auto session = otterbrix::session_id_t();
         auto cur = dispatcher->execute_sql(session,
                                            "SELECT count, sum(count) FROM TestDatabase.TestCollection "
@@ -612,8 +601,7 @@ TEST_CASE("integration::cpp::test_sql_features::uncorrelated_subquery") {
     }
 
     INFO("scalar subquery in HAVING, min threshold (value matters)") {
-        // min(count) is 0; count > 0 keeps 1..99 → 99 groups. Different count
-        // than the avg case proves the scalar VALUE is substituted, not ignored.
+        // min is 0, so 1..99 pass -> 99 groups (different from the avg case).
         auto session = otterbrix::session_id_t();
         auto cur = dispatcher->execute_sql(session,
                                            "SELECT count, sum(count) FROM TestDatabase.TestCollection "
@@ -624,8 +612,7 @@ TEST_CASE("integration::cpp::test_sql_features::uncorrelated_subquery") {
     }
 
     INFO("HAVING aggregate not in SELECT list") {
-        // sum(count) appears only in HAVING, not the projection. count > 50
-        // (sum=count per single-value group) keeps 51..99 → 49 groups.
+        // sum(count) is only in HAVING, not the projection; 51..99 pass -> 49 groups.
         auto session = otterbrix::session_id_t();
         auto cur = dispatcher->execute_sql(session,
                                            "SELECT count FROM TestDatabase.TestCollection "

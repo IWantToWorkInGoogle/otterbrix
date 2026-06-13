@@ -131,9 +131,7 @@ namespace components::vector {
                 uint64_t idx_in_entry;
                 entry_index(count, entry_idx, idx_in_entry);
                 for (uint64_t i = 0; i < idx_in_entry; ++i) {
-                    // Count one per set bit. NB: `entry & (1 << i)` is 0 or 2^i, not 0 or 1 — summing
-                    // it over-counts the final partial entry, which can make valid_count land exactly
-                    // on `count` and be misread as all-valid (dropping a page's NULLs at checkpoint).
+                    // Shift then mask: `entry & (1 << i)` yields 0 or 2^i, which over-counts here.
                     valid += (entry >> uint64_t(i)) & uint64_t(1);
                 }
                 break;

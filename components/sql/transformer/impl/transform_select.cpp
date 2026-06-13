@@ -269,10 +269,9 @@ namespace components::sql::transform {
                     return range->relname && std::string_view(range->relname) == relname;
                 };
 
-                // SSB-style star queries arrive as SQL-89 comma joins. Keep the
-                // fact table first and prefer dim_date second so selective date
-                // predicates can reduce the fact stream before customer/supplier
-                // dimensions are materialized into the left-deep join tree.
+                // Star queries arrive as comma joins: order the fact table
+                // (lineorder) first and dim_date second so selective date
+                // predicates prune the fact stream early in the left-deep tree.
                 auto lineorder_it = std::find_if(node.fromClause->lst.begin(),
                                                  node.fromClause->lst.end(),
                                                  [&](const PGListCell& cell) {

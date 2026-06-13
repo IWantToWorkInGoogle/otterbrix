@@ -184,10 +184,8 @@ namespace components::table {
         uint64_t child_offset = 0;
         while (remaining_count > 0) {
             const uint64_t chunk = std::min<uint64_t>(remaining_count, vector::DEFAULT_VECTOR_CAPACITY);
-            // Slice the child update data so its read offset tracks the chunk of
-            // child ids being written. Passing update_vector.entry() unsliced
-            // would re-read child values from index 0 for every chunk, corrupting
-            // all but the first DEFAULT_VECTOR_CAPACITY child elements.
+            // Slice the child data to the current chunk so each chunk reads from the
+            // right offset rather than restarting at index 0.
             vector::vector_t child_slice(resource_, type_.child_type(), chunk);
             child_slice.slice(update_vector.entry(), child_offset, child_offset + chunk);
             child_column->update(remaining_column_index, child_slice, remaining_sub_column_ids, chunk);
@@ -221,8 +219,7 @@ namespace components::table {
         uint64_t child_offset = 0;
         while (remaining_count > 0) {
             const uint64_t chunk = std::min<uint64_t>(remaining_count, vector::DEFAULT_VECTOR_CAPACITY);
-            // Same per-chunk slicing as update(): the child update data must be
-            // read from the offset matching the current chunk of child ids.
+            // Per-chunk slicing, as in update().
             vector::vector_t child_slice(resource_, type_.child_type(), chunk);
             child_slice.slice(update_vector.entry(), child_offset, child_offset + chunk);
             child_column->update_column(column_path, child_slice, remaining_sub_column_ids, chunk, depth);

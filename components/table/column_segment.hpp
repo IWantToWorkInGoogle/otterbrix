@@ -100,13 +100,10 @@ namespace components::table {
         compression::compression_type compression() const { return compression_; }
         void set_compression(compression::compression_type c) { compression_ = c; }
 
-        // True for segments that were reconstructed from a persisted (checkpointed) row group on
-        // load — both data and validity children. Such segments are read-only snapshots: appending
-        // into them in place corrupts neighbouring persisted state (e.g. a reopened validity
-        // segment whose tail bits past the persisted page count are stale → appended non-null rows
-        // read back as spurious NULLs). initialize_append() rolls a fresh transient segment instead.
-        // Not all loaded segments are caught by block_offset()/compression() alone: a reopened
-        // UNCOMPRESSED validity segment has block_offset()==0 and compression()==UNCOMPRESSED.
+        // Set for segments rebuilt from a persisted row group on load. They are read-only;
+        // appending in place corrupts neighbouring persisted state, so initialize_append()
+        // rolls a fresh transient segment. block_offset()/compression() alone don't catch all
+        // cases (a reopened uncompressed validity segment has neither set).
         bool is_persisted() const { return persisted_; }
         void set_persisted(bool persisted) { persisted_ = persisted; }
 

@@ -67,9 +67,8 @@ namespace components::operators {
         // service get_storage(table_oid) hits an oid-resolution race (observed
         // at SSB-scale on comma-join cross-products). Without this guard,
         // operator_join.cpp:125 asserts. Fetch types only on the empty path so
-        // the steady-state scan keeps a single async round-trip. Keep the sparse
-        // projected shape until cursor_t, otherwise downstream column paths no
-        // longer match storage column indices.
+        // the steady-state scan keeps a single async round-trip. Keep the
+        // projected shape here so downstream column indices still match storage.
         if (batches.empty()) {
             auto [_t, tf] = actor_zeta::send(ctx->disk_address,
                                              &services::disk::manager_disk_t::storage_types,

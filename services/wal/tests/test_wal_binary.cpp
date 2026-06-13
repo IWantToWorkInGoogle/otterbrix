@@ -10,7 +10,7 @@ using namespace services::wal;
 using namespace components::types;
 using namespace components::vector;
 
-// Keep the default WAL cases on the legacy compact path: fixed-size and STRING columns.
+// Fixed-size and STRING columns only.
 static std::pmr::vector<components::types::complex_logical_type> wal_test_types(std::pmr::memory_resource* r) {
     using namespace components::types;
     std::pmr::vector<complex_logical_type> types(r);

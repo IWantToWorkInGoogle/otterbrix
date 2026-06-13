@@ -112,12 +112,8 @@ namespace components::operators {
 
             if (data) {
                 auto column_index = data->column_index(key_.as_string());
-                // The fetched column value carries the column's declared type
-                // (e.g. BIGINT), while value_ carries the SQL literal's type
-                // (e.g. INTEGER for `90`). logical_value_t comparison asserts
-                // matching types, so cast the probe value to the column type
-                // before re-filtering — mirroring single_field_index_t, which
-                // casts the probe to the stored type for the index search.
+                // logical_value_t comparison asserts matching types, so cast the probe
+                // value to the column type before re-filtering.
                 const auto casted_value = value_.cast_as(data->data[column_index].type(), ctx->session_tz);
                 vector::indexing_vector_t matched(resource_, data->size());
                 uint64_t matched_count = 0;

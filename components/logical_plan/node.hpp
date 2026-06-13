@@ -17,12 +17,9 @@ namespace components::logical_plan {
     using expression_ptr = expressions::expression_ptr;
     using hash_t = expressions::hash_t;
 
-    // Deferred uncorrelated-subquery request, attached to the plan root by the
-    // SQL transformer and consumed by the dispatcher BEFORE the main plan runs.
-    // The subquery is executed once, standalone, and its result is substituted
-    // back into the main plan as a literal (see services/dispatcher pre-pass).
-    // Only UNCORRELATED subqueries are represented here — correlated ones cannot
-    // run standalone and are rejected at transform time.
+    // Deferred uncorrelated subquery: run once standalone, substitute its result
+    // back into the main plan as a literal. Correlated subqueries are rejected at
+    // transform time (they can't run standalone).
     struct subquery_request_t {
         enum class kind_t : uint8_t
         {
@@ -30,16 +27,14 @@ namespace components::logical_plan {
             in_list // col IN (SELECT col ...)     — results fill `placeholder` children
         };
         kind_t kind;
-        // Fully-formed logical plan of the subquery body (bare aggregate, not
-        // yet resolve-wrapped — the dispatcher pre-pass wraps/resolves it).
+        // Logical plan of the subquery body (bare aggregate, not yet resolve-wrapped).
         node_ptr subquery_plan;
         // scalar: parameter id reserved in the main plan's HAVING/WHERE compare.
         core::parameter_id_t result_param{};
         // in_list: left-hand column the IN predicate tests.
         expressions::key_t in_left_key;
-        // in_list: the (initially empty) union_or compare already wired into the
-        // main WHERE tree; the pre-pass appends one eq(in_left_key, $value) child
-        // per subquery result row (matching the literal IN-list lowering).
+        // in_list: union_or compare wired into the main WHERE tree; the pre-pass
+        // appends one eq(in_left_key, $value) child per subquery result row.
         expression_ptr placeholder;
 
         explicit subquery_request_t(std::pmr::memory_resource* resource)
@@ -73,9 +68,8 @@ namespace components::logical_plan {
         const std::pmr::vector<expression_ptr>& expressions() const;
         std::pmr::vector<expression_ptr>& expressions();
 
-        // Deferred uncorrelated subqueries attached to this node (only ever
-        // populated on the plan root by the SQL transformer; empty otherwise).
-        // The dispatcher drains these before executing the main plan.
+        // Deferred uncorrelated subqueries; only populated on the plan root,
+        // drained by the dispatcher before executing the main plan.
         const std::pmr::vector<subquery_request_t>& subqueries() const;
         std::pmr::vector<subquery_request_t>& subqueries();
 

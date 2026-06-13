@@ -15,10 +15,8 @@
 namespace components::table::storage {
 
     namespace {
-        // CRC32c over the meaningful header fields (everything before the checksum field); the
-        // checksum field itself and the trailing padding are excluded. A torn/partial header write or
-        // a flipped field then fails this check on load instead of being silently accepted as the
-        // active header (which would steer recovery into a garbage meta_block).
+        // CRC32c over the header fields before the checksum field (the field itself and trailing
+        // padding are excluded), so a torn or corrupted header is rejected on load.
         uint64_t compute_header_checksum(const database_header_t& header) {
             return static_cast<uint64_t>(static_cast<uint32_t>(absl::ComputeCrc32c(
                 {reinterpret_cast<const char*>(&header), offsetof(database_header_t, checksum)})));
@@ -61,8 +59,7 @@ namespace components::table::storage {
         database_header_t db_header;
         db_header.initialize();
         db_header.block_alloc_size = block_allocation_size();
-        // Stamp the integrity checksum on the initial header too, or a create-then-reopen (no
-        // checkpoint in between) would fail header validation on load.
+        // Checksum the initial header too, so a create-then-reopen with no checkpoint still validates.
         db_header.checksum = compute_header_checksum(db_header);
         write_header_slot(db_header, SECTOR_SIZE);
         write_header_slot(db_header, 2 * SECTOR_SIZE);
@@ -99,9 +96,8 @@ namespace components::table::storage {
             throw std::runtime_error("Failed to read database header 2");
         }
 
-        // Reject a slot whose integrity checksum does not match before selecting the active header.
-        // A torn header write leaves one slot inconsistent; recovering from the other intact slot
-        // (instead of promoting the torn one by raw iteration) is the point of the double-header.
+        // Pick the active header only from slots that pass the checksum; if one slot is torn, recover
+        // from the other intact one rather than promoting the torn slot by iteration.
         const bool valid1 = header1.checksum == compute_header_checksum(header1);
         const bool valid2 = header2.checksum == compute_header_checksum(header2);
         if (!valid1 && !valid2) {
@@ -140,14 +136,9 @@ namespace components::table::storage {
         auto location = block_location(start_block);
         buffer.read(*handle_, location);
 
-        // Verify every block's CRC32c. The single-block read() path already does this, but the
-        // batch/prefetch path (the primary cold-reopen read path for PAX *data* blocks) used to
-        // skip it — a corrupted data block was then scanned silently and returned wrong results
-        // instead of failing. Metadata blocks (read via read()) were protected; data blocks were
-        // not. Blocks sit at block_allocation_size() stride in the buffer (same stride batch_read
-        // slices payloads with); each block is [8-byte checksum][block_size() payload], matching
-        // checksum_and_write (payload = allocation_size - 8 = block_size()). Guard the stride so a
-        // smaller-than-expected buffer can never overrun.
+        // Verify every block's CRC32c; the single-block read() path does this but the batch path
+        // didn't. Blocks sit at block_allocation_size() stride, each laid out as
+        // [8-byte checksum][block_size() payload]. The stride check guards against a short buffer.
         auto* base = buffer.internal_buffer();
         const auto stride = block_allocation_size();
         const auto payload_size = block_size();
@@ -260,11 +251,8 @@ namespace components::table::storage {
             static_cast<uint32_t>(absl::ComputeCrc32c({reinterpret_cast<const char*>(payload), payload_size})));
         *checksum_slot = crc;
 
-        // Durability: a block write that fails (EIO/ENOSPC/short write) MUST abort the checkpoint.
-        // file_buffer_t::write swallows the handle's bool result, so write directly and check it —
-        // otherwise a dropped data/metadata block would be "committed" once the header swaps, and the
-        // failure would only surface (if at all) as a CRC mismatch on a future read. Fail closed here,
-        // consistent with write_header_slot()/file_sync().
+        // A failed block write must abort the checkpoint; file_buffer_t::write drops the handle's
+        // bool result, so write directly and check it.
         auto location = block_location(block_id);
         if (!handle_->write(data, alloc_size, location)) {
             throw std::runtime_error("checksum_and_write: failed to write block " + std::to_string(block_id) +
@@ -295,8 +283,7 @@ namespace components::table::storage {
         write_header.block_count = max_block_;
         write_header.block_alloc_size = block_allocation_size();
         write_header.meta_block = meta_block_;
-        // Stamp the integrity checksum LAST, over the finalized fields. Validated on load; a torn or
-        // bit-flipped header is then rejected rather than silently promoted.
+        // Checksum last, over the finalized fields; validated on load.
         write_header.checksum = compute_header_checksum(write_header);
 
         // double-header protocol: alternate between slot 1 and slot 2
@@ -309,8 +296,8 @@ namespace components::table::storage {
     }
 
     void single_file_block_manager_t::write_header_slot(const database_header_t& header, uint64_t slot) {
-        // Propagate I/O failures: a discarded write()/sync() error would let a non-durable checkpoint
-        // report success. write() and sync() return false on failure.
+        // write() and sync() return false on failure; propagate so a non-durable checkpoint can't
+        // report success.
         if (!handle_->write(const_cast<database_header_t*>(&header), sizeof(header), slot)) {
             throw std::runtime_error("write_header: failed to write database header slot");
         }
@@ -321,9 +308,7 @@ namespace components::table::storage {
 
     void single_file_block_manager_t::file_sync() {
         if (handle_) {
-            // Propagate fsync failure: this is the checkpoint commit's durability barrier (called
-            // before and after the header swap). A discarded failure would let a non-durable
-            // checkpoint report success — "committed" must mean the bytes reached stable storage.
+            // Durability barrier for the checkpoint commit; propagate fsync failure.
             if (!handle_->sync()) {
                 throw std::runtime_error("file_sync: fsync failed (checkpoint not durable)");
             }

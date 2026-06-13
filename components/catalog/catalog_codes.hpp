@@ -32,7 +32,7 @@ namespace components::catalog {
         inline constexpr char in_memory = 'm'; // no persistence
     }                                          // namespace relstoragemode
 
-    // pg_class.relstorageformat (otterbrix-specific: user-facing storage contract)
+    // pg_class.relstorageformat (otterbrix-specific: requested storage format)
     namespace relstorageformat {
         inline constexpr std::string_view in_memory = "in_memory";
         inline constexpr std::string_view disk_auto = "disk_auto";

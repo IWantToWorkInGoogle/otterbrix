@@ -183,20 +183,10 @@ namespace components::storage {
                 row_ids_only ? build_row_id_only_scan_column_ids(filter) : build_scan_column_ids(projected_cols);
             auto total_row_groups = table_.row_group()->row_group_tree()->segment_count();
 
-            // Parallel scan is plumbed and MVCC-correct (the worker forwards `txn`
-            // into scan_row_group_batched, same visibility as the serial path). A
-            // thread-safety audit confirmed all per-scan state is thread-local
-            // (local table_scan_state + local block_cache), PAX layouts are
-            // immutable during scan, scan-path counters are atomic, and block
-            // pin/unpin + the eviction queue are lock-protected. The remaining
-            // hazard is the concurrent-eviction path under memory pressure; as long
-            // as the buffer pool holds the working set (no churn), parallel scan of
-            // distinct row groups is safe — including for transactional (txn != 0)
-            // reads, whose visibility the worker reproduces.
-            //
-            // Default behaviour stays serial for safety. Parallel scan is opt-in via
-            // OTTERBRIX_PARALLEL_SCAN and bounded by PARALLEL_SCAN_MAX_ROW_GROUPS so
-            // it only engages where the pool comfortably holds all row groups.
+            // Each worker scans distinct row groups with thread-local state and forwards txn,
+            // so visibility matches the serial path. Default is serial; parallel is opt-in via
+            // OTTERBRIX_PARALLEL_SCAN and capped so it only runs when the pool holds all row groups.
+            // Beware concurrent block eviction under memory pressure.
             static constexpr uint64_t PARALLEL_SCAN_MAX_ROW_GROUPS = 1024;
             const bool plain_committed_scan = txn.transaction_id == 0 && txn.start_time == 0;
             const bool parallel_scan_opt_in = std::getenv("OTTERBRIX_PARALLEL_SCAN") != nullptr;

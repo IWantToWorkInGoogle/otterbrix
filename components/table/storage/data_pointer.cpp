@@ -280,7 +280,7 @@ namespace components::table::storage {
             }
         }
 
-        // per-column validity-child pointers (COLUMNAR layout; empty for PAX / no-validity columns)
+        // per-column validity-child pointers; empty for PAX / columns without validity
         writer.write<uint32_t>(static_cast<uint32_t>(columnar_validity_pointers.size()));
         for (const auto& column_ptrs : columnar_validity_pointers) {
             writer.write<uint32_t>(static_cast<uint32_t>(column_ptrs.size()));

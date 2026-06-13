@@ -792,8 +792,7 @@ TEST_CASE("checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-fixed
         auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
         REQUIRE(loaded->column_count() == 1);
 
-        // Probe a scattered set, deliberately hitting page (256) and row-group (1024) boundaries
-        // and both null and non-null rows.
+        // Scattered probe hitting page (256) and row-group (1024) boundaries, null and non-null.
         const std::vector<uint64_t> probe = {0,   1,    6,    7,    8,    255,  256,  257,
                                              511, 512,  1023, 1024, 1025, 1791, 2047, 2048,
                                              2049, 2299, 2300, 2499};
@@ -832,8 +831,8 @@ TEST_CASE("checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-gener
     test_env_t env;
     constexpr uint64_t NUM_ROWS = 2500;
     meta_block_pointer_t table_pointer;
-    // Mixed fixed+string schema routes to PAX_GENERIC; exercises string_fetch_row (dict offset reads)
-    // and fixed fetch under the generic layout on a reopened table.
+    // Mixed fixed+string schema routes to PAX_GENERIC: exercises string and fixed fetch
+    // under the generic layout on a reopened table.
     const auto u_null = [](uint64_t r) { return (r % 7) == 0; };
     const auto s_null = [](uint64_t r) { return (r % 11) == 0; };
     const auto u_val = [](uint64_t r) { return static_cast<int32_t>(static_cast<uint32_t>(r) * 7u + 3u); };
@@ -933,16 +932,15 @@ TEST_CASE("checkpoint_load: column_segment rejects out-of-block-bounds data poin
     cleanup_test_file();
 
     test_env_t env;
-    // A real transient block (carries a block_manager so the segment can query block_size()).
+    // Transient block carries a block_manager so the segment can query block_size().
     auto block = env.buffer_manager.register_transient_memory(1024, DEFAULT_BLOCK_ALLOC_SIZE);
     const complex_logical_type t{logical_type::BIGINT};
 
-    // Valid: a small segment at offset 0 fits comfortably.
+    // A small segment at offset 0 fits.
     REQUIRE_NOTHROW(column_segment_t(block, t, 0, 0, INVALID_BLOCK, 0, 1024));
-    // A disk-derived segment_size larger than the block (corrupt-but-CRC-valid pointer) must throw at
-    // construction rather than letting later reads/writes slide off the fixed block buffer.
+    // A segment_size larger than the block must throw at construction, not slide off the buffer later.
     REQUIRE_THROWS_AS(column_segment_t(block, t, 0, 0, INVALID_BLOCK, 0, uint64_t(1) << 30), std::logic_error);
-    // A disk-derived offset past the block must also throw.
+    // An offset past the block must also throw.
     REQUIRE_THROWS_AS(column_segment_t(block, t, 0, 0, INVALID_BLOCK, uint64_t(1) << 30, 64), std::logic_error);
 
     cleanup_test_file();
@@ -1935,14 +1933,9 @@ TEST_CASE("checkpoint_load: pax generic string scan preserves null validity acro
     cleanup_test_file();
 }
 
-// Scale / pool-pressure round-trip invariant: load many row groups under a small
-// buffer pool, checkpoint, reopen in a fresh block manager, and verify EVERY row
-// (value AND null mask) comes back exactly — not a fingerprint. This is the guard
-// for the silent-truncation class: the old full-block transient-segment allocation
-// exhausted the pool at ~16 row groups here and the load was truncated; the
-// right-sized DATA+VALIDITY segments keep the whole table. Deliberately uses a 16 MB
-// pool + 256 KB blocks so the regression manifests at a few-thousand rows (fast),
-// instead of needing ~540k rows at production pool sizes.
+// Load many row groups under a small buffer pool, checkpoint, reopen in a fresh block
+// manager, and verify every row (value and null mask) comes back exactly. Small pool +
+// blocks make pool-pressure truncation reproduce at a few thousand rows.
 TEST_CASE("checkpoint_load: pax fixed round-trip preserves every row and null mask under buffer-pool pressure") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -1950,15 +1943,13 @@ TEST_CASE("checkpoint_load: pax fixed round-trip preserves every row and null ma
     using namespace components::vector;
     cleanup_test_file();
 
-    // Independent, deliberately small buffer pool (16 MB) + small blocks (256 KB).
+    // Independent small buffer pool (16 MB) + small blocks (256 KB).
     std::pmr::synchronized_pool_resource resource;
     core::filesystem::local_file_system_t fs;
     buffer_pool_t pool(&resource, uint64_t(16) << 20, false, uint64_t(1) << 24);
     standard_buffer_manager_t buffer_manager(&resource, fs, pool);
     constexpr uint64_t BLOCK_ALLOC = uint64_t(256) << 10;
 
-    // ~39 row groups (DEFAULT_VECTOR_CAPACITY rows each). Under the old whole-block
-    // reservation that is ~39 MB of transient segments — well past the 16 MB pool.
     constexpr uint64_t NUM_ROWS = 40000;
     const auto path = test_db_path();
     std::remove(path.c_str());
@@ -2333,8 +2324,7 @@ TEST_CASE("checkpoint_load: columnar layout refuses to persist a nested column (
 
     single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
     bm.create_new_database();
-    // COLUMNAR layout forces the struct onto the columnar checkpoint, which does not persist child
-    // columns — it must refuse (throw) rather than silently drop the children and corrupt on reopen.
+    // COLUMNAR checkpoint can't persist struct child columns, so it must throw rather than drop them.
     bm.set_layout_policy(row_group_layout_policy::COLUMNAR_ONLY);
 
     std::vector<column_definition_t> columns;
@@ -5128,10 +5118,8 @@ TEST_CASE("checkpoint_load: pax fixed projected scan survives append after check
     cleanup_test_file();
 }
 
-// Corruption-detection tier: a data block whose on-disk CRC32c no longer matches must be
-// rejected on reopen, not silently scanned. Before the read_blocks checksum fix, PAX data
-// blocks were loaded via the prefetch/batch path with no verification, so a flipped byte
-// produced wrong query results instead of an error. Metadata blocks were always verified.
+// A data block whose on-disk CRC32c no longer matches must be rejected on reopen, not scanned
+// (the prefetch/batch read path also has to verify, not just metadata blocks).
 TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact slot or throws") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -5143,7 +5131,7 @@ TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact sl
     const auto table_path = test_db_path() + ".hdr_fault";
     std::remove(table_path.c_str());
 
-    // Phase 1: build + checkpoint. write_header stamps BOTH header slots with valid checksums.
+    // Phase 1: build + checkpoint. write_header stamps both header slots with valid checksums.
     {
         test_env_t env;
         single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
@@ -5164,8 +5152,7 @@ TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact sl
         bm.file_sync();
     }
 
-    // Flip a byte inside the checksummed region (the meta_block field) of a header slot, so its
-    // stored checksum no longer matches AND its meta_block would be garbage if wrongly trusted.
+    // Flip a byte in the checksummed meta_block field of a header slot so its stored checksum no longer matches.
     const auto corrupt_header_slot = [&](uint64_t slot_offset) {
         std::fstream f(table_path, std::ios::in | std::ios::out | std::ios::binary);
         REQUIRE(f.is_open());
@@ -5181,8 +5168,7 @@ TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact sl
         REQUIRE(f.good());
     };
 
-    // Phase 2: corrupt ONE slot — reopen must reject it (checksum) and recover from the intact slot,
-    // reading the table back correctly via the header's (valid-slot) meta_block.
+    // Phase 2: corrupt one slot. Reopen must reject it on checksum and recover from the intact slot.
     corrupt_header_slot(SECTOR_SIZE);
     {
         test_env_t env;
@@ -5203,7 +5189,7 @@ TEST_CASE("checkpoint_load: torn/corrupt database header recovers from intact sl
         REQUIRE(scanned == ROWS);
     }
 
-    // Phase 3: corrupt the OTHER slot too — both invalid → load must throw, never silently proceed.
+    // Phase 3: corrupt the other slot too. Both invalid, so load must throw.
     corrupt_header_slot(2 * SECTOR_SIZE);
     {
         test_env_t env;
@@ -5222,7 +5208,7 @@ TEST_CASE("checkpoint_load: corrupted pax data block is detected on reopen scan"
     using namespace components::vector;
     cleanup_test_file();
 
-    constexpr uint64_t ROWS = 4096; // several row groups → real persisted PAX data blocks
+    constexpr uint64_t ROWS = 4096; // several row groups, so real persisted PAX data blocks
     const auto table_path = test_db_path() + ".pax_corrupt_detect";
     std::remove(table_path.c_str());
     meta_block_pointer_t table_pointer;
@@ -5300,9 +5286,8 @@ TEST_CASE("checkpoint_load: corrupted pax data block is detected on reopen scan"
         REQUIRE(f.good());
     }
 
-    // Phase 4: reopen with a fresh buffer pool and scan. Metadata reopen succeeds (metadata
-    // blocks are intact); the corrupted data block must raise a checksum mismatch when the scan
-    // loads it — never silently return wrong values.
+    // Phase 4: reopen and scan. Metadata is intact so reopen succeeds; the corrupted data block
+    // must raise a checksum mismatch when the scan loads it.
     {
         test_env_t env;
         single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
@@ -5336,11 +5321,9 @@ TEST_CASE("checkpoint_load: corrupted pax data block is detected on reopen scan"
     cleanup_test_file();
 }
 
-// Durability tier: a checkpoint that is interrupted *before* the header swap (data + metadata
-// blocks written and fsynced, but the new header never committed — i.e. a crash between the two
-// fsyncs of table_storage_t::checkpoint) must leave the previously committed state intact and
-// reopenable. The double-header swap is the atomic commit point; an un-swapped header still
-// points at the prior meta_block, so the orphaned new blocks are invisible — never torn state.
+// A checkpoint interrupted before the header swap (new data/metadata blocks written and fsynced,
+// header never committed) must leave the prior committed state intact and reopenable. The header
+// swap is the atomic commit point; an un-swapped header still points at the prior meta_block.
 TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves prior state") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -5353,7 +5336,7 @@ TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves 
     const auto table_path = test_db_path() + ".pax_durability";
     std::remove(table_path.c_str());
 
-    // Production-style commit: persist data/metadata, fsync, swap header, fsync.
+    // Commit: persist data/metadata, fsync, swap header, fsync.
     const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
         metadata_manager_t meta_mgr(bm);
         metadata_writer_t writer(meta_mgr);
@@ -5369,8 +5352,7 @@ TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves 
         bm.file_sync();
     };
 
-    // Reopen through the on-disk header's meta_block (the real recovery path, not an explicit
-    // pointer) and scan, asserting exactly `expected` rows with value == row*3.
+    // Reopen through the on-disk header's meta_block and scan, asserting `expected` rows with value == row*3.
     const auto reopen_and_count = [](test_env_t& env, const std::string& path, uint64_t expected) {
         single_file_block_manager_t bm(env.buffer_manager, env.fs, path);
         bm.load_existing_database();
@@ -5421,8 +5403,8 @@ TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves 
         commit(bm, *table);
     }
 
-    // Phase 2: reopen, append V2_EXTRA, persist+fsync the new data/metadata — but DO NOT swap the
-    // header. This is exactly the on-disk state after a crash between checkpoint's two fsyncs.
+    // Phase 2: reopen, append V2_EXTRA, persist+fsync the new data/metadata, but do not swap the
+    // header (the on-disk state after a crash between checkpoint's two fsyncs).
     {
         test_env_t env;
         single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
@@ -5449,7 +5431,7 @@ TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves 
         // crash here: header is never written, so the on-disk header still points at V1's meta_block.
     }
 
-    // Phase 3: reopen with a fresh pool via the header — must observe exactly the committed V1.
+    // Phase 3: reopen with a fresh pool via the header. Must observe exactly the committed V1.
     {
         test_env_t env;
         reopen_and_count(env, table_path, V1_ROWS);
@@ -5459,13 +5441,10 @@ TEST_CASE("checkpoint_load: interrupted checkpoint before header swap preserves 
     cleanup_test_file();
 }
 
-// Minimal repro distilled from the fuzzer (trial 13): a single UINTEGER column, 111 rows
-// persisted via PAX, cold-reopened, then 205 more appended into the SAME (still sub-1024) row
-// group. The hybrid row group (PAX prefix + transient suffix) is scanned via the regular path.
-// Regression guard for the append-after-reopen VALUE corruption (FIXED): appending raw values
-// into a reopened DICTIONARY-compressed column segment, then scanning, decoded the raw bytes back
-// through the dictionary codec and returned garbage for the appended rows. Fixed by rolling the
-// append onto a fresh uncompressed segment (column_data_t::initialize_append).
+// Single UINTEGER column, persisted via PAX, cold-reopened, then more rows appended into the same
+// sub-1024 row group, scanned via the regular path. Appending raw values into a reopened
+// dictionary-compressed segment used to decode back as garbage; the append must roll onto a fresh
+// uncompressed segment instead.
 TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -5492,7 +5471,7 @@ TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") 
 
     const auto val = [](uint64_t row) { return static_cast<uint32_t>(row * 2654435761ull + 7ull); };
 
-    // with_nulls=false isolates a pure value bug from any validity interaction.
+    // Run without nulls first to isolate values from validity, then with nulls.
     for (bool with_nulls : {false, true}) {
         std::remove(table_path.c_str());
         constexpr uint64_t R1 = 111;
@@ -5588,23 +5567,13 @@ TEST_CASE("checkpoint_load: minimal repro single-rg append-after-reopen value") 
     cleanup_test_file();
 }
 
-// Differential round-trip fuzzer — CATALOG mode. The highest-ROI guard against *silent*
-// corruption (wrong value / wrong null bit, no error). It does NOT abort on the first divergence:
-// it runs many seeded random trials (random schema over the supported scalar + string types,
-// random nulls, random row counts across row-group/page boundaries, append → cold-reopen →
-// append-after-reopen → cold-reopen → scan, with random DELETEs and UPDATEs interleaved at every
-// append/reopen point and mirrored into the oracle), and for every mismatch records a *signature*
-// (layout / type / nullable / committed-vs-appended region / del / upd / symptom). Each trial picks a
-// layout: PAX_ONLY (~2/3) or COLUMNAR_ONLY (~1/3); UPDATE is gated to PAX because columnar checkpoint
-// drops the update_segment overlay on reopen (a separate, still-open bug). At the end it prints the distinct
-// bug classes with counts and an example seed for a deterministic repro, then asserts clean.
-// Crank trials with FUZZ_TRIALS=N. To deterministically repro one catalog seed, run with
-// FUZZ_ONLY_SEED=<seed> (executes exactly that one trial). This is a HARD guard — every class it
-// ever surfaced is fixed: (1) append-after-reopen VALUE corruption via dictionary-segment append;
-// (2) committed-prefix NULLs dropped at checkpoint because count_valid() over-counted the final
-// partial validity entry and tripped the all-valid fast path; (3) appended rows reading back as
-// spurious NULLs because the append landed in a reopened (persisted) validity segment whose tail
-// bits past the persisted page were stale. Verified clean to FUZZ_TRIALS=5000.
+// Differential round-trip fuzzer (catalog mode). Catches silent corruption (wrong value or null
+// bit, no error). Runs seeded random trials (random schema, nulls, row counts across row-group/page
+// boundaries; append -> cold-reopen -> append-after-reopen -> cold-reopen -> scan, with random
+// DELETEs/UPDATEs mirrored into an oracle), collects a signature per mismatch instead of aborting on
+// the first, and asserts clean at the end. Each trial picks PAX_ONLY or COLUMNAR_ONLY; UPDATE is
+// gated to PAX because the columnar checkpoint drops the update_segment overlay on reopen (separate
+// open bug). Set FUZZ_TRIALS=N for more trials; FUZZ_ONLY_SEED=<seed> runs exactly that one trial.
 TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reopen == oracle)") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -5798,10 +5767,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
         }
     };
 
-    // Oracle for a constant_filter on an integer column. The engine evaluates
-    // comparator(column_value, predicate) and a NULL column value always fails the filter
-    // (column_segment filter_selection: (!HAS_NULL || row_is_valid) && comparator(vec[i], predicate)).
-    // Filters are restricted to integer types so the comparison is exact (no float epsilon / string).
+    // Oracle for a constant_filter on an integer column: comparator(column_value, predicate), with a
+    // NULL column value always failing the filter. Integer-only so the comparison is exact.
     const auto cmp_apply = [](components::expressions::compare_type c, auto x, auto y) -> bool {
         using ct = components::expressions::compare_type;
         switch (c) {
@@ -5858,8 +5825,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
 
     const uint64_t seed_base = 12648430ull;
     const uint64_t seed_mult = 2654435761ull;
-    // FUZZ_ONLY_SEED=<seed> runs exactly one trial with that seed — turns a catalog "example seed"
-    // into a deterministic single-trial repro without searching for its trial index.
+    // FUZZ_ONLY_SEED=<seed> runs exactly one trial with that seed (deterministic repro).
     const char* only_seed_env = std::getenv("FUZZ_ONLY_SEED");
     const bool single = only_seed_env != nullptr;
     const uint64_t only_seed = single ? std::strtoull(only_seed_env, nullptr, 10) : 0;
@@ -5887,8 +5853,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
         std::set<uint64_t> deleted_rows; // rows removed via DELETE — excluded from the visible oracle
         bool had_update = false;         // whether any UPDATE was applied this trial (signature tag)
         const bool do_mid_reopen = (rng() & 1u) != 0; // distinguish reopen-append from plain append
-        // Exercise BOTH on-disk layouts: PAX (page-packed validity) and COLUMNAR (validity persisted
-        // as a child column). Both must round-trip values + null bits identically. ~1/3 columnar.
+        // Exercise both on-disk layouts (PAX and COLUMNAR); both must round-trip values + null bits.
         const bool use_columnar = (rng() % 3) == 0;
         const auto layout_policy =
             use_columnar ? row_group_layout_policy::COLUMNAR_ONLY : row_group_layout_policy::PAX_ONLY;
@@ -5923,9 +5888,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             }
         };
 
-        // Apply random DELETEs and UPDATEs to the live table, mirroring each into the oracle (updated
-        // cell value / deleted-row set). Called at every append/reopen point so the checkpoint +
-        // cold-reopen path is differentially verified for mutations, not only appends.
+        // Apply random DELETEs and UPDATEs to the live table, mirroring each into the oracle.
+        // Called at every append/reopen point so mutations are verified across the reopen too.
         const auto mutate = [&](data_table_t& table, std::pmr::memory_resource* res) {
             if (total == 0) {
                 return;
@@ -5947,12 +5911,9 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 return std::vector<uint64_t>(picks.begin(), picks.end());
             };
 
-            // UPDATE a random column on a random subset of live rows (~half the mutation points).
-            // Gated to PAX: the COLUMNAR checkpoint flushes base data segments directly and drops the
-            // update_segment overlay (it does not re-materialize merged values the way PAX does via
-            // scan_committed_range), so columnar UPDATEs are lost on reopen — a separate pre-existing
-            // bug tracked apart from this columnar-validity fix. The coin is always drawn so the RNG
-            // stream stays stable across layouts.
+            // UPDATE a random column on a random subset of live rows. Gated to PAX: the columnar
+            // checkpoint drops the update_segment overlay on reopen (separate open bug). The coin is
+            // still drawn either way so the RNG stream stays stable across layouts.
             const bool do_update = (rng() & 1u) != 0;
             if (do_update && !use_columnar) {
                 auto live = live_rows();
@@ -6069,9 +6030,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                 pcols.push_back(c);
             }
 
-            // ~half the trials (when an integer column exists) apply a random constant filter, which
-            // exercises the filtered/projected scan + PAX zone-map page pruning. The same predicate is
-            // applied to the oracle's visible set below.
+            // When an integer column exists, sometimes apply a random constant filter to exercise the
+            // filtered/projected scan and PAX zone-map pruning. The same predicate is applied to the oracle below.
             std::optional<constant_filter_t> filter;
             uint64_t filter_col = 0;
             components::expressions::compare_type filter_cmp = components::expressions::compare_type::eq;
@@ -6084,9 +6044,7 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
                         filterable.push_back(c);
                     }
                 }
-                // Gated to PAX: columnar filtered scans currently disagree with the oracle (wrong row
-                // count + values) — a separate columnar bug tracked apart from PAX. PAX filtered scans
-                // (incl. zone-map page pruning) match the oracle exactly.
+                // Gated to PAX: columnar filtered scans currently disagree with the oracle (separate bug).
                 if (!use_columnar && !filterable.empty() && (rng() & 1u) != 0) {
                     filter_col = filterable[rng() % filterable.size()];
                     static const components::expressions::compare_type cmps[] = {
@@ -6108,9 +6066,8 @@ TEST_CASE("checkpoint_load: differential round-trip fuzzer catalog (pax cold-reo
             loaded->initialize_scan(state, idx, has_filter ? &*filter : nullptr);
             data_chunk_t result(&env.resource, loaded->copy_types(), pcols, DEFAULT_VECTOR_CAPACITY);
 
-            // The scan returns surviving rows in ascending row-id order; map the k-th scanned row to
-            // the k-th non-deleted original row that also satisfies the filter, so the oracle lookup
-            // accounts for both DELETEs and the predicate.
+            // Scan returns surviving rows in ascending row-id order, so the k-th scanned row maps to
+            // the k-th non-deleted original row that also satisfies the filter.
             std::vector<uint64_t> visible;
             visible.reserve(total);
             for (uint64_t r = 0; r < total; r++) {
@@ -6320,10 +6277,9 @@ TEST_CASE("checkpoint_load: pax fixed projected scan decodes value encodings") {
     cleanup_test_file();
 }
 
-// Forces decode windows with page_row_offset > 0: rows_per_page (100) does not divide
-// DEFAULT_VECTOR_CAPACITY, so a scan batch boundary cuts through a page and the next batch
-// decodes that page from a non-zero in-page offset. Exercises the windowed (offset>0) path of
-// the CONSTANT/RLE/DICTIONARY/UNCOMPRESSED decoders across all four columns.
+// rows_per_page (100) does not divide DEFAULT_VECTOR_CAPACITY, so a batch boundary cuts through a
+// page and the next batch decodes it from a non-zero in-page offset. Exercises the windowed
+// (offset>0) decode path for CONSTANT/RLE/DICTIONARY/UNCOMPRESSED columns.
 TEST_CASE("checkpoint_load: pax fixed projected scan decodes value encodings across page-split windows") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -7269,12 +7225,10 @@ TEST_CASE("checkpoint_load: pax fixed projected scan preserves null validity") {
     cleanup_test_file();
 }
 
-// Regression guard for the per-scan decode-buffer reuse: a column buffer is reused across pages
-// within a single filtered batch, so a page with cleared validity bits must not leak nulls into a
-// later all-valid page. rows_per_page=64 with 256 rows gives 4 pages in one batch; the nullable
-// projected column is ALL_INVALID on page 0, ALL_VALID on page 1, BITMASK on page 2, ALL_VALID on
-// page 3. A filter (id >= 0) selects every row, forcing the filtered per-page path. Without
-// resetting validity on buffer hand-out, page 1/3 rows would wrongly read as null.
+// A column buffer is reused across pages within a filtered batch, so a page with cleared validity
+// bits must not leak nulls into a later all-valid page. 4 pages in one batch with the nullable
+// column ALL_INVALID/ALL_VALID/BITMASK/ALL_VALID; a filter (id >= 0) selects every row to force the
+// per-page path. The buffer's validity has to be reset on hand-out or pages 1/3 read as null.
 TEST_CASE("checkpoint_load: pax fixed projected scan resets reused buffer validity across pages") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -7337,8 +7291,7 @@ TEST_CASE("checkpoint_load: pax fixed projected scan resets reused buffer validi
         metadata_reader_t reader(meta_mgr, table_pointer);
         auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
 
-        // Project both the filter column (copied from the reused filter buffer) and the nullable
-        // payload column (decoded into a reused scratch buffer) to exercise both reuse paths.
+        // Project both the filter column and the nullable payload column to exercise both reuse paths.
         std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
         std::vector<size_t> projected_cols{0, 1};
 
@@ -7377,11 +7330,9 @@ TEST_CASE("checkpoint_load: pax fixed projected scan resets reused buffer validi
     cleanup_test_file();
 }
 
-// Locks in that multi-column AND page pruning actually fires: a two-column conjunction
-// (a >= 200 AND b < 1000000) where column `a`'s per-page min/max excludes whole pages. With two
-// distinct filter columns the scan takes the filter-tree statistics path (not the single-column
-// fast branch), so this guards that path against regressions. rows_per_page=64 over 256 rows gives
-// 4 pages; pages 0..2 (a max 63/127/191) are prunable, page 3 (192..255) is scanned.
+// Multi-column AND page pruning: a two-column conjunction (a >= 200 AND b < 1000000) where column
+// `a`'s per-page min/max excludes whole pages. Two distinct filter columns take the filter-tree
+// statistics path rather than the single-column fast branch. 4 pages; pages 0..2 prune, page 3 scans.
 TEST_CASE("checkpoint_load: pax fixed projected scan prunes pages on multi-column AND filter") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -8115,16 +8066,13 @@ TEST_CASE("checkpoint_load: small segment — 2 rows edge case") {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Commit-path fault injection (durability). The two tests below inject real I/O failures (EIO)
-// through the POSIX fsync/pwrite test hooks to prove that a checkpoint which cannot be made
-// durable FAILS CLOSED — it throws, and the prior committed state survives intact (the header is
-// never swapped, so orphaned blocks stay invisible). Without these, a failed sync/write at commit
-// could be swallowed and a non-durable checkpoint would falsely report success.
+// Commit-path fault injection. The two tests below inject EIO via the POSIX fsync/pwrite hooks: a
+// checkpoint that can't be made durable must throw, and the prior committed state must survive
+// (header never swapped).
 #if defined(DEV_MODE) && defined(PLATFORM_POSIX)
 namespace {
-    // Capture-less function-pointer hooks can't hold per-test state, so it lives at TU scope. The
-    // RAII guard clears the hooks on scope exit (incl. when a REQUIRE/throw unwinds), so an injected
-    // fault never leaks into a later test. Catch2 runs test cases serially within a binary.
+    // Hooks are capture-less function pointers, so the state lives at TU scope. The RAII guard
+    // clears it on scope exit (including on a REQUIRE/throw unwind) so a fault can't leak into a later test.
     bool g_fault_fsync_fail = false;                          // every fsync fails with EIO
     uint64_t g_fault_pwrite_fail_at_or_above = UINT64_MAX;    // fail pwrites whose offset >= this
 
@@ -8169,7 +8117,7 @@ TEST_CASE("checkpoint_load: fsync failure during checkpoint aborts commit and pr
 
     fault_injection_guard_t guard;
 
-    // Production-style commit: persist data/metadata, fsync, swap header, fsync.
+    // Commit: persist data/metadata, fsync, swap header, fsync.
     const auto commit = [](single_file_block_manager_t& bm, data_table_t& table) {
         metadata_manager_t meta_mgr(bm);
         metadata_writer_t writer(meta_mgr);
@@ -8257,7 +8205,7 @@ TEST_CASE("checkpoint_load: fsync failure during checkpoint aborts commit and pr
         core::filesystem::testing::set_posix_fsync_hook(nullptr);
     }
 
-    // Phase 3: reopen via the on-disk header — must observe exactly the committed V1.
+    // Phase 3: reopen via the on-disk header. Must observe exactly the committed V1.
     {
         test_env_t env;
         reopen_and_count(env, table_path, V1_ROWS);
@@ -8345,9 +8293,8 @@ TEST_CASE("checkpoint_load: block-write failure during checkpoint aborts commit 
     }
 
     // Phase 2: reopen, append V2, attempt commit while every data/metadata block write (offset >=
-    // BLOCK_START, leaving the header slots writable) fails with EIO. checksum_and_write must throw
-    // (not silently swallow the failed write); the header is never swapped. This is the regression
-    // guard for the swallowed-write durability fix.
+    // BLOCK_START, header slots still writable) fails with EIO. checksum_and_write must throw rather
+    // than swallow the failed write; the header is never swapped.
     {
         test_env_t env;
         single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
@@ -8370,7 +8317,7 @@ TEST_CASE("checkpoint_load: block-write failure during checkpoint aborts commit 
         core::filesystem::testing::set_posix_pwrite_hook(nullptr);
     }
 
-    // Phase 3: reopen via the on-disk header — must observe exactly the committed V1.
+    // Phase 3: reopen via the on-disk header. Must observe exactly the committed V1.
     {
         test_env_t env;
         reopen_and_count(env, table_path, V1_ROWS);
@@ -8381,10 +8328,9 @@ TEST_CASE("checkpoint_load: block-write failure during checkpoint aborts commit 
 }
 #endif // DEV_MODE && PLATFORM_POSIX
 
-// Corruption tier (metadata): the existing torn-block test corrupts a PAX *data* block; this one
-// corrupts the *metadata* block (the row-group-pointer tree — the index to everything). A flipped
-// payload byte invalidates its CRC32c, so reopening and rebuilding the table from disk must raise a
-// checksum mismatch rather than walking a corrupt pointer tree.
+// Corrupt the metadata block (the row-group-pointer tree). A flipped payload byte invalidates its
+// CRC32c, so reopening and rebuilding the table must raise a checksum mismatch rather than walk a
+// corrupt pointer tree.
 TEST_CASE("checkpoint_load: corrupted metadata block is detected on reopen") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -8446,18 +8392,18 @@ TEST_CASE("checkpoint_load: corrupted metadata block is detected on reopen") {
         REQUIRE(f.good());
     }
 
-    // Phase 3: reopen. The header is intact, so load_existing_database succeeds, but rebuilding the
-    // table walks the corrupted metadata block — which must raise a checksum mismatch, never garbage.
+    // Phase 3: reopen. The header is intact so load succeeds, but rebuilding the table walks the
+    // corrupted metadata block, which must raise a checksum mismatch.
     {
         test_env_t env;
         single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
-        bm.load_existing_database(); // header intact → succeeds
+        bm.load_existing_database(); // header intact, so this succeeds
         metadata_manager_t meta_mgr(bm);
 
         bool threw = false;
         try {
-            // The reader's ctor pins (reads + CRC-verifies) the first metadata block, so the mismatch
-            // may surface here rather than in load_from_disk — keep both inside the try.
+            // The reader ctor CRC-verifies the first metadata block, so the mismatch may surface here
+            // rather than in load_from_disk; keep both inside the try.
             metadata_reader_t reader(meta_mgr, meta_ptr);
             auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
             // If the metadata block were read lazily, force it by scanning.
@@ -8484,12 +8430,10 @@ TEST_CASE("checkpoint_load: corrupted metadata block is detected on reopen") {
     cleanup_test_file();
 }
 
-// Robustness tier: the per-block CRC32c proves on-disk bytes are intact, NOT that a block_pointer
-// offset decoded from them is in range. A write-path bug (or hostile file) could leave a CRC-valid
-// metadata pointer whose data offset points past the block. The PAX scan decode path must fail closed
-// on such an offset, not slide an OOB read off the pinned block. We simulate that exact state by
-// corrupting the loaded in-memory layout's data offset (bypassing the metadata CRC, which would
-// otherwise reject any on-disk edit) and then scanning.
+// The per-block CRC32c proves bytes are intact, not that a decoded block_pointer offset is in range.
+// A bug or hostile file could leave a CRC-valid metadata pointer whose data offset points past the
+// block; the PAX scan decode path must throw on it, not read OOB. Simulate by corrupting the loaded
+// in-memory layout's data offset (bypassing the metadata CRC) and then scanning.
 TEST_CASE("checkpoint_load: out-of-bounds pax data offset fails closed on scan") {
     using namespace components::table;
     using namespace components::table::storage;
@@ -8536,7 +8480,7 @@ TEST_CASE("checkpoint_load: out-of-bounds pax data offset fails closed on scan")
         std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
         std::vector<size_t> projected_cols{0, 1};
 
-        // Baseline: an unmodified projected scan succeeds (proves the corruption below is what trips it).
+        // Baseline: an unmodified projected scan succeeds.
         {
             table_scan_state state(&env.resource);
             loaded->initialize_scan(state, projected_indices, nullptr);

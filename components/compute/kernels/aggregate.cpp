@@ -391,12 +391,8 @@ namespace {
 
     logical_value_t sum(const vector_t& v, size_t count) { return operator_switch<sum_operator_t>(v, count); }
 
-    // MIN/MAX over string columns: operator_switch only dispatches numeric
-    // physical types, so strings (logical_type::STRING / STRING_LITERAL) fall
-    // through to its throwing default. MIN/MAX on strings is well-defined
-    // (lexicographic), and ClickBench relies on it (e.g. MIN(URL), MIN(EventDate)).
-    // Handle it here without touching the shared switch (SUM on strings stays
-    // unsupported, as it should).
+    // operator_switch only dispatches numeric physical types, so handle string
+    // MIN/MAX (lexicographic) separately. SUM on strings stays unsupported.
     inline bool aggregate_is_string_type(const vector_t& v) {
         return v.type().to_physical_type() == physical_type::STRING;
     }

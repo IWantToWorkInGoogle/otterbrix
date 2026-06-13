@@ -173,8 +173,7 @@ TEST_CASE("components::sql::join") {
         // Column ambiguity case: both tables carry `id`. The unqualified
         // `id` on the WHERE LHS still parses through the transformer; the
         // validator later resolves it against the merged join schema.
-        // Transformer output keeps the unqualified side bare and preserves
-        // the explicit right table qualifier.
+        // Output keeps the LHS bare and the qualified RHS as written.
         TEST_JOIN(
             R"_(select * from col1, col2 where id = col2.id;)_",
             R"_($aggregate: {$join: {$type: cross, $aggregate: {}, $aggregate: {}, $all_true}, $match: {"id": {$eq: "col2/id"}}})_",

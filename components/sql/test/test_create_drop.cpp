@@ -121,11 +121,7 @@ TEST_CASE("components::sql::table") {
     }
 
     SECTION("using pax accepts mixed root schema") {
-        // PAX supports mixing fixed-width and generic (string/nested) root
-        // columns: at checkpoint the fixed-width columns are promoted into the
-        // PAX_GENERIC layout (see supports_explicit_pax_schema / the row_group
-        // checkpoint writer). The DDL transformer therefore accepts the mix and
-        // records it as a PAX disk table.
+        // PAX allows mixing fixed-width and string/nested root columns.
         auto stmt = linitial(
             raw_parser(&arena_resource, "CREATE TABLE table_name(name string, count bigint) WITH(storage='disk') USING PAX"));
         auto result = transformer.transform(pg_cell_to_node_cast(stmt)).finalize();

@@ -151,11 +151,9 @@ namespace components::table {
         void initialize_column_validity(const persistent_column_data_t& persistent_data);
 
     protected:
-        // requested_size: exact byte size for the new transient segment. 0 (default) keeps
-        // the historical behaviour (a whole block, or DEFAULT_VECTOR_CAPACITY*type_size for
-        // the MAX_ROW_ID marker). Callers that know the real payload — e.g. validity, which
-        // only needs validity_mask_size(tuple_count) bytes — pass it to avoid reserving a
-        // full block per page.
+        // requested_size: exact byte size for the new segment; 0 defaults to a whole block
+        // (or DEFAULT_VECTOR_CAPACITY*type_size for the MAX_ROW_ID marker). Pass the real
+        // payload size (e.g. validity) to avoid reserving a full block per page.
         void apend_transient_segment(std::unique_lock<std::mutex>& l, int64_t start_row, uint64_t requested_size = 0);
 
         uint64_t

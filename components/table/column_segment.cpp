@@ -228,9 +228,8 @@ namespace components::table {
             memcpy(result.data() + result_idx * sizeof(T), data_ptr, sizeof(T));
         }
 
-        // Read a single validity bit (1 = valid, matching validity_mask_t::row_is_valid) from a
-        // packed mask at `mask_ptr` via a memcpy load, so it is safe regardless of mask_ptr
-        // alignment — a misaligned uint64 dereference is UB and faults on stricter targets (ARM).
+        // Read one validity bit (1 = valid) from the packed mask. Uses a memcpy load so an
+        // unaligned mask_ptr is safe.
         inline bool validity_bit(std::byte* mask_ptr, uint64_t index) {
             const uint64_t entry =
                 load<uint64_t>(mask_ptr + (index / vector::validity_mask_t::BITS_PER_VALUE) * sizeof(uint64_t));
@@ -260,9 +259,8 @@ namespace components::table {
 
             auto baseptr = handle.ptr() + segment.block_offset();
             auto dict = dictionary(segment, handle);
-            // The dictionary offset array sits at baseptr + DICTIONARY_HEADER_SIZE. block_offset() is
-            // not int32-aligned for shared-block / disk-loaded segments, so read each offset with a
-            // memcpy load instead of dereferencing reinterpret_cast<int32_t*> (UB; ARM-unsafe).
+            // Offset array follows the header. block_offset() may not be int32-aligned, so read
+            // each offset with a memcpy load rather than a typed dereference.
             auto* offsets = baseptr + DICTIONARY_HEADER_SIZE;
             auto result_data = result.data<std::string_view>();
 
@@ -306,8 +304,7 @@ namespace components::table {
 
             auto baseptr = handle.ptr() + segment.block_offset();
             auto dict = dictionary(segment, handle);
-            // See string_fetch_row: read int32 dict offsets with memcpy loads, not a misaligned
-            // reinterpret_cast<int32_t*> at the (possibly unaligned) block_offset().
+            // Read dict offsets with memcpy loads; block_offset() may be unaligned (see string_fetch_row).
             auto* offsets = baseptr + DICTIONARY_HEADER_SIZE;
 
             auto dict_offset = load<int32_t>(offsets + static_cast<uint64_t>(row_id) * sizeof(int32_t));
@@ -394,14 +391,9 @@ namespace components::table {
                                  uint64_t vcount) {
             assert(segment.block_offset() == 0);
 
-            // Rows the segment's mask buffer can hold = bytes * 8 (one bit per row). Written as
-            // size * CAPACITY / MASK_SIZE so it tracks the segment sizing convention, but the
-            // multiply MUST come before the divide: a right-sized loaded segment can be smaller
-            // than STANDARD_MASK_SIZE (e.g. 16 B for a reopened 100-row partial row group), and
-            // `size / MASK_SIZE` then truncates to 0. With max_tuples == 0, `max_tuples - count`
-            // underflows and the std::min no longer bounds the append, so it overruns the buffer
-            // instead of rolling over to a fresh segment — corrupting the null mask of the rows
-            // past the buffer (the append-after-reopen bug).
+            // Rows the mask buffer can hold (one bit per row). Multiply before dividing: a segment
+            // smaller than STANDARD_MASK_SIZE would truncate to 0, underflowing max_tuples - count
+            // and overrunning the buffer instead of rolling to a fresh segment.
             auto max_tuples =
                 segment.segment_size() * vector::DEFAULT_VECTOR_CAPACITY / vector::validity_mask_t::STANDARD_MASK_SIZE;
             uint64_t append_count = std::min(vcount, max_tuples - segment.count);
@@ -794,9 +786,7 @@ namespace components::table {
             auto start = segment.relative_index(state.row_index);
 
             auto& result_mask = result.validity();
-            // Read mask words with memcpy loads rather than dereferencing reinterpret_cast<uint64_t*>:
-            // validity segments are block-aligned today (block_offset()==0), but a misaligned typed
-            // load is UB and faults on stricter targets (ARM). load<> compiles to a plain mov on x86.
+            // Read mask words with memcpy loads; a misaligned typed load would be UB.
             auto buffer_ptr = state.scan_state->ptr() + segment.block_offset();
 
             auto result_data = result_mask.data();
@@ -865,7 +855,7 @@ namespace components::table {
             auto start = segment.relative_index(state.row_index);
             if (static_cast<uint64_t>(start) % vector::validity_mask_t::BITS_PER_VALUE == 0) {
                 auto& result_mask = result.validity();
-                // memcpy loads instead of reinterpret_cast<uint64_t*> — see validity_scan_partial.
+                // memcpy loads, see validity_scan_partial.
                 auto buffer_ptr = state.scan_state->ptr() + segment.block_offset();
                 auto result_data = result_mask.data();
                 uint64_t start_offset = static_cast<uint64_t>(start) / vector::validity_mask_t::BITS_PER_VALUE;
@@ -937,10 +927,8 @@ namespace components::table {
         , offset_(offset)
         , segment_size_(segment_size)
         , segment_statistics_(std::pmr::get_default_resource()) {
-        // Bound the segment against its physical block at construction. This is the broad net for
-        // every column/validity segment rebuilt from an on-disk data_pointer (a corrupt-but-CRC-valid
-        // offset_/segment_size_ would otherwise slide reads/writes off the fixed block buffer). A
-        // runtime throw, not the previous assert(), so it holds in release builds too.
+        // Reject a segment whose offset/size fall outside its block (e.g. rebuilt from a corrupt
+        // on-disk data_pointer). Throws rather than asserting so it holds in release builds.
         if (this->block) {
             const uint64_t block_size = block_manager().block_size();
             if (offset_ > block_size || segment_size_ > block_size || offset_ + segment_size_ > block_size) {
