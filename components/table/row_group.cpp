@@ -3020,9 +3020,20 @@ namespace {
 
                     auto& overflow_handle =
                         get_or_pin_pax_generic_block(row_group, overflow_block_id, block_cache);
-                    auto* overflow_ptr = overflow_handle.ptr() + static_cast<uint64_t>(overflow_offset);
+                    const uint64_t overflow_bs = row_group.block_manager().block_size();
+                    const uint64_t overflow_pos = static_cast<uint64_t>(overflow_offset);
+                    // Bound the disk-derived overflow offset/length against the overflow block before
+                    // reading the length prefix and the string bytes (a corrupt-but-CRC-valid marker
+                    // would otherwise drive an OOB read past the overflow block buffer).
+                    if (overflow_pos + sizeof(uint32_t) > overflow_bs) {
+                        return false;
+                    }
+                    auto* overflow_ptr = overflow_handle.ptr() + overflow_pos;
                     uint32_t overflow_length = 0;
                     std::memcpy(&overflow_length, overflow_ptr, sizeof(uint32_t));
+                    if (overflow_pos + sizeof(uint32_t) + static_cast<uint64_t>(overflow_length) > overflow_bs) {
+                        return false;
+                    }
                     materialize_pax_generic_string(result,
                                                   target_index,
                                                   std::string_view(reinterpret_cast<char*>(overflow_ptr + sizeof(uint32_t)),
