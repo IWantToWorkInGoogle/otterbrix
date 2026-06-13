@@ -47,6 +47,10 @@ namespace components::table {
         pax_fixed_layout(const row_group_t& row_group) {
             return row_group.pax_fixed_layout_;
         }
+        static std::optional<storage::pax_fixed_row_group_layout_t>&
+        pax_fixed_layout_mutable(row_group_t& row_group) {
+            return row_group.pax_fixed_layout_;
+        }
         static uint64_t delete_pointer_count(const row_group_t& row_group) {
             return row_group.deletes_pointers_.size();
         }
@@ -8474,6 +8478,97 @@ TEST_CASE("checkpoint_load: corrupted metadata block is detected on reopen") {
             REQUIRE(std::string(e.what()).find("checksum") != std::string::npos);
         }
         REQUIRE(threw);
+    }
+
+    std::remove(table_path.c_str());
+    cleanup_test_file();
+}
+
+// Robustness tier: the per-block CRC32c proves on-disk bytes are intact, NOT that a block_pointer
+// offset decoded from them is in range. A write-path bug (or hostile file) could leave a CRC-valid
+// metadata pointer whose data offset points past the block. The PAX scan decode path must fail closed
+// on such an offset, not slide an OOB read off the pinned block. We simulate that exact state by
+// corrupting the loaded in-memory layout's data offset (bypassing the metadata CRC, which would
+// otherwise reject any on-disk edit) and then scanning.
+TEST_CASE("checkpoint_load: out-of-bounds pax data offset fails closed on scan") {
+    using namespace components::table;
+    using namespace components::table::storage;
+    using namespace components::types;
+    using namespace components::vector;
+    cleanup_test_file();
+
+    test_env_t env;
+    constexpr uint64_t NUM_ROWS = 1300;
+    const auto table_path = test_db_path() + ".pax_oob_offset";
+    std::remove(table_path.c_str());
+    meta_block_pointer_t table_pointer;
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.create_new_database();
+        bm.set_layout_policy(row_group_layout_policy::PAX_ONLY);
+        std::vector<column_definition_t> columns;
+        columns.emplace_back("id", logical_type::BIGINT);
+        columns.emplace_back("value", logical_type::UINTEGER);
+        auto table = std::make_unique<data_table_t>(&env.resource, bm, std::move(columns), "pax_oob");
+        append_fixed_integer_pair(*table,
+                                  &env.resource,
+                                  NUM_ROWS,
+                                  [](uint64_t row) { return static_cast<int64_t>(row); },
+                                  [](uint64_t row) { return static_cast<uint32_t>(row * 3); });
+        metadata_manager_t meta_mgr(bm);
+        metadata_writer_t writer(meta_mgr);
+        table->checkpoint(writer);
+        table_pointer = writer.get_block_pointer();
+        database_header_t header;
+        header.initialize();
+        bm.write_header(header);
+    }
+
+    {
+        single_file_block_manager_t bm(env.buffer_manager, env.fs, table_path);
+        bm.load_existing_database();
+        const uint64_t block_size = bm.block_size();
+        metadata_manager_t meta_mgr(bm);
+        metadata_reader_t reader(meta_mgr, table_pointer);
+        auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
+
+        std::vector<storage_index_t> projected_indices{storage_index_t(0), storage_index_t(1)};
+        std::vector<size_t> projected_cols{0, 1};
+
+        // Baseline: an unmodified projected scan succeeds (proves the corruption below is what trips it).
+        {
+            table_scan_state state(&env.resource);
+            loaded->initialize_scan(state, projected_indices, nullptr);
+            auto* rg0 = loaded->row_group()->row_group(0);
+            REQUIRE(rg0 != nullptr);
+            data_chunk_t chunk(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+            REQUIRE(row_group_test_access_t::try_scan_pax_fixed_projected(*rg0, state.table_state, chunk));
+            REQUIRE(chunk.size() == DEFAULT_VECTOR_CAPACITY);
+        }
+
+        // Corrupt the value column's data offset in the loaded layout to point past the block, then scan.
+        auto* rg0 = loaded->row_group()->row_group(0);
+        REQUIRE(rg0 != nullptr);
+        auto& layout = row_group_test_access_t::pax_fixed_layout_mutable(*rg0);
+        REQUIRE(layout.has_value());
+        bool corrupted = false;
+        for (auto& page : layout->pages) {
+            for (auto& slice : page.slices) {
+                if (slice.column_index == 1) {
+                    slice.data_pointer.block_pointer.offset = static_cast<uint32_t>(block_size + 64);
+                    corrupted = true;
+                }
+            }
+        }
+        REQUIRE(corrupted);
+
+        table_scan_state state(&env.resource);
+        loaded->initialize_scan(state, projected_indices, nullptr);
+        data_chunk_t result(&env.resource, loaded->copy_types(), projected_cols, DEFAULT_VECTOR_CAPACITY);
+        // The decode path bounds-checks the disk-derived offset and throws rather than reading OOB.
+        REQUIRE_THROWS_AS(row_group_test_access_t::try_scan_pax_fixed_projected(*rg0, state.table_state, result),
+                          std::logic_error);
     }
 
     std::remove(table_path.c_str());

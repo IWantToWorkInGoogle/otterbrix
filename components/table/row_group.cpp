@@ -567,6 +567,22 @@ namespace {
         return std::min((block_size / 4) / 8 * 8, PAX_STRING_DEFAULT_BLOCK_LIMIT);
     }
 
+    // Bounds-check a disk-derived [offset, offset+length) slice against the pinned block BEFORE
+    // dereferencing it. The per-block CRC32c proves the bytes are intact, it does NOT prove that an
+    // offset/length decoded from those (CRC-valid but logically corrupt) bytes is in range. Without
+    // this guard a corrupt block_pointer.offset / segment_size would slide the read off the end of the
+    // pinned block on the hottest scan path. Fail closed instead. Checks are ordered so offset+length
+    // is only evaluated once both are <= block_size, so the addition cannot overflow.
+    inline std::byte* checked_pax_block_ptr(components::table::storage::buffer_handle_t& handle,
+                                            uint64_t offset,
+                                            uint64_t length,
+                                            uint64_t block_size) {
+        if (offset > block_size || length > block_size || offset + length > block_size) {
+            throw std::logic_error("pax decode: block slice out of bounds (corrupt on-disk pointer)");
+        }
+        return handle.ptr() + offset;
+    }
+
     const std::vector<uint16_t>& empty_pax_generic_field_path() {
         static const std::vector<uint16_t> EMPTY_FIELD_PATH;
         return EMPTY_FIELD_PATH;
@@ -1667,7 +1683,10 @@ namespace {
                 auto& block_handle =
                     get_or_pin_pax_fixed_block(row_group, validity_pointer.block_pointer.block_id, block_cache);
                 std::vector<uint64_t> aligned; // must outlive source_mask (which aliases it)
-                copy_aligned_pax_validity(block_handle.ptr() + validity_pointer.block_pointer.offset,
+                copy_aligned_pax_validity(checked_pax_block_ptr(block_handle,
+                                                                validity_pointer.block_pointer.offset,
+                                                                validity_pointer.segment_size,
+                                                                row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           aligned);
                 components::vector::validity_mask_t source_mask(aligned.data());
@@ -1887,7 +1906,10 @@ namespace {
         }
 
         auto& block_handle = get_or_pin_pax_fixed_block(row_group, pointer.block_pointer.block_id, block_cache);
-        const auto* source = block_handle.ptr() + pointer.block_pointer.offset;
+        const auto* source = checked_pax_block_ptr(block_handle,
+                                                   pointer.block_pointer.offset,
+                                                   pointer.segment_size,
+                                                   row_group.block_manager().block_size());
 
         switch (pointer.compression) {
             case compression_type::UNCOMPRESSED:
@@ -2787,7 +2809,10 @@ namespace {
                 auto& block_handle =
                     get_or_pin_pax_generic_block(row_group, validity_pointer.block_pointer.block_id, block_cache);
                 std::vector<uint64_t> aligned; // must outlive source_mask (which aliases it)
-                copy_aligned_pax_validity(block_handle.ptr() + validity_pointer.block_pointer.offset,
+                copy_aligned_pax_validity(checked_pax_block_ptr(block_handle,
+                                                                validity_pointer.block_pointer.offset,
+                                                                validity_pointer.segment_size,
+                                                                row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           aligned);
                 components::vector::validity_mask_t source_mask(aligned.data());
@@ -2849,7 +2874,11 @@ namespace {
             auto& value_pointer = value_slice->payload->main_pointer;
             auto& block_handle =
                 get_or_pin_pax_generic_block(row_group, value_pointer.block_pointer.block_id, block_cache);
-            auto* source = block_handle.ptr() + value_pointer.block_pointer.offset + page_row_offset * type_size;
+            auto* source = checked_pax_block_ptr(block_handle,
+                                                 value_pointer.block_pointer.offset,
+                                                 value_pointer.segment_size,
+                                                 row_group.block_manager().block_size()) +
+                           page_row_offset * type_size;
             auto* target = result.data() + window_result_offset * type_size;
             std::memcpy(target, source, copy_count * type_size);
 
@@ -2927,7 +2956,10 @@ namespace {
             auto& value_pointer = value_slice->payload->main_pointer;
             auto& block_handle =
                 get_or_pin_pax_generic_block(row_group, value_pointer.block_pointer.block_id, block_cache);
-            auto* base_ptr = block_handle.ptr() + value_pointer.block_pointer.offset;
+            auto* base_ptr = checked_pax_block_ptr(block_handle,
+                                                   value_pointer.block_pointer.offset,
+                                                   value_pointer.segment_size,
+                                                   row_group.block_manager().block_size());
             uint32_t dict_size = 0;
             uint32_t dict_end = 0;
             std::memcpy(&dict_size, base_ptr, sizeof(uint32_t));
@@ -2947,7 +2979,10 @@ namespace {
                 auto& validity_pointer = validity_slice->payload->main_pointer;
                 auto& validity_handle =
                     get_or_pin_pax_generic_block(row_group, validity_pointer.block_pointer.block_id, block_cache);
-                copy_aligned_pax_validity(validity_handle.ptr() + validity_pointer.block_pointer.offset,
+                copy_aligned_pax_validity(checked_pax_block_ptr(validity_handle,
+                                                                validity_pointer.block_pointer.offset,
+                                                                validity_pointer.segment_size,
+                                                                row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           page_validity_aligned);
                 page_validity_mask.emplace(page_validity_aligned.data());
@@ -5177,7 +5212,10 @@ namespace components::table {
             }
             auto source_block = block_manager().register_block(pointer.block_pointer.block_id);
             auto source_handle = block_manager().buffer_manager.pin(source_block);
-            auto* source_ptr = source_handle.ptr() + pointer.block_pointer.offset;
+            auto* source_ptr = checked_pax_block_ptr(source_handle,
+                                                     pointer.block_pointer.offset,
+                                                     pointer.segment_size,
+                                                     block_manager().block_size());
             loaded_info->deserialize_committed_deletes(source_ptr, pointer.segment_size);
         }
         set_version_info(std::move(loaded_info));
