@@ -85,7 +85,7 @@ struct test_dispatcher : actor_zeta::actor::actor_mixin<test_dispatcher> {
             std::this_thread::yield();
         }
         REQUIRE(fut.is_ready());
-        return std::move(fut).get();
+        return std::move(fut).take_ready();
     }
 
     // Adapter exposing the (resource, invoke) shape that test_probe helpers expect.
@@ -135,7 +135,7 @@ struct test_dispatcher : actor_zeta::actor::actor_mixin<test_dispatcher> {
             std::this_thread::yield();
         }
         REQUIRE(fut.is_ready());
-        return std::move(fut).get();
+        return std::move(fut).take_ready();
     }
 
     // Resolve a table via the live read_chunks_by_key path (catalog-read oracle).

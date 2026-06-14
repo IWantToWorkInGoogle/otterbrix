@@ -433,7 +433,7 @@ namespace components::storage {
                     (*progress_fn_)();
                 }
             }
-            return std::move(future).get();
+            return std::move(future).take_ready();
         }
 
         void ensure_at_least_one_batch(std::pmr::vector<vector::data_chunk_t>& batches,

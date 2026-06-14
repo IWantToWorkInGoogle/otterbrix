@@ -88,7 +88,7 @@ namespace {
                 std::this_thread::yield();
             }
             REQUIRE(fut.is_ready());
-            return std::move(fut).get();
+            return std::move(fut).take_ready();
         }
 
         // Adapter exposing the (resource, invoke) shape that test_probe helpers expect.
@@ -136,7 +136,7 @@ namespace {
                 std::this_thread::yield();
             }
             REQUIRE(fut.is_ready());
-            return std::move(fut).get();
+            return std::move(fut).take_ready();
         }
 
         test_probe::probe_table_result_t resolve_table(components::catalog::oid_t ns_oid, const std::string& tname) {
