@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-ACTOR_ZETA_VERSION="1.1.1"
+ACTOR_ZETA_VERSION="1.2.0"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
 CXX_STANDARD="${CXX_STANDARD:-20}"
 # Memory-aware default job count. Heavy C++ template TUs (PAX row_group.cpp)
@@ -116,7 +116,7 @@ from conan.tools.files import copy
 
 class ActorZetaConan(ConanFile):
     name = "actor-zeta"
-    version = "1.1.1"
+    version = "1.2.0"
     license = "BSD-3-Clause"
     url = "https://github.com/otterbrix/actor-zeta"
     description = "Actor-Zeta is a C++ actor framework"
