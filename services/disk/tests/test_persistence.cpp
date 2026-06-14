@@ -306,8 +306,8 @@ TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
         };
 
         // pg_class layout: oid(0), relname(1), relnamespace(2), relkind(3),
-        // relstorageformat(4). Read the surviving format straight from pg_class via
-        // the production read path, keyed on (relnamespace, relname).
+        // relstoragemode(4), relstorageformat(5). Read the surviving format straight
+        // from pg_class via the production read path, keyed on (relnamespace, relname).
         constexpr oid_t pg_class = well_known_oid::pg_class_table;
         for (const auto& [name, expected_format] : expected) {
             std::pmr::vector<std::string> keys{&fd.resource};
@@ -330,7 +330,7 @@ TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
                     if (oid_v.is_null())
                         continue;
                     found = true;
-                    auto fmt_v = chunk.value(4, i);
+                    auto fmt_v = chunk.value(5, i);
                     if (!fmt_v.is_null())
                         actual_format = std::string(fmt_v.template value<std::string_view>());
                     break;

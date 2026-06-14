@@ -67,6 +67,13 @@ namespace services::planner::impl {
                 node_match->expressions().empty()) {
                 return {};
             }
+            // RETURNING needs every returned column materialised; a predicate-only
+            // projected scan leaves non-predicate columns as unprojected placeholders
+            // (null data), which RETURNING then reads as empty / cannot gather across
+            // chunks. Fall back to a full scan (no projection) when RETURNING is present.
+            if (!node_delete.returning().empty()) {
+                return {};
+            }
 
             std::vector<size_t> projected_cols;
             collect_delete_scan_projection_from_expression(node_match->expressions().front(), projected_cols);

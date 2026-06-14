@@ -242,6 +242,16 @@ namespace services::dispatcher {
                     matches.emplace_back(type_match_t{column_path{{i}, resource}, &schema[i].type, 2});
                 } else if (core::pmr::operator==(schema[i].type.alias(), truncated_key.storage().at(0))) {
                     matches.emplace_back(type_match_t{column_path{{i}, resource}, &schema[i].type, 1});
+                } else if (truncated_key.storage().size() > 1 && schema[i].result_alias.empty() &&
+                           core::pmr::operator==(schema[i].type.alias(), truncated_key.storage().at(1))) {
+                    // No-table node_data input (e.g. spliced raw_data in a federation JOIN):
+                    // the schema column carries no table alias, so a side-qualified key like
+                    // `p/campaign_id` is matched on the column name (`campaign_id`) alone,
+                    // dropping the unresolvable table qualifier. Scoped to no-table schemas
+                    // (result_alias empty) so normal table-qualified joins are unaffected; the
+                    // JOIN validates each side's key against that side's schema, so the bare
+                    // column name is unambiguous per side.
+                    matches.emplace_back(type_match_t{column_path{{i}, resource}, &schema[i].type, 2});
                 }
             }
 
@@ -2645,14 +2655,32 @@ namespace services::dispatcher {
                     incoming_schema = table_schema;
                     same_schema = true;
                 }
+                // The USING (DELETE) / FROM (UPDATE) table is a sibling resolve node,
+                // not a child, so it never reaches incoming_schema. Build its schema
+                // from table_oid_from() (catalog columns, right-stamped) so BOTH the
+                // join condition (node_match) and a joined RETURNING column resolve
+                // against it; target columns resolve against table_schema as before.
+                const auto from_oid = node->type() == node_type::update_t
+                                          ? reinterpret_cast<node_update_t*>(node)->table_oid_from()
+                                          : reinterpret_cast<node_delete_t*>(node)->table_oid_from();
+                named_schema from_schema(resource);
+                if (from_oid != components::catalog::INVALID_OID) {
+                    if (const auto* tbl_from = impl::tbl_md_for_oid(idx, from_oid)) {
+                        for (const auto& column : tbl_from->columns) {
+                            from_schema.emplace_back(
+                                type_from_t{tbl_from->name, column.type, components::expressions::side_t::right});
+                        }
+                    }
+                }
+                const bool has_join = !from_schema.empty();
                 if (node_match) {
                     auto node_match_res = impl::validate_schema(resource,
                                                                 idx,
                                                                 node_match,
                                                                 parameters,
                                                                 table_schema,
-                                                                incoming_schema,
-                                                                same_schema);
+                                                                has_join ? from_schema : incoming_schema,
+                                                                has_join ? false : same_schema);
                     if (node_match_res.has_error()) {
                         return node_match_res;
                     }
@@ -2679,26 +2707,10 @@ namespace services::dispatcher {
                                           ? &reinterpret_cast<node_update_t*>(node)->returning()
                                           : &reinterpret_cast<node_delete_t*>(node)->returning();
                     if (!returning->empty() && !table_schema.empty()) {
-                        // The USING/FROM table is a sibling resolve node, not a
-                        // child, so it never reaches incoming_schema. Build its
-                        // schema from table_oid_from() (the catalog columns) and use
-                        // it as the right side: a right-stamped RETURNING key (a
-                        // joined column) resolves against it, while target columns
-                        // resolve against table_schema as before.
-                        const auto from_oid = node->type() == node_type::update_t
-                                                  ? reinterpret_cast<node_update_t*>(node)->table_oid_from()
-                                                  : reinterpret_cast<node_delete_t*>(node)->table_oid_from();
-                        named_schema from_schema(resource);
-                        if (from_oid != components::catalog::INVALID_OID) {
-                            if (const auto* tbl_from = impl::tbl_md_for_oid(idx, from_oid)) {
-                                for (const auto& column : tbl_from->columns) {
-                                    from_schema.emplace_back(type_from_t{tbl_from->name,
-                                                                         column.type,
-                                                                         components::expressions::side_t::right});
-                                }
-                            }
-                        }
-                        const bool has_join = !from_schema.empty();
+                        // from_schema / has_join were built above (shared with the
+                        // join-condition validation): a right-stamped RETURNING key (a
+                        // joined column) resolves against the USING/FROM table, while
+                        // target columns resolve against table_schema.
                         auto ret_err = impl::resolve_returning_columns(resource,
                                                                        returning,
                                                                        table_schema,

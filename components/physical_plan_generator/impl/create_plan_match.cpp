@@ -18,6 +18,11 @@ namespace services::planner::impl {
 
         namespace expr = components::expressions;
 
+        bool is_range_compare(expr::compare_type type) {
+            return type == expr::compare_type::lt || type == expr::compare_type::lte ||
+                   type == expr::compare_type::gt || type == expr::compare_type::gte;
+        }
+
         // Check if this compare expression can use an index scan
         [[maybe_unused]] bool
         can_use_index(const context_storage_t& context, const expr::compare_expression_t& comp, bool& key_on_left) {
@@ -45,7 +50,12 @@ namespace services::planner::impl {
             if (std::holds_alternative<expr::key_t>(comp.left()) &&
                 std::holds_alternative<core::parameter_id_t>(comp.right())) {
                 const auto& key = std::get<expr::key_t>(comp.left());
-                if (context.has_index_on(key)) {
+                // A hashed index cannot answer a range predicate; require a non-hashed
+                // index on the key for gt/gte/lt/lte, else fall back to a full scan.
+                const bool range = is_range_compare(comp.type());
+                if (context.has_index_on(key) &&
+                    (!range ||
+                     context.has_index_on_with_other_type(key, components::logical_plan::index_type::hashed))) {
                     key_on_left = true;
                     return true;
                 }
@@ -54,7 +64,10 @@ namespace services::planner::impl {
             if (std::holds_alternative<core::parameter_id_t>(comp.left()) &&
                 std::holds_alternative<expr::key_t>(comp.right())) {
                 const auto& key = std::get<expr::key_t>(comp.right());
-                if (context.has_index_on(key)) {
+                const bool range = is_range_compare(comp.type());
+                if (context.has_index_on(key) &&
+                    (!range ||
+                     context.has_index_on_with_other_type(key, components::logical_plan::index_type::hashed))) {
                     key_on_left = false;
                     return true;
                 }

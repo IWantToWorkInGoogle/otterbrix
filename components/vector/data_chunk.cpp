@@ -460,6 +460,15 @@ namespace components::vector {
                 array.emplace_back(data.value(0, i));
             }
             return types::logical_value_t::create_array(data.resource(), data.data[0].type(), array);
+        } else if (data.column_count() == 0 && data.size() == 0) {
+            // An empty sub-query result whose single projected column was a
+            // placeholder gets stripped at the cursor boundary, leaving zero
+            // columns. An IN-list with no values is always false regardless of
+            // element type, so yield an empty array (NA element type) rather
+            // than erroring — mirrors the empty single-column case above.
+            std::vector<types::logical_value_t> empty_array;
+            return types::logical_value_t::create_array(
+                data.resource(), types::complex_logical_type{types::logical_type::NA}, empty_array);
         } else {
             return core::error_t(core::error_code_t::conversion_failure,
                                  std::pmr::string{"could not convert data_chunk_t to a array value", data.resource()});

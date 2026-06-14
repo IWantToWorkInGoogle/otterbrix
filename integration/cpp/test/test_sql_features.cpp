@@ -361,6 +361,14 @@ TEST_CASE("integration::cpp::test_sql_features::pax_projected_update_sparse_scan
         REQUIRE(cur->is_success());
         REQUIRE(cur->size() == 2200);
     }
+    {
+        // The MVCC UPDATE appended the new row versions in-memory; checkpoint to
+        // re-materialise them into the PAX disk layout so the verifying projected
+        // SELECT below actually exercises the pax_fixed_projected scan path (an
+        // in-memory segment is scanned via neither pax_fixed nor regular).
+        auto session = otterbrix::session_id_t();
+        REQUIRE(dispatcher->execute_sql(session, "CHECKPOINT;")->is_success());
+    }
 
     {
         // The scan-path counter lives on the row_group object. A mutating

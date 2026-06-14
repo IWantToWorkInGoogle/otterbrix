@@ -94,7 +94,7 @@ TEST_CASE("components::sql::table") {
                 .data;
         auto result = transformer.transform(pg_cell_to_node_cast(stmt)).finalize();
         REQUIRE(!result.has_error());
-        auto node = result.value().node;
+        auto node = result.value().sub_queries.back();
         auto data = reinterpret_cast<node_create_collection_ptr&>(node);
         REQUIRE(data->is_disk_storage());
         REQUIRE(data->storage_format() == create_collection_storage_format_t::disk_pax);
@@ -107,7 +107,7 @@ TEST_CASE("components::sql::table") {
                 .data;
         auto result = transformer.transform(pg_cell_to_node_cast(stmt)).finalize();
         REQUIRE(!result.has_error());
-        auto node = result.value().node;
+        auto node = result.value().sub_queries.back();
         auto data = reinterpret_cast<node_create_collection_ptr&>(node);
         REQUIRE(data->is_disk_storage());
         REQUIRE(data->storage_format() == create_collection_storage_format_t::disk_columnar);
@@ -126,7 +126,7 @@ TEST_CASE("components::sql::table") {
             raw_parser(&arena_resource, "CREATE TABLE table_name(name string, count bigint) WITH(storage='disk') USING PAX"));
         auto result = transformer.transform(pg_cell_to_node_cast(stmt)).finalize();
         REQUIRE(!result.has_error());
-        auto node = result.value().node;
+        auto node = result.value().sub_queries.back();
         auto data = reinterpret_cast<node_create_collection_ptr&>(node);
         REQUIRE(data->is_disk_storage());
         REQUIRE(data->storage_format() == create_collection_storage_format_t::disk_pax);

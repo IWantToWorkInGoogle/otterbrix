@@ -112,6 +112,12 @@ namespace services::planner::impl {
                 !is_projectable_compare_expression(node_match->expressions().front())) {
                 return {};
             }
+            // RETURNING needs every returned column materialised; a projected scan
+            // leaves non-predicate/non-SET columns as placeholders that RETURNING
+            // reads as empty. Full scan (no projection) when RETURNING is present.
+            if (!node_update.returning().empty()) {
+                return {};
+            }
 
             std::vector<size_t> projected_cols;
 

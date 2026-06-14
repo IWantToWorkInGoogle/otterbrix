@@ -13,7 +13,9 @@
 #include <components/types/types.hpp>
 #include <components/vector/data_chunk.hpp>
 #include <core/non_thread_scheduler/scheduler_test.hpp>
+#include <chrono>
 #include <filesystem>
+#include <thread>
 #include <unistd.h>
 
 using namespace services::disk;
@@ -163,7 +165,16 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(manager->address(), fn, std::forward<Args>(args)...);
-            scheduler.run(10000);
+            // The merged manager processes messages on its own loop thread and
+            // delegates batched scans to disk agents enqueued on this manually
+            // pumped scheduler. A single run() races that async delegation: the
+            // agent can be enqueued only after run() has already drained an empty
+            // queue, so its work — and the response future — would never run.
+            // Pump until the manager actually resolves the future.
+            while (!future.is_ready()) {
+                scheduler.run(10000);
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
             return std::move(future).get();
         }
     };
