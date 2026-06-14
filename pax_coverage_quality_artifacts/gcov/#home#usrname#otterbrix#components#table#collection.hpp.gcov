@@ -1,0 +1,146 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/collection.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:#include <atomic>
+        -:    3:#include <components/types/types.hpp>
+        -:    4:#include <components/vector/vector.hpp>
+        -:    5:#include <functional>
+        -:    6:
+        -:    7:#include "column_data.hpp"
+        -:    8:#include "row_version_manager.hpp"
+        -:    9:#include "table_state.hpp"
+        -:   10:
+        -:   11:#include "column_definition.hpp"
+        -:   12:
+        -:   13:namespace components::table::storage {
+        -:   14:    struct row_group_pointer_t;
+        -:   15:    class partial_block_manager_t;
+        -:   16:} // namespace components::table::storage
+        -:   17:
+        -:   18:namespace components::table {
+        -:   19:
+        -:   20:    class data_table_t;
+        -:   21:
+        -:   22:    class row_group_segment_tree_t : public segment_tree_t<row_group_t, true> {
+        -:   23:    public:
+        -:   24:        explicit row_group_segment_tree_t(collection_t& collection);
+        -:   25:        ~row_group_segment_tree_t() override = default;
+        -:   26:
+        -:   27:    protected:
+        -:   28:        collection_t& collection_;
+        -:   29:        uint64_t current_row_group_;
+        -:   30:        uint64_t max_row_group_;
+        -:   31:    };
+        -:   32:
+        -:   33:    class collection_t {
+        -:   34:    public:
+        -:   35:        collection_t(std::pmr::memory_resource* resource,
+        -:   36:                     storage::block_manager_t& block_manager,
+        -:   37:                     std::pmr::vector<types::complex_logical_type> types,
+        -:   38:                     int64_t row_start,
+        -:   39:                     uint64_t total_rows = 0,
+        -:   40:                     uint64_t row_group_size = vector::DEFAULT_VECTOR_CAPACITY);
+        -:   41:
+        -:   42:        uint64_t total_rows() const;
+        -:   43:        uint64_t committed_row_count() const;
+        -:   44:
+        -:   45:        bool is_empty() const;
+        -:   46:
+        -:   47:        void append_row_group(std::unique_lock<std::mutex>& l, int64_t start_row);
+        -:   48:        row_group_t* append_row_group(int64_t start_row);
+        -:   49:        row_group_t* row_group(int64_t index);
+        -:   50:
+        -:   51:        void initialize_scan(collection_scan_state& state, const std::vector<storage_index_t>& column_ids);
+        -:   52:        void initialize_create_index_scan(create_index_scan_state& state);
+        -:   53:        void initialize_scan_with_offset(collection_scan_state& state,
+        -:   54:                                         const std::vector<storage_index_t>& column_ids,
+        -:   55:                                         int64_t start_row,
+        -:   56:                                         int64_t end_row);
+        -:   57:        static bool initialize_scan_in_row_group(collection_scan_state& state,
+        -:   58:                                                 collection_t& collection,
+        -:   59:                                                 row_group_t& row_group,
+        -:   60:                                                 uint64_t vector_index,
+        -:   61:                                                 int64_t max_row);
+        -:   62:
+        -:   63:        bool scan(const std::vector<storage_index_t>& column_ids,
+        -:   64:                  const std::function<bool(vector::data_chunk_t& chunk)>& fun);
+        -:   65:        bool scan(const std::function<bool(vector::data_chunk_t& chunk)>& fun);
+        -:   66:
+        -:   67:        void fetch(vector::data_chunk_t& result,
+        -:   68:                   const std::vector<storage_index_t>& column_ids,
+        -:   69:                   const vector::vector_t& row_identifiers,
+        -:   70:                   uint64_t fetch_count,
+        -:   71:                   column_fetch_state& state);
+        -:   72:        void fetch(vector::data_chunk_t& result,
+        -:   73:                   const std::vector<storage_index_t>& column_ids,
+        -:   74:                   const vector::vector_t& row_identifiers,
+        -:   75:                   uint64_t fetch_count,
+        -:   76:                   transaction_data txn,
+        -:   77:                   column_fetch_state& state);
+        -:   78:
+        -:   79:        void initialize_append(table_append_state& state);
+        -:   80:        bool append(vector::data_chunk_t& chunk, table_append_state& state);
+        -:   81:        void finalize_append(table_append_state& state, transaction_data txn);
+        -:   82:        void commit_append(uint64_t commit_id, int64_t row_start, uint64_t count);
+        -:   83:        void revert_append(int64_t row_start, uint64_t count);
+        -:   84:        void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
+        -:   85:        void cleanup_append(int64_t start, uint64_t count);
+        -:   86:
+        -:   87:        void merge_storage(collection_t& data);
+        -:   88:
+        -:   89:        uint64_t delete_rows(data_table_t& table, int64_t* ids, uint64_t count, uint64_t transaction_id);
+        -:   90:        void update(int64_t* ids, const std::vector<uint64_t>& column_ids, vector::data_chunk_t& updates);
+        -:   91:        void update_column(vector::vector_t& row_ids,
+        -:   92:                           const std::vector<uint64_t>& column_path,
+        -:   93:                           vector::data_chunk_t& updates);
+        -:   94:
+        -:   95:        std::vector<column_segment_info> get_column_segment_info();
+        -:   96:        const std::pmr::vector<types::complex_logical_type>& types() const;
+        -:   97:        void adopt_types(std::pmr::vector<types::complex_logical_type> types);
+        -:   98:
+        -:   99:        std::shared_ptr<collection_t> add_column(column_definition_t& new_column);
+        -:  100:        std::shared_ptr<collection_t> remove_column(uint64_t col_idx);
+        -:  101:        // TODO: type casting
+        -:  102:        // std::shared_ptr<collection_t> alter_type(uint64_t changed_idx, const types::complex_logical_type &target_type,
+        -:  103:        // std::vector<storage_index_t> bound_columns);
+        -:  104:
+        -:  105:        std::vector<storage::row_group_pointer_t> checkpoint(storage::partial_block_manager_t& partial_block_manager);
+        -:  106:
+function _ZN10components5table12collection_t13block_managerEv called 0 returned 0% blocks executed 0%
+    #####:  107:        storage::block_manager_t& block_manager() { return block_manager_; }
+        -:  108:
+        -:  109:        uint64_t allocation_size() const { return allocation_size_; }
+        -:  110:
+function _ZNK10components5table12collection_t14row_group_sizeEv called 0 returned 0% blocks executed 0%
+    #####:  111:        uint64_t row_group_size() const { return row_group_size_; }
+        -:  112:
+function _ZN10components5table12collection_t14row_group_treeEv called 0 returned 0% blocks executed 0%
+    #####:  113:        row_group_segment_tree_t* row_group_tree() { return row_groups_.get(); }
+call    0 never executed
+        -:  114:
+        -:  115:        std::pmr::memory_resource* resource() const noexcept { return resource_; }
+        -:  116:
+        -:  117:        uint64_t calculate_size();
+        -:  118:        void cleanup_versions(uint64_t lowest_active_start_time);
+        -:  119:        bool has_persisted_pax_layout() const;
+        -:  120:
+function _ZN10components5table12collection_t14set_total_rowsEm called 557 returned 100% blocks executed 100%
+      557:  121:        void set_total_rows(uint64_t total) { total_rows_ = total; }
+call    0 returned 557
+        -:  122:
+        -:  123:    private:
+        -:  124:        bool is_empty(std::unique_lock<std::mutex>&) const;
+        -:  125:
+        -:  126:        std::pmr::memory_resource* resource_;
+        -:  127:        storage::block_manager_t& block_manager_;
+        -:  128:        uint64_t row_group_size_;
+        -:  129:        std::atomic<uint64_t> total_rows_;
+        -:  130:        std::pmr::vector<types::complex_logical_type> types_;
+        -:  131:        int64_t row_start_;
+        -:  132:        std::shared_ptr<row_group_segment_tree_t> row_groups_;
+        -:  133:        uint64_t allocation_size_;
+        -:  134:    };
+        -:  135:
+        -:  136:} // namespace components::table

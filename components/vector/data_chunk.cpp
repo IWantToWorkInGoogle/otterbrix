@@ -420,4 +420,64 @@ namespace components::vector {
         }
     }
 
+    core::result_wrapper_t<types::logical_value_t> compact_to_bool_value(const data_chunk_t& data) {
+        return types::logical_value_t{data.resource(), !data.empty()};
+    }
+
+    core::result_wrapper_t<types::logical_value_t> compact_to_single_value(const data_chunk_t& data) {
+        if (data.column_count() == 1 && data.size() == 1) {
+            return data.value(0, 0);
+        }
+        // No extractable value cell → SQL NULL, not an error. This covers a
+        // scalar sub-query that returned zero rows AND the degenerate
+        // zero-column result an ungrouped aggregate emits when its input was
+        // filtered out (e.g. SELECT MAX(x) ... WHERE <no match> → one row, no
+        // column). Yielding an untyped NA null matches the value
+        // get_parameter() returns for an unbound id, so `x = (NULL scalar
+        // subquery)` compares against NULL and selects nothing. Only a genuine
+        // shape violation (>1 row, or >1 column) falls through to the error.
+        if (data.empty() || data.column_count() == 0) {
+            return types::logical_value_t{data.resource(), nullptr};
+        }
+        return core::error_t(core::error_code_t::conversion_failure,
+                             std::pmr::string{"could not convert data_chunk_t to a single value", data.resource()});
+    }
+
+    core::result_wrapper_t<types::logical_value_t> compact_to_array_value(const data_chunk_t& data) {
+        // A single-column result compacts to an array (used to materialise the
+        // right-hand side of `x IN (subquery)` / ANY / ALL). Zero rows is a
+        // valid, common case — an empty IN-list — and must yield an EMPTY array
+        // (so `x IN ()` evaluates to false), NOT an error. The column type is
+        // still available on an empty chunk (empty() means zero rows, not zero
+        // columns), so the element type is preserved. Mirrors
+        // compact_to_single_value, which yields NULL rather than erroring on an
+        // empty scalar sub-query. Only a genuine shape violation (more than one
+        // column) is an error.
+        if (data.column_count() == 1) {
+            std::vector<types::logical_value_t> array;
+            array.reserve(data.size());
+            for (size_t i = 0; i < data.size(); ++i) {
+                array.emplace_back(data.value(0, i));
+            }
+            return types::logical_value_t::create_array(data.resource(), data.data[0].type(), array);
+        } else {
+            return core::error_t(core::error_code_t::conversion_failure,
+                                 std::pmr::string{"could not convert data_chunk_t to a array value", data.resource()});
+        }
+    }
+
+    core::result_wrapper_t<types::logical_value_t> compact_to_row_value(const data_chunk_t& data) {
+        if (data.size() == 1) {
+            std::vector<types::logical_value_t> fields;
+            fields.reserve(data.column_count());
+            for (size_t i = 0; i < data.column_count(); ++i) {
+                fields.emplace_back(data.value(i, 0));
+            }
+            return types::logical_value_t::create_struct(data.resource(), "", fields);
+        } else {
+            return core::error_t(core::error_code_t::conversion_failure,
+                                 std::pmr::string{"could not convert data_chunk_t to a row value", data.resource()});
+        }
+    }
+
 } // namespace components::vector

@@ -1,0 +1,2 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch/q9,tpch,auto,disk,warm,true,false,Release,1,232124.719,232124.719,232124.719,232124.719,OK,173,3,fnv64:7733da9c44875474,""

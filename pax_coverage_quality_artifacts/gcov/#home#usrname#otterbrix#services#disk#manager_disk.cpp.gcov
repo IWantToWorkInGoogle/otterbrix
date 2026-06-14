@@ -1,0 +1,789 @@
+        -:    0:Source:/home/usrname/otterbrix/services/disk/manager_disk.cpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#include "manager_disk.hpp"
+        -:    2:#include <actor-zeta/spawn.hpp>
+        -:    3:#include <algorithm>
+        -:    4:#include <array>
+        -:    5:#include <components/catalog/catalog_codes.hpp>
+        -:    6:#include <components/catalog/dependency_walker.hpp>
+        -:    7:#include <components/catalog/system_table_schemas.hpp>
+        -:    8:#include <components/table/row_group.hpp>
+        -:    9:#include <fstream>
+        -:   10:#include <limits>
+        -:   11:#include <services/wal/manager_wal_replicate.hpp>
+        -:   12:#include <unordered_set>
+        -:   13:
+        -:   14:namespace services::disk {
+        -:   15:
+        -:   16:    using namespace core::filesystem;
+        -:   17:    namespace catalog = components::catalog;
+        -:   18:
+        -:   19:    // ---- behavior/implements sync check ----
+        -:   20:    // Ensures behavior() handles every method registered in dispatch_traits.
+        -:   21:    // When adding a new method:
+        -:   22:    //   1. Add it to implements<> in manager_disk.hpp
+        -:   23:    //   2. Add a case to the behavior() switch
+        -:   24:    //   3. Add the corresponding msg_id to kBehaviorHandledIds below
+        -:   25:    namespace {
+        -:   26:        template<typename MethodList>
+        -:   27:        struct behavior_expected_ids_t;
+        -:   28:
+        -:   29:        template<auto... Ptrs>
+        -:   30:        struct behavior_expected_ids_t<actor_zeta::type_traits::type_list<actor_zeta::method_map_entry<Ptrs>...>> {
+        -:   31:            static constexpr std::array<actor_zeta::mailbox::message_id, sizeof...(Ptrs)> value{
+        -:   32:                actor_zeta::msg_id<manager_disk_t, Ptrs>...};
+        -:   33:        };
+        -:   34:
+        -:   35:        constexpr auto kImplementedIds = behavior_expected_ids_t<manager_disk_t::dispatch_traits::methods>::value;
+        -:   36:
+        -:   37:        constexpr std::array kBehaviorHandledIds{
+        -:   38:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::flush>,
+        -:   39:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::checkpoint_all>,
+        -:   40:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::vacuum_all>,
+        -:   41:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::maybe_cleanup>,
+        -:   42:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage>,
+        -:   43:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage_with_columns>,
+        -:   44:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage_disk>,
+        -:   45:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::drop_storage>,
+        -:   46:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_types>,
+        -:   47:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_total_rows>,
+        -:   48:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan>,
+        -:   49:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan_batched>,
+        -:   50:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_fetch>,
+        -:   51:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan_segment>,
+        -:   52:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_append>,
+        -:   53:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_update>,
+        -:   54:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_delete_rows>,
+        -:   55:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_append>,
+        -:   56:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_revert_append>,
+        -:   57:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_delete>,
+        -:   58:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_appends>,
+        -:   59:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_deletes>,
+        -:   60:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_revert_appends>,
+        -:   61:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_namespace>,
+        -:   62:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_table>,
+        -:   63:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_type>,
+        -:   64:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_function>,
+        -:   65:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_function_by_name>,
+        -:   66:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::list_namespaces>,
+        -:   67:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::allocate_oids_batch>,
+        -:   68:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::append_pg_catalog_row>,
+        -:   69:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::delete_pg_catalog_rows>,
+        -:   70:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::scan_by_key>,
+        -:   71:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::read_rows_by_key>,
+        -:   72:            actor_zeta::msg_id<manager_disk_t, &manager_disk_t::compact_relkind_g_storage>,
+        -:   73:        };
+        -:   74:
+        -:   75:        constexpr bool behavior_covers_all_implements() noexcept {
+        -:   76:            if (kImplementedIds.size() != kBehaviorHandledIds.size())
+        -:   77:                return false;
+        -:   78:            for (auto id : kImplementedIds) {
+        -:   79:                bool found = false;
+        -:   80:                for (auto hid : kBehaviorHandledIds) {
+        -:   81:                    if (id == hid) {
+        -:   82:                        found = true;
+        -:   83:                        break;
+        -:   84:                    }
+        -:   85:                }
+        -:   86:                if (!found)
+        -:   87:                    return false;
+        -:   88:            }
+        -:   89:            return true;
+        -:   90:        }
+        -:   91:
+        -:   92:        static_assert(behavior_covers_all_implements(),
+        -:   93:                      "behavior() is out of sync with dispatch_traits: "
+        -:   94:                      "add a case to behavior() AND an entry to kBehaviorHandledIds");
+        -:   95:
+        -:   96:        components::table::storage::row_group_layout_policy
+function _ZN8services4disk12_GLOBAL__N_124to_storage_layout_policyEN13configuration18disk_layout_policyE called 1477 returned 100% blocks executed 100%
+     1477:   97:        to_storage_layout_policy(configuration::disk_layout_policy policy) {
+     1477:   98:            switch (policy) {
+branch  0 taken 1
+branch  1 taken 1
+branch  2 taken 1475
+        1:   99:                case configuration::disk_layout_policy::columnar_only:
+        1:  100:                    return components::table::storage::row_group_layout_policy::COLUMNAR_ONLY;
+        1:  101:                case configuration::disk_layout_policy::pax_only:
+        1:  102:                    return components::table::storage::row_group_layout_policy::PAX_ONLY;
+     1475:  103:                case configuration::disk_layout_policy::auto_select:
+        -:  104:                default:
+     1475:  105:                    return components::table::storage::row_group_layout_policy::AUTO;
+        -:  106:            }
+        -:  107:        }
+        -:  108:    } // namespace
+        -:  109:
+        -:  110:    // ---- table_storage_t implementations ----
+        -:  111:
+function _ZN8services4disk15table_storage_tC2EPNSt3pmr15memory_resourceE called 3 returned 100% blocks executed 55%
+        3:  112:    table_storage_t::table_storage_t(std::pmr::memory_resource* resource)
+        3:  113:        : mode_(storage_mode_t::IN_MEMORY)
+        3:  114:        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        3:  115:        , buffer_manager_(resource, fs_, buffer_pool_)
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        3:  116:        , block_manager_(std::make_unique<components::table::storage::in_memory_block_manager_t>(
+call    0 returned 3
+call    1 returned 3
+        3:  117:              buffer_manager_,
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  118:              components::table::storage::DEFAULT_BLOCK_ALLOC_SIZE))
+        3:  119:        , table_(std::make_unique<components::table::data_table_t>(
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  120:              resource,
+        3:  121:              *block_manager_,
+call    0 returned 3
+        9:  122:              std::vector<components::table::column_definition_t>{})) {}
+call    0 returned 3
+call    1 returned 3
+call    2 returned 3
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+        -:  123:
+function _ZN8services4disk15table_storage_tC2EPNSt3pmr15memory_resourceESt6vectorIN10components5table19column_definition_tESaIS8_EE called 34 returned 100% blocks executed 61%
+       34:  124:    table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
+       34:  125:                                     std::vector<components::table::column_definition_t> columns)
+       34:  126:        : mode_(storage_mode_t::IN_MEMORY)
+       34:  127:        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
+call    0 returned 34
+branch  1 taken 34 (fallthrough)
+branch  2 taken 0 (throw)
+       34:  128:        , buffer_manager_(resource, fs_, buffer_pool_)
+call    0 returned 34
+branch  1 taken 34 (fallthrough)
+branch  2 taken 0 (throw)
+       34:  129:        , block_manager_(std::make_unique<components::table::storage::in_memory_block_manager_t>(
+call    0 returned 34
+call    1 returned 34
+       34:  130:              buffer_manager_,
+call    0 returned 34
+branch  1 taken 34 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  131:              components::table::storage::DEFAULT_BLOCK_ALLOC_SIZE))
+       68:  132:        , table_(std::make_unique<components::table::data_table_t>(resource, *block_manager_, std::move(columns))) {}
+call    0 returned 34
+call    1 returned 34
+call    2 returned 34
+call    3 returned 34
+branch  4 taken 34 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 never executed
+call    7 never executed
+call    8 never executed
+call    9 never executed
+        -:  133:
+function _ZN8services4disk15table_storage_tC2EPNSt3pmr15memory_resourceESt6vectorIN10components5table19column_definition_tESaIS8_EERKNSt10filesystem7__cxx114pathEN13configuration18disk_layout_policyEt called 1215 returned 100% blocks executed 57%
+     1215:  134:    table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
+        -:  135:                                     std::vector<components::table::column_definition_t> columns,
+        -:  136:                                     const std::filesystem::path& otbx_path,
+        -:  137:                                     configuration::disk_layout_policy layout_policy,
+     1215:  138:                                     uint16_t pax_rows_per_page)
+     1215:  139:        : mode_(storage_mode_t::DISK)
+     1215:  140:        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
+call    0 returned 1215
+branch  1 taken 1215 (fallthrough)
+branch  2 taken 0 (throw)
+     2430:  141:        , buffer_manager_(resource, fs_, buffer_pool_) {
+call    0 returned 1215
+call    1 returned 1215
+branch  2 taken 1215 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 1215
+call    5 returned 1215
+     1215:  142:        if (layout_policy == configuration::disk_layout_policy::pax_only) {
+branch  0 taken 1 (fallthrough)
+branch  1 taken 1214
+        1:  143:            std::string error_message;
+call    0 returned 1
+        1:  144:            if (!components::table::detail::supports_explicit_pax_schema(columns, &error_message)) {
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+branch  3 taken 0 (fallthrough)
+branch  4 taken 1
+    #####:  145:                throw std::logic_error(error_message);
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  146:            }
+        1:  147:        }
+call    0 returned 1
+call    1 never executed
+     1215:  148:        auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
+     1215:  149:                                                                                            fs_,
+     1215:  150:                                                                                            otbx_path.string());
+call    0 returned 1215
+branch  1 taken 1215 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1215
+branch  4 taken 1215 (fallthrough)
+branch  5 taken 0 (throw)
+     1215:  151:        bm->set_layout_policy(to_storage_layout_policy(layout_policy));
+call    0 returned 1215
+call    1 returned 1215
+call    2 returned 1215
+     1215:  152:        bm->set_pax_rows_per_page(pax_rows_per_page);
+call    0 returned 1215
+call    1 returned 1215
+branch  2 taken 1215 (fallthrough)
+branch  3 taken 0 (throw)
+     1215:  153:        bm->create_new_database();
+call    0 returned 1215
+call    1 returned 1215
+branch  2 taken 1215 (fallthrough)
+branch  3 taken 0 (throw)
+     1215:  154:        block_manager_ = std::move(bm);
+call    0 returned 1215
+call    1 returned 1215
+     1215:  155:        table_ = std::make_unique<components::table::data_table_t>(resource, *block_manager_, std::move(columns));
+call    0 returned 1215
+call    1 returned 1215
+call    2 returned 1215
+branch  3 taken 1215 (fallthrough)
+branch  4 taken 0 (throw)
+call    5 returned 1215
+call    6 returned 1215
+     1215:  156:    }
+call    0 returned 1215
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+        -:  157:
+function _ZN8services4disk15table_storage_tC2EPNSt3pmr15memory_resourceERKNSt10filesystem7__cxx114pathEN13configuration18disk_layout_policyEt called 262 returned 100% blocks executed 65%
+      262:  158:    table_storage_t::table_storage_t(std::pmr::memory_resource* resource,
+        -:  159:                                     const std::filesystem::path& otbx_path,
+        -:  160:                                     configuration::disk_layout_policy layout_policy,
+      262:  161:                                     uint16_t pax_rows_per_page)
+      262:  162:        : mode_(storage_mode_t::DISK)
+      262:  163:        , buffer_pool_(resource, uint64_t(1) << 33, false, uint64_t(1) << 24)
+call    0 returned 262
+branch  1 taken 262 (fallthrough)
+branch  2 taken 0 (throw)
+      524:  164:        , buffer_manager_(resource, fs_, buffer_pool_) {
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 262
+call    5 returned 262
+      262:  165:        auto bm = std::make_unique<components::table::storage::single_file_block_manager_t>(buffer_manager_,
+      262:  166:                                                                                            fs_,
+      262:  167:                                                                                            otbx_path.string());
+call    0 returned 262
+branch  1 taken 262 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 262
+branch  4 taken 262 (fallthrough)
+branch  5 taken 0 (throw)
+      262:  168:        bm->set_layout_policy(to_storage_layout_policy(layout_policy));
+call    0 returned 262
+call    1 returned 262
+call    2 returned 262
+      262:  169:        bm->set_pax_rows_per_page(pax_rows_per_page);
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+      262:  170:        bm->load_existing_database();
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+      262:  171:        block_manager_ = std::move(bm);
+call    0 returned 262
+call    1 returned 262
+        -:  172:
+      262:  173:        components::table::storage::metadata_manager_t meta_mgr(*block_manager_);
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+      262:  174:        auto meta_block = block_manager_->meta_block();
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+      262:  175:        components::table::storage::meta_block_pointer_t meta_ptr;
+call    0 returned 262
+      262:  176:        meta_ptr.block_pointer = meta_block;
+      262:  177:        components::table::storage::metadata_reader_t reader(meta_mgr, meta_ptr);
+call    0 returned 262
+branch  1 taken 262 (fallthrough)
+branch  2 taken 0 (throw)
+      262:  178:        table_ = components::table::data_table_t::load_from_disk(resource, *block_manager_, reader);
+call    0 returned 262
+call    1 returned 262
+branch  2 taken 262 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 262
+call    5 returned 262
+      262:  179:    }
+call    0 returned 262
+call    1 returned 262
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+call    8 never executed
+        -:  180:
+function _ZN8services4disk15table_storage_t10checkpointEv called 1410 returned 100% blocks executed 86%
+     1410:  181:    void table_storage_t::checkpoint() {
+     1410:  182:        if (mode_ != storage_mode_t::DISK) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 1410
+    #####:  183:            return;
+        -:  184:        }
+        -:  185:
+     1410:  186:        components::table::storage::metadata_manager_t meta_mgr(*block_manager_);
+call    0 returned 1410
+call    1 returned 1410
+branch  2 taken 1410 (fallthrough)
+branch  3 taken 0 (throw)
+     1410:  187:        components::table::storage::metadata_writer_t writer(meta_mgr);
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+     1410:  188:        table_->checkpoint(writer);
+call    0 returned 1410
+call    1 returned 1410
+branch  2 taken 1410 (fallthrough)
+branch  3 taken 0 (throw)
+     1410:  189:        writer.flush();
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  190:
+     1410:  191:        auto* disk_bm = static_cast<components::table::storage::single_file_block_manager_t*>(block_manager_.get());
+call    0 returned 1410
+        -:  192:        // Set meta_block_ so write_header() persists it
+     1410:  193:        disk_bm->set_meta_block(writer.get_block_pointer().block_pointer);
+call    0 returned 1410
+call    1 returned 1410
+        -:  194:        // Serialize free list to metadata blocks
+     1410:  195:        auto free_list_ptr = disk_bm->serialize_free_list();
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  196:        // W-TORN spec: durability of metadata + data blocks BEFORE header swap.
+        -:  197:        // 1st fsync: ensure data/metadata blocks are on disk; without this, a crash after the
+        -:  198:        // header write but before fsync of data could leave a header pointing to non-durable blocks.
+     1410:  199:        disk_bm->file_sync();
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  200:        components::table::storage::database_header_t header;
+     1410:  201:        header.initialize();
+call    0 returned 1410
+     1410:  202:        header.free_list = free_list_ptr.block_pointer;
+     1410:  203:        disk_bm->write_header(header);
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  204:        // 2nd fsync: commit the new header — this is the atomic point of the checkpoint.
+     1410:  205:        disk_bm->file_sync();
+call    0 returned 1410
+branch  1 taken 1410 (fallthrough)
+branch  2 taken 0 (throw)
+     1410:  206:    }
+call    0 returned 1410
+call    1 never executed
+        -:  207:
+function _ZN8services4disk15table_storage_t10checkpointEm called 202 returned 100% blocks executed 80%
+      202:  208:    void table_storage_t::checkpoint(wal::id_t new_wal_id) {
+      202:  209:        if (mode_ != storage_mode_t::DISK) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 202
+    #####:  210:            return;
+        -:  211:        }
+        -:  212:        // First persist the data; if checkpoint() throws, fields stay unchanged.
+      202:  213:        checkpoint();
+call    0 returned 202
+      202:  214:        prev_checkpoint_wal_id_ = checkpoint_wal_id_;
+      202:  215:        checkpoint_wal_id_ = new_wal_id;
+        -:  216:    }
+        -:  217:
+function _ZN8services4disk15table_storage_t10add_columnERN10components5table19column_definition_tE called 2 returned 100% blocks executed 100%
+        2:  218:    void table_storage_t::add_column(components::table::column_definition_t& col) {
+        2:  219:        auto new_table = std::make_unique<components::table::data_table_t>(*table_, col);
+call    0 returned 2
+call    1 returned 2
+branch  2 taken 2 (fallthrough)
+branch  3 taken 0 (throw)
+        2:  220:        table_ = std::move(new_table);
+call    0 returned 2
+call    1 returned 2
+        2:  221:    }
+call    0 returned 2
+        -:  222:
+function _ZN8services4disk15table_storage_t11drop_columnERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE called 6 returned 100% blocks executed 96%
+        6:  223:    bool table_storage_t::drop_column(const std::string& attname) {
+        -:  224:        // Physical column compaction. DISK is out of scope (would need segment
+        -:  225:        // rewrites + checkpoint coordination); IN_MEMORY only.
+        6:  226:        if (mode_ != storage_mode_t::IN_MEMORY) {
+branch  0 taken 1 (fallthrough)
+branch  1 taken 5
+        1:  227:            return false;
+        -:  228:        }
+        5:  229:        if (!table_) {
+call    0 returned 5
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5
+    #####:  230:            return false;
+        -:  231:        }
+        5:  232:        const auto& cols = table_->columns();
+call    0 returned 5
+call    1 returned 5
+branch  2 taken 5 (fallthrough)
+branch  3 taken 0 (throw)
+        5:  233:        std::uint64_t idx = 0;
+        5:  234:        bool found = false;
+        9:  235:        for (std::uint64_t i = 0; i < cols.size(); ++i) {
+call    0 returned 9
+branch  1 taken 8
+branch  2 taken 1 (fallthrough)
+        8:  236:            if (cols[i].name() == attname) {
+call    0 returned 8
+call    1 returned 8
+branch  2 taken 8 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 8
+branch  5 taken 4 (fallthrough)
+branch  6 taken 4
+        4:  237:                idx = i;
+        4:  238:                found = true;
+        4:  239:                break;
+        -:  240:            }
+        -:  241:        }
+        5:  242:        if (!found) {
+branch  0 taken 1 (fallthrough)
+branch  1 taken 4
+        1:  243:            return false;
+        -:  244:        }
+        -:  245:        // The data_table_t(parent, removed_column) constructor performs the
+        -:  246:        // rebuild: column_definitions_ minus idx, row_groups_ rebuilt via
+        -:  247:        // collection_t::remove_column (per-segment column drop). All physical
+        -:  248:        // storage for the dropped column is released when the previous
+        -:  249:        // table_ unique_ptr goes away.
+        4:  250:        auto new_table = std::make_unique<components::table::data_table_t>(*table_, idx);
+call    0 returned 4
+call    1 returned 4
+branch  2 taken 4 (fallthrough)
+branch  3 taken 0 (throw)
+        4:  251:        table_ = std::move(new_table);
+call    0 returned 4
+call    1 returned 4
+        4:  252:        return true;
+        4:  253:    }
+call    0 returned 4
+        -:  254:
+function _ZN8services4disk14manager_disk_tC2EPNSt3pmr15memory_resourceEPN10actor_zeta9scheduler11scheduler_tINS6_12work_sharingEEESA_N13configuration11config_diskER5log_tSt8functionIFvvEE called 114 returned 100% blocks executed 57%
+      114:  255:    manager_disk_t::manager_disk_t(std::pmr::memory_resource* resource,
+        -:  256:                                   actor_zeta::scheduler_raw scheduler,
+        -:  257:                                   actor_zeta::scheduler_raw scheduler_disk,
+        -:  258:                                   configuration::config_disk config,
+        -:  259:                                   log_t& log,
+      114:  260:                                   run_fn_t run_fn)
+        -:  261:        : actor_zeta::actor::actor_mixin<manager_disk_t>()
+      114:  262:        , resource_(resource)
+      114:  263:        , scheduler_(scheduler)
+      114:  264:        , scheduler_disk_(scheduler_disk)
+      114:  265:        , run_fn_(std::move(run_fn))
+call    0 returned 114
+call    1 returned 114
+      114:  266:        , log_(log.clone())
+call    0 returned 114
+      228:  267:        , config_(std::move(config)) {
+call    0 returned 114
+call    1 returned 114
+branch  2 taken 114 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 114
+call    5 returned 114
+call    6 returned 114
+call    7 returned 114
+call    8 returned 114
+branch  9 taken 114 (fallthrough)
+branch 10 taken 0 (throw)
+call   11 returned 114
+call   12 returned 114
+      114:  268:        trace(log_, "manager_disk start");
+call    0 returned 114
+branch  1 taken 114 (fallthrough)
+branch  2 taken 0 (throw)
+      114:  269:        if (!config_.path.empty()) {
+call    0 returned 114
+branch  1 taken 113 (fallthrough)
+branch  2 taken 1
+      113:  270:            create_directories(config_.path);
+call    0 returned 113
+branch  1 taken 113 (fallthrough)
+branch  2 taken 0 (throw)
+      113:  271:            create_agent(config.agent);
+call    0 returned 113
+branch  1 taken 113 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  272:        }
+      114:  273:        trace(log_, "manager_disk finish");
+call    0 returned 114
+branch  1 taken 114 (fallthrough)
+branch  2 taken 0 (throw)
+      114:  274:    }
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+        -:  275:
+function _ZN8services4disk14manager_disk_tD2Ev called 114 returned 100% blocks executed 100%
+      114:  276:    manager_disk_t::~manager_disk_t() { trace(log_, "delete manager_disk_t"); }
+call    0 returned 114
+call    1 returned 114
+call    2 returned 114
+call    3 returned 114
+call    4 returned 114
+call    5 returned 114
+call    6 returned 114
+call    7 returned 114
+call    8 returned 114
+        -:  277:
+        -:  278:    std::pair<bool, actor_zeta::detail::enqueue_result>
+function _ZN8services4disk14manager_disk_t12enqueue_implESt10unique_ptrIN10actor_zeta7mailbox7messageENS4_15message_deleterEE called 1053 returned 100% blocks executed 54%
+     1053:  279:    manager_disk_t::enqueue_impl(actor_zeta::mailbox::message_ptr msg) {
+     1053:  280:        std::lock_guard<std::mutex> guard(mutex_);
+call    0 returned 1053
+branch  1 taken 1053 (fallthrough)
+branch  2 taken 0 (throw)
+     1053:  281:        current_behavior_ = behavior(msg.get());
+call    0 returned 1053
+call    1 returned 1053
+branch  2 taken 1053 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 1053
+call    5 returned 1053
+        -:  282:
+     1053:  283:        while (current_behavior_.is_busy()) {
+call    0 returned 1053
+branch  1 taken 0
+branch  2 taken 1053 (fallthrough)
+    #####:  284:            if (current_behavior_.is_awaited_ready()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  285:                auto cont = current_behavior_.take_awaited_continuation();
+call    0 never executed
+    #####:  286:                if (cont) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  287:                    cont.resume();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  288:                }
+        -:  289:            } else {
+    #####:  290:                run_fn_();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  291:            }
+        -:  292:        }
+        -:  293:
+     2106:  294:        return {false, actor_zeta::detail::enqueue_result::success};
+call    0 returned 1053
+     1053:  295:    }
+call    0 returned 1053
+call    1 never executed
+        -:  296:
+function _ZN8services4disk14manager_disk_t8behaviorEPN10actor_zeta7mailbox7messageE called 1053 returned 100% blocks executed 44%
+     1053:  297:    actor_zeta::behavior_t manager_disk_t::behavior(actor_zeta::mailbox::message* msg) {
+call    0 returned 1053
+branch  1 taken 1053 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  298:        switch (msg->command()) {
+        -:  299:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::flush>: {
+        -:  300:                co_await actor_zeta::dispatch(this, &manager_disk_t::flush, msg);
+        -:  301:                break;
+        -:  302:            }
+        -:  303:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::checkpoint_all>: {
+        -:  304:                co_await actor_zeta::dispatch(this, &manager_disk_t::checkpoint_all, msg);
+        -:  305:                break;
+        -:  306:            }
+        -:  307:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::vacuum_all>: {
+        -:  308:                co_await actor_zeta::dispatch(this, &manager_disk_t::vacuum_all, msg);
+        -:  309:                break;
+        -:  310:            }
+        -:  311:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::maybe_cleanup>: {
+        -:  312:                co_await actor_zeta::dispatch(this, &manager_disk_t::maybe_cleanup, msg);
+        -:  313:                break;
+        -:  314:            }
+        -:  315:            // Storage management
+        -:  316:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage>: {
+        -:  317:                co_await actor_zeta::dispatch(this, &manager_disk_t::create_storage, msg);
+        -:  318:                break;
+        -:  319:            }
+        -:  320:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage_with_columns>: {
+        -:  321:                co_await actor_zeta::dispatch(this, &manager_disk_t::create_storage_with_columns, msg);
+        -:  322:                break;
+        -:  323:            }
+        -:  324:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::create_storage_disk>: {
+        -:  325:                co_await actor_zeta::dispatch(this, &manager_disk_t::create_storage_disk, msg);
+        -:  326:                break;
+        -:  327:            }
+        -:  328:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::drop_storage>: {
+        -:  329:                co_await actor_zeta::dispatch(this, &manager_disk_t::drop_storage, msg);
+        -:  330:                break;
+        -:  331:            }
+        -:  332:            // Storage queries
+        -:  333:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_types>: {
+        -:  334:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_types, msg);
+        -:  335:                break;
+        -:  336:            }
+        -:  337:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_total_rows>: {
+        -:  338:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_total_rows, msg);
+        -:  339:                break;
+        -:  340:            }
+        -:  341:            // Storage data operations
+        -:  342:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan>: {
+        -:  343:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_scan, msg);
+        -:  344:                break;
+        -:  345:            }
+        -:  346:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan_batched>: {
+        -:  347:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_scan_batched, msg);
+        -:  348:                break;
+        -:  349:            }
+        -:  350:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_fetch>: {
+        -:  351:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_fetch, msg);
+        -:  352:                break;
+        -:  353:            }
+        -:  354:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_scan_segment>: {
+        -:  355:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_scan_segment, msg);
+        -:  356:                break;
+        -:  357:            }
+        -:  358:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_append>: {
+        -:  359:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_append, msg);
+        -:  360:                break;
+        -:  361:            }
+        -:  362:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_update>: {
+        -:  363:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_update, msg);
+        -:  364:                break;
+        -:  365:            }
+        -:  366:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_delete_rows>: {
+        -:  367:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_delete_rows, msg);
+        -:  368:                break;
+        -:  369:            }
+        -:  370:            // MVCC commit/revert
+        -:  371:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_append>: {
+        -:  372:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_commit_append, msg);
+        -:  373:                break;
+        -:  374:            }
+        -:  375:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_revert_append>: {
+        -:  376:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_revert_append, msg);
+        -:  377:                break;
+        -:  378:            }
+        -:  379:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_delete>: {
+        -:  380:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_commit_delete, msg);
+        -:  381:                break;
+        -:  382:            }
+        -:  383:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_appends>: {
+        -:  384:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_commit_appends, msg);
+        -:  385:                break;
+        -:  386:            }
+        -:  387:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_commit_deletes>: {
+        -:  388:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_commit_deletes, msg);
+        -:  389:                break;
+        -:  390:            }
+        -:  391:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::storage_revert_appends>: {
+        -:  392:                co_await actor_zeta::dispatch(this, &manager_disk_t::storage_revert_appends, msg);
+        -:  393:                break;
+        -:  394:            }
+        -:  395:            // resolve + invalidation pull
+        -:  396:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_namespace>: {
+        -:  397:                co_await actor_zeta::dispatch(this, &manager_disk_t::resolve_namespace, msg);
+        -:  398:                break;
+        -:  399:            }
+        -:  400:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_table>: {
+        -:  401:                co_await actor_zeta::dispatch(this, &manager_disk_t::resolve_table, msg);
+        -:  402:                break;
+        -:  403:            }
+        -:  404:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_type>: {
+        -:  405:                co_await actor_zeta::dispatch(this, &manager_disk_t::resolve_type, msg);
+        -:  406:                break;
+        -:  407:            }
+        -:  408:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_function>: {
+        -:  409:                co_await actor_zeta::dispatch(this, &manager_disk_t::resolve_function, msg);
+        -:  410:                break;
+        -:  411:            }
+        -:  412:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::resolve_function_by_name>: {
+        -:  413:                co_await actor_zeta::dispatch(this, &manager_disk_t::resolve_function_by_name, msg);
+        -:  414:                break;
+        -:  415:            }
+        -:  416:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::list_namespaces>: {
+        -:  417:                co_await actor_zeta::dispatch(this, &manager_disk_t::list_namespaces, msg);
+        -:  418:                break;
+        -:  419:            }
+        -:  420:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::allocate_oids_batch>: {
+        -:  421:                co_await actor_zeta::dispatch(this, &manager_disk_t::allocate_oids_batch, msg);
+        -:  422:                break;
+        -:  423:            }
+        -:  424:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::append_pg_catalog_row>: {
+        -:  425:                co_await actor_zeta::dispatch(this, &manager_disk_t::append_pg_catalog_row, msg);
+        -:  426:                break;
+        -:  427:            }
+        -:  428:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::scan_by_key>: {
+        -:  429:                co_await actor_zeta::dispatch(this, &manager_disk_t::scan_by_key, msg);
+        -:  430:                break;
+        -:  431:            }
+        -:  432:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::read_rows_by_key>: {
+        -:  433:                co_await actor_zeta::dispatch(this, &manager_disk_t::read_rows_by_key, msg);
+        -:  434:                break;
+        -:  435:            }
+        -:  436:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::delete_pg_catalog_rows>: {
+        -:  437:                co_await actor_zeta::dispatch(this, &manager_disk_t::delete_pg_catalog_rows, msg);
+        -:  438:                break;
+        -:  439:            }
+        -:  440:            case actor_zeta::msg_id<manager_disk_t, &manager_disk_t::compact_relkind_g_storage>: {
+        -:  441:                co_await actor_zeta::dispatch(this, &manager_disk_t::compact_relkind_g_storage, msg);
+        -:  442:                break;
+        -:  443:            }
+        -:  444:            default:
+        -:  445:                break;
+        -:  446:        }
+     2106:  447:    }
+call    0 returned 1053
+call    1 returned 1053
+call    2 returned 1053
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+call    6 never executed
+branch  7 never executed
+branch  8 never executed
+call    9 never executed
+call   10 never executed
+call   11 never executed
+        -:  448:
+        -:  449:} // namespace services::disk

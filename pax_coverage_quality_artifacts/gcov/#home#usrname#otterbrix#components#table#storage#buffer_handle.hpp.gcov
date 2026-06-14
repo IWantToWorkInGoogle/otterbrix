@@ -1,0 +1,56 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/buffer_handle.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cassert>
+        -:    4:#include <memory>
+        -:    5:
+        -:    6:#include "file_buffer.hpp"
+        -:    7:
+        -:    8:namespace components::table::storage {
+        -:    9:    class file_buffer_t;
+        -:   10:    class block_handle_t;
+        -:   11:
+        -:   12:    class buffer_handle_t {
+        -:   13:    public:
+        -:   14:        buffer_handle_t();
+        -:   15:        explicit buffer_handle_t(block_handle_t* handle, file_buffer_t* node);
+        -:   16:        ~buffer_handle_t();
+        -:   17:        buffer_handle_t(const buffer_handle_t& other) = delete;
+        -:   18:        buffer_handle_t& operator=(const buffer_handle_t&) = delete;
+        -:   19:        buffer_handle_t(buffer_handle_t&& other) noexcept;
+        -:   20:        buffer_handle_t& operator=(buffer_handle_t&&) noexcept;
+        -:   21:
+        -:   22:        bool is_valid() const;
+        -:   23:        std::byte* ptr() const {
+        -:   24:            assert(is_valid());
+        -:   25:            return node_->buffer_;
+        -:   26:        }
+function _ZN10components5table7storage15buffer_handle_t3ptrEv called 182575 returned 100% blocks executed 80%
+   182575:   27:        std::byte* ptr() {
+  182575*:   28:            assert(is_valid());
+call    0 returned 182575
+branch  1 taken 0 (fallthrough)
+branch  2 taken 182575
+call    3 never executed
+   182575:   29:            return node_->buffer_;
+        -:   30:        }
+        -:   31:        file_buffer_t& file_buffer();
+        -:   32:        void destroy();
+        -:   33:
+        -:   34:        block_handle_t* block_handle() const { return handle_; }
+        -:   35:
+function _ZN10components5table7storage15buffer_handle_t13set_ownershipESt10shared_ptrINS1_14block_handle_tEE called 0 returned 0% blocks executed 0%
+    #####:   36:        void set_ownership(std::shared_ptr<block_handle_t> owner) { owned_block_ = std::move(owner); }
+call    0 never executed
+call    1 never executed
+        -:   37:
+        -:   38:    private:
+        -:   39:        block_handle_t* handle_;
+        -:   40:        file_buffer_t* node_;
+        -:   41:        std::shared_ptr<block_handle_t> owned_block_;
+        -:   42:    };
+        -:   43:
+        -:   44:} // namespace components::table::storage

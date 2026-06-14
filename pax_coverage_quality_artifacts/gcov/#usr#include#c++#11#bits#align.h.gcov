@@ -1,0 +1,120 @@
+        -:    0:Source:/usr/include/c++/11/bits/align.h
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:// align implementation -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2014-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file bits/align.h
+        -:   26: *  This is an internal header file, included by other library headers.
+        -:   27: *  Do not attempt to use it directly. @headername{memory}
+        -:   28: */
+        -:   29:
+        -:   30:#ifndef _GLIBCXX_ALIGN_H
+        -:   31:#define _GLIBCXX_ALIGN_H 1
+        -:   32:
+        -:   33:#include <bits/c++config.h>
+        -:   34:
+        -:   35:#include <bit>          // std::has_single_bit
+        -:   36:#include <stdint.h>     // uintptr_t
+        -:   37:#include <debug/assertions.h> // _GLIBCXX_DEBUG_ASSERT
+        -:   38:
+        -:   39:namespace std _GLIBCXX_VISIBILITY(default)
+        -:   40:{
+        -:   41:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   42:
+        -:   43:/**
+        -:   44: *  @brief Fit aligned storage in buffer.
+        -:   45: *
+        -:   46: *  This function tries to fit @a __size bytes of storage with alignment
+        -:   47: *  @a __align into the buffer @a __ptr of size @a __space bytes.  If such
+        -:   48: *  a buffer fits then @a __ptr is changed to point to the first byte of the
+        -:   49: *  aligned storage and @a __space is reduced by the bytes used for alignment.
+        -:   50: *
+        -:   51: *  C++11 20.6.5 [ptr.align]
+        -:   52: *
+        -:   53: *  @param __align   A fundamental or extended alignment value.
+        -:   54: *  @param __size    Size of the aligned storage required.
+        -:   55: *  @param __ptr     Pointer to a buffer of @a __space bytes.
+        -:   56: *  @param __space   Size of the buffer pointed to by @a __ptr.
+        -:   57: *  @return the updated pointer if the aligned storage fits, otherwise nullptr.
+        -:   58: *
+        -:   59: *  @ingroup memory
+        -:   60: */
+        -:   61:inline void*
+function _ZSt5alignmmRPvRm called 0 returned 0% blocks executed 0%
+    #####:   62:align(size_t __align, size_t __size, void*& __ptr, size_t& __space) noexcept
+        -:   63:{
+    #####:   64:  if (__space < __size)
+branch  0 never executed
+branch  1 never executed
+    #####:   65:    return nullptr;
+    #####:   66:  const auto __intptr = reinterpret_cast<uintptr_t>(__ptr);
+    #####:   67:  const auto __aligned = (__intptr - 1u + __align) & -__align;
+    #####:   68:  const auto __diff = __aligned - __intptr;
+    #####:   69:  if (__diff > (__space - __size))
+branch  0 never executed
+branch  1 never executed
+    #####:   70:    return nullptr;
+        -:   71:  else
+        -:   72:    {
+    #####:   73:      __space -= __diff;
+    #####:   74:      return __ptr = reinterpret_cast<void*>(__aligned);
+        -:   75:    }
+        -:   76:}
+        -:   77:
+        -:   78:#if __cplusplus > 201703L
+        -:   79:#define __cpp_lib_assume_aligned 201811L
+        -:   80:  /** @brief Inform the compiler that a pointer is aligned.
+        -:   81:   *
+        -:   82:   *  @tparam _Align An alignment value (i.e. a power of two)
+        -:   83:   *  @tparam _Tp    An object type
+        -:   84:   *  @param  __ptr  A pointer that is aligned to _Align
+        -:   85:   *
+        -:   86:   *  C++20 20.10.6 [ptr.align]
+        -:   87:   *
+        -:   88:   *  @ingroup memory
+        -:   89:   */
+        -:   90:  template<size_t _Align, class _Tp>
+        -:   91:    [[nodiscard,__gnu__::__always_inline__]]
+        -:   92:    constexpr _Tp*
+        -:   93:    assume_aligned(_Tp* __ptr) noexcept
+        -:   94:    {
+        -:   95:      static_assert(std::has_single_bit(_Align));
+        -:   96:      if (std::is_constant_evaluated())
+        -:   97:	return __ptr;
+        -:   98:      else
+        -:   99:	{
+        -:  100:	  // This function is expected to be used in hot code, where
+        -:  101:	  // __glibcxx_assert would add unwanted overhead.
+        -:  102:	  _GLIBCXX_DEBUG_ASSERT((uintptr_t)__ptr % _Align == 0);
+        -:  103:	  return static_cast<_Tp*>(__builtin_assume_aligned(__ptr, _Align));
+        -:  104:	}
+        -:  105:    }
+        -:  106:#endif // C++2a
+        -:  107:
+        -:  108:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  109:} // namespace
+        -:  110:
+        -:  111:#endif /* _GLIBCXX_ALIGN_H */

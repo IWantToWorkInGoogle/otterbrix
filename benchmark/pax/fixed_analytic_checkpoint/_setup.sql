@@ -1,0 +1,36 @@
+-- @database pax_fixed_checkpoint
+CREATE TABLE rows (
+    id integer,
+    metric integer,
+    score double,
+    flag integer,
+    region_id integer,
+    segment_id integer,
+    event_day integer,
+    discount integer,
+    quantity integer,
+    revenue bigint,
+    cost bigint,
+    filler01 integer,
+    filler02 integer,
+    filler03 integer,
+    filler04 integer,
+    filler05 integer,
+    filler06 integer,
+    filler07 integer,
+    filler08 integer,
+    filler09 integer,
+    filler10 integer,
+    filler11 integer,
+    filler12 integer,
+    filler13 integer,
+    filler14 integer,
+    filler15 integer,
+    filler16 integer,
+    filler17 integer,
+    filler18 integer,
+    filler19 integer,
+    filler20 integer
+) WITH (storage = 'disk');
+
+-- @load_csv ../data/fixed_analytic.tbl rows |

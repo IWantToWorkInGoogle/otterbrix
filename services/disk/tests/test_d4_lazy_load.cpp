@@ -11,13 +11,14 @@
 #include <services/disk/manager_disk.hpp>
 #include <services/wal/base.hpp>
 
+#include "catalog_probe.hpp"
 #include "disk_test_helpers.hpp"
 
 #include <filesystem>
+#include <thread>
 #include <unistd.h>
 
-// D4 lazy-loading tests (catalog-migration-to-postgresql-style.md §3 lines 323–434).
-// Verify that after bootstrap only the 10 pg_catalog.* system tables are loaded,
+// Lazy-loading: after bootstrap only the 10 pg_catalog.* system tables are loaded,
 // user tables stay out of storages_ until explicitly accessed, and DDL on unloaded
 // user tables modifies only system catalog rows (pg_class / pg_attribute) without
 // requiring the user storage to be present.
@@ -53,10 +54,13 @@ namespace {
             , manager(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {
             cleanup();
             std::filesystem::create_directories(d4_dir());
-            manager->set_run_fn([this] { scheduler->run(10000); });
             manager->bootstrap_system_tables_sync();
         }
         ~fixture() {
+            // Destroy the manager first: its dtor joins the internal loop thread,
+            // which may still enqueue children onto the scheduler. Only then is it
+            // safe to stop/delete the scheduler.
+            manager.reset();
             scheduler->stop();
             delete scheduler;
             cleanup();
@@ -65,7 +69,11 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(manager->address(), fn, std::forward<Args>(args)...);
-            scheduler->run(10000);
+            for (int i = 0; i < 100000 && !future.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(future.is_ready());
             return std::move(future).get();
         }
 
@@ -124,8 +132,7 @@ TEST_CASE("services::disk::d4::resolve_table_finds_unloaded_user_table") {
     std::vector<components::table::column_definition_t> cols;
     cols.emplace_back("id", components::types::complex_logical_type{components::types::logical_type::BIGINT});
     auto rt_oid = test_create_table(fx, ns_oid, "orders", std::move(cols));
-    auto resolved =
-        fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("orders"), std::uint64_t{0});
+    auto resolved = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("orders"));
     REQUIRE(resolved.found);
     REQUIRE(resolved.oid == rt_oid);
     // resolve_table did not need storage to be present in storages_ to answer the lookup.
@@ -142,8 +149,7 @@ TEST_CASE("services::disk::d4::drop_unloaded_table") {
     REQUIRE_FALSE(fx.manager->has_storage(rt_oid));
     test_drop_table(fx, rt_oid);
     // After drop the table is no longer resolvable.
-    auto resolved =
-        fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("temp_t"), std::uint64_t{0});
+    auto resolved = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("temp_t"));
     REQUIRE_FALSE(resolved.found);
 }
 
@@ -164,8 +170,7 @@ TEST_CASE("services::disk::d4::alter_unloaded_table_add_column") {
     // No user-storage materialisation as a side-effect of ALTER.
     REQUIRE_FALSE(fx.manager->has_storage(rt_oid));
     // The new column shows up via resolve_table.
-    auto resolved =
-        fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("alter_me"), std::uint64_t{0});
+    auto resolved = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("alter_me"));
     REQUIRE(resolved.found);
     REQUIRE(resolved.columns.size() == 2);
 }
@@ -180,7 +185,7 @@ TEST_CASE("services::disk::d4::repeated_resolve_does_not_create_storage") {
     cols.emplace_back("id", components::types::complex_logical_type{components::types::logical_type::BIGINT});
     auto rt_oid = test_create_table(fx, ns_oid, "readme", std::move(cols));
     for (int i = 0; i < 3; ++i) {
-        auto r = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("readme"), std::uint64_t{0});
+        auto r = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("readme"));
         REQUIRE(r.found);
     }
     REQUIRE_FALSE(fx.manager->has_storage(rt_oid));
@@ -196,7 +201,7 @@ TEST_CASE("services::disk::d4::resolve_table_collects_columns_by_attrelid") {
     cols.emplace_back("b", components::types::complex_logical_type{components::types::logical_type::STRING_LITERAL});
     cols.emplace_back("c", components::types::complex_logical_type{components::types::logical_type::DOUBLE});
     auto rt_oid = test_create_table(fx, ns_oid, "multi", std::move(cols));
-    auto r = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("multi"), std::uint64_t{0});
+    auto r = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("multi"));
     REQUIRE(r.found);
     REQUIRE(r.oid == rt_oid);
     REQUIRE(r.columns.size() == 3);

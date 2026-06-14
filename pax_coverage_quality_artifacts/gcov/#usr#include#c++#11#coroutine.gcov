@@ -1,0 +1,1002 @@
+        -:    0:Source:/usr/include/c++/11/coroutine
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:// <coroutine> -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2019-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file include/coroutine
+        -:   26: *  This is a Standard C++ Library header.
+        -:   27: */
+        -:   28:
+        -:   29:#ifndef _GLIBCXX_COROUTINE
+        -:   30:#define _GLIBCXX_COROUTINE 1
+        -:   31:
+        -:   32:#pragma GCC system_header
+        -:   33:
+        -:   34:// It is very likely that earlier versions would work, but they are untested.
+        -:   35:#if __cplusplus >= 201402L
+        -:   36:
+        -:   37:#include <bits/c++config.h>
+        -:   38:
+        -:   39:/**
+        -:   40: * @defgroup coroutines Coroutines
+        -:   41: *
+        -:   42: * Components for supporting coroutine implementations.
+        -:   43: */
+        -:   44:
+        -:   45:#if __cplusplus > 201703L && __cpp_impl_three_way_comparison >= 201907L
+        -:   46:#  include <compare>
+        -:   47:#  define _COROUTINES_USE_SPACESHIP 1
+        -:   48:#else
+        -:   49:#  include <bits/stl_function.h> // for std::less
+        -:   50:#  define _COROUTINES_USE_SPACESHIP 0
+        -:   51:#endif
+        -:   52:
+        -:   53:namespace std _GLIBCXX_VISIBILITY (default)
+        -:   54:{
+        -:   55:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   56:
+        -:   57:#if __cpp_impl_coroutine
+        -:   58:
+        -:   59:#define __cpp_lib_coroutine 201902L
+        -:   60:
+        -:   61:  inline namespace __n4861 {
+        -:   62:
+        -:   63:  // 17.12.2 coroutine traits
+        -:   64:  /// [coroutine.traits]
+        -:   65:  /// [coroutine.traits.primary]
+        -:   66:  /// If _Result::promise_type is valid and denotes a type then the traits
+        -:   67:  /// have a single publicly accessible member, otherwise they are empty.
+        -:   68:  template <typename _Result, typename = void>
+        -:   69:   struct __coroutine_traits_impl {};
+        -:   70:
+        -:   71:  template <typename _Result>
+        -:   72:    struct __coroutine_traits_impl<_Result,
+        -:   73:				    __void_t<typename _Result::promise_type>>
+        -:   74:    {
+        -:   75:      using promise_type = typename _Result::promise_type;
+        -:   76:    };
+        -:   77:
+        -:   78:  template <typename _Result, typename...>
+        -:   79:    struct coroutine_traits : __coroutine_traits_impl<_Result> {};
+        -:   80:
+        -:   81:  // 17.12.3 Class template coroutine_handle
+        -:   82:  /// [coroutine.handle]
+        -:   83:  template <typename _Promise = void>
+        -:   84:    struct coroutine_handle;
+        -:   85:
+        -:   86:  template <> struct
+        -:   87:    coroutine_handle<void>
+        -:   88:    {
+        -:   89:    public:
+        -:   90:      // [coroutine.handle.con], construct/reset
+        -:   91:      constexpr coroutine_handle() noexcept : _M_fr_ptr(0) {}
+        -:   92:
+function _ZNSt7__n486116coroutine_handleIvEC2EDn called 0 returned 0% blocks executed 0%
+    #####:   93:      constexpr coroutine_handle(std::nullptr_t __h) noexcept
+    #####:   94:	: _M_fr_ptr(__h)
+    #####:   95:      {}
+        -:   96:
+        -:   97:      coroutine_handle& operator=(std::nullptr_t) noexcept
+        -:   98:      {
+        -:   99:	_M_fr_ptr = nullptr;
+        -:  100:	return *this;
+        -:  101:      }
+        -:  102:
+        -:  103:    public:
+        -:  104:      // [coroutine.handle.export.import], export/import
+function _ZNKSt7__n486116coroutine_handleIvE7addressEv called 0 returned 0% blocks executed 0%
+    #####:  105:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+        -:  106:
+function _ZNSt7__n486116coroutine_handleIvE12from_addressEPv called 0 returned 0% blocks executed 0%
+    #####:  107:      constexpr static coroutine_handle from_address(void* __a) noexcept
+        -:  108:      {
+    #####:  109:	coroutine_handle __self;
+    #####:  110:	__self._M_fr_ptr = __a;
+    #####:  111:	return __self;
+        -:  112:      }
+        -:  113:
+        -:  114:    public:
+        -:  115:      // [coroutine.handle.observers], observers
+function _ZNKSt7__n486116coroutine_handleIvEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  116:      constexpr explicit operator bool() const noexcept
+        -:  117:      {
+    #####:  118:	return bool(_M_fr_ptr);
+        -:  119:      }
+        -:  120:
+        -:  121:      bool done() const noexcept { return __builtin_coro_done(_M_fr_ptr); }
+        -:  122:
+        -:  123:      // [coroutine.handle.resumption], resumption
+        -:  124:      void operator()() const { resume(); }
+        -:  125:
+function _ZNKSt7__n486116coroutine_handleIvE6resumeEv called 0 returned 0% blocks executed 0%
+    #####:  126:      void resume() const { __builtin_coro_resume(_M_fr_ptr); }
+call    0 never executed
+        -:  127:
+        -:  128:      void destroy() const { __builtin_coro_destroy(_M_fr_ptr); }
+        -:  129:
+        -:  130:    protected:
+        -:  131:      void* _M_fr_ptr;
+        -:  132:  };
+        -:  133:
+        -:  134:  // [coroutine.handle.compare], comparison operators
+        -:  135:
+        -:  136:  constexpr bool
+        -:  137:  operator==(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  138:  {
+        -:  139:    return __a.address() == __b.address();
+        -:  140:  }
+        -:  141:
+        -:  142:#if _COROUTINES_USE_SPACESHIP
+        -:  143:  constexpr strong_ordering
+        -:  144:  operator<=>(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  145:  {
+        -:  146:    return std::compare_three_way()(__a.address(), __b.address());
+        -:  147:  }
+        -:  148:#else
+        -:  149:  // These are to enable operation with std=c++14,17.
+        -:  150:  constexpr bool
+        -:  151:  operator!=(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  152:  {
+        -:  153:    return !(__a == __b);
+        -:  154:  }
+        -:  155:
+        -:  156:  constexpr bool
+        -:  157:  operator<(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  158:  {
+        -:  159:    return less<void*>()(__a.address(), __b.address());
+        -:  160:  }
+        -:  161:
+        -:  162:  constexpr bool
+        -:  163:  operator>(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  164:  {
+        -:  165:    return __b < __a;
+        -:  166:  }
+        -:  167:
+        -:  168:  constexpr bool
+        -:  169:  operator<=(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  170:  {
+        -:  171:    return !(__a > __b);
+        -:  172:  }
+        -:  173:
+        -:  174:  constexpr bool
+        -:  175:  operator>=(coroutine_handle<> __a, coroutine_handle<> __b) noexcept
+        -:  176:  {
+        -:  177:    return !(__a < __b);
+        -:  178:  }
+        -:  179:#endif
+        -:  180:
+        -:  181:  template <typename _Promise>
+        -:  182:    struct coroutine_handle
+        -:  183:    {
+        -:  184:      // [coroutine.handle.con], construct/reset
+        -:  185:
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEC2Ev:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  186:      constexpr coroutine_handle() noexcept { }
+------------------
+        -:  187:
+        -:  188:      constexpr coroutine_handle(nullptr_t) noexcept { }
+        -:  189:
+        -:  190:      static coroutine_handle
+    #####:  191:      from_promise(_Promise& __p)
+        -:  192:      {
+    #####:  193:	coroutine_handle __self;
+        -:  194:	__self._M_fr_ptr
+    #####:  195:	  = __builtin_coro_promise((char*) &__p, __alignof(_Promise), true);
+    #####:  196:	return __self;
+        -:  197:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE12from_promiseERS4_:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE12from_promiseERS4_ called 0 returned 0% blocks executed 0%
+    #####:  191:      from_promise(_Promise& __p)
+        -:  192:      {
+    #####:  193:	coroutine_handle __self;
+        -:  194:	__self._M_fr_ptr
+    #####:  195:	  = __builtin_coro_promise((char*) &__p, __alignof(_Promise), true);
+    #####:  196:	return __self;
+        -:  197:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE12from_promiseERSC_:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE12from_promiseERSC_ called 0 returned 0% blocks executed 0%
+    #####:  191:      from_promise(_Promise& __p)
+        -:  192:      {
+    #####:  193:	coroutine_handle __self;
+        -:  194:	__self._M_fr_ptr
+    #####:  195:	  = __builtin_coro_promise((char*) &__p, __alignof(_Promise), true);
+    #####:  196:	return __self;
+        -:  197:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE12from_promiseERS3_:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE12from_promiseERS3_ called 0 returned 0% blocks executed 0%
+    #####:  191:      from_promise(_Promise& __p)
+        -:  192:      {
+    #####:  193:	coroutine_handle __self;
+        -:  194:	__self._M_fr_ptr
+    #####:  195:	  = __builtin_coro_promise((char*) &__p, __alignof(_Promise), true);
+    #####:  196:	return __self;
+        -:  197:      }
+------------------
+        -:  198:
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEaSEDn:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEaSEDn called 0 returned 0% blocks executed 0%
+    #####:  199:      coroutine_handle& operator=(nullptr_t) noexcept
+        -:  200:      {
+    #####:  201:	_M_fr_ptr = nullptr;
+    #####:  202:	return *this;
+        -:  203:      }
+------------------
+        -:  204:
+        -:  205:      // [coroutine.handle.export.import], export/import
+        -:  206:
+    #####:  207:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7addressEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7addressEv called 0 returned 0% blocks executed 0%
+    #####:  207:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7addressEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7addressEv called 0 returned 0% blocks executed 0%
+    #####:  207:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7addressEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7addressEv called 0 returned 0% blocks executed 0%
+    #####:  207:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+------------------
+        -:  208:
+    #####:  209:      constexpr static coroutine_handle from_address(void* __a) noexcept
+        -:  210:      {
+    #####:  211:	coroutine_handle __self;
+    #####:  212:	__self._M_fr_ptr = __a;
+    #####:  213:	return __self;
+        -:  214:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE12from_addressEPv:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE12from_addressEPv called 0 returned 0% blocks executed 0%
+    #####:  209:      constexpr static coroutine_handle from_address(void* __a) noexcept
+        -:  210:      {
+    #####:  211:	coroutine_handle __self;
+    #####:  212:	__self._M_fr_ptr = __a;
+    #####:  213:	return __self;
+        -:  214:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE12from_addressEPv:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE12from_addressEPv called 0 returned 0% blocks executed 0%
+    #####:  209:      constexpr static coroutine_handle from_address(void* __a) noexcept
+        -:  210:      {
+    #####:  211:	coroutine_handle __self;
+    #####:  212:	__self._M_fr_ptr = __a;
+    #####:  213:	return __self;
+        -:  214:      }
+------------------
+_ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE12from_addressEPv:
+function _ZNSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE12from_addressEPv called 0 returned 0% blocks executed 0%
+    #####:  209:      constexpr static coroutine_handle from_address(void* __a) noexcept
+        -:  210:      {
+    #####:  211:	coroutine_handle __self;
+    #####:  212:	__self._M_fr_ptr = __a;
+    #####:  213:	return __self;
+        -:  214:      }
+------------------
+        -:  215:
+        -:  216:      // [coroutine.handle.conv], conversion
+    #####:  217:      constexpr operator coroutine_handle<>() const noexcept
+    #####:  218:      { return coroutine_handle<>::from_address(address()); }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEcvNS0_IvEEEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEcvNS0_IvEEEv called 0 returned 0% blocks executed 0%
+    #####:  217:      constexpr operator coroutine_handle<>() const noexcept
+    #####:  218:      { return coroutine_handle<>::from_address(address()); }
+call    0 never executed
+call    1 never executed
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvNS0_IvEEEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvNS0_IvEEEv called 0 returned 0% blocks executed 0%
+    #####:  217:      constexpr operator coroutine_handle<>() const noexcept
+    #####:  218:      { return coroutine_handle<>::from_address(address()); }
+call    0 never executed
+call    1 never executed
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEcvNS0_IvEEEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEcvNS0_IvEEEv called 0 returned 0% blocks executed 0%
+    #####:  217:      constexpr operator coroutine_handle<>() const noexcept
+    #####:  218:      { return coroutine_handle<>::from_address(address()); }
+call    0 never executed
+call    1 never executed
+------------------
+        -:  219:
+        -:  220:      // [coroutine.handle.observers], observers
+     130*:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+     130*:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEEcvbEv called 130 returned 100% blocks executed 100%
+      130:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+      130:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEcvbEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEEcvbEv called 0 returned 0% blocks executed 0%
+    #####:  221:      constexpr explicit operator bool() const noexcept
+        -:  222:      {
+    #####:  223:	return bool(_M_fr_ptr);
+        -:  224:      }
+------------------
+        -:  225:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE4doneEv called 0 returned 0% blocks executed 0%
+    #####:  226:      bool done() const noexcept { return __builtin_coro_done(_M_fr_ptr); }
+        -:  227:
+        -:  228:      // [coroutine.handle.resumption], resumption
+        -:  229:      void operator()() const { resume(); }
+        -:  230:
+        -:  231:      void resume() const { __builtin_coro_resume(_M_fr_ptr); }
+        -:  232:
+    #####:  233:      void destroy() const { __builtin_coro_destroy(_M_fr_ptr); }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7destroyEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7destroyEv called 0 returned 0% blocks executed 0%
+    #####:  233:      void destroy() const { __builtin_coro_destroy(_M_fr_ptr); }
+call    0 never executed
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7destroyEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7destroyEv called 0 returned 0% blocks executed 0%
+    #####:  233:      void destroy() const { __builtin_coro_destroy(_M_fr_ptr); }
+call    0 never executed
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7destroyEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7destroyEv called 0 returned 0% blocks executed 0%
+    #####:  233:      void destroy() const { __builtin_coro_destroy(_M_fr_ptr); }
+call    0 never executed
+------------------
+        -:  234:
+        -:  235:      // [coroutine.handle.promise], promise access
+      65*:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+      65*:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+      65*:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk26resolve_namespace_result_tEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta10behavior_t12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIvE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureImE12promise_typeEE7promiseEv called 65 returned 100% blocks executed 100%
+       65:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+       65:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+       65:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS7_EEESt14default_deleteISB_EEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairImmEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt4pairIlmEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIS3_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEENS8_ISA_EEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk22resolve_table_result_tEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk21resolve_type_result_tEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN8services4disk25resolve_function_result_tEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS6_EEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIjSaIjEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureIN10components25pg_catalog_append_range_tEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+_ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEE7promiseEv:
+function _ZNKSt7__n486116coroutine_handleIN10actor_zeta13unique_futureISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE12promise_typeEE7promiseEv called 0 returned 0% blocks executed 0%
+    #####:  236:      _Promise& promise() const
+        -:  237:      {
+        -:  238:	void* __t
+    #####:  239:	  = __builtin_coro_promise (_M_fr_ptr, __alignof(_Promise), false);
+    #####:  240:	return *static_cast<_Promise*>(__t);
+        -:  241:      }
+------------------
+        -:  242:
+        -:  243:    private:
+        -:  244:      void* _M_fr_ptr = nullptr;
+        -:  245:    };
+        -:  246:
+        -:  247:  /// [coroutine.noop]
+        -:  248:  struct noop_coroutine_promise
+        -:  249:  {
+        -:  250:  };
+        -:  251:
+        -:  252:  // 17.12.4.1 Class noop_coroutine_promise
+        -:  253:  /// [coroutine.promise.noop]
+        -:  254:  template <>
+        -:  255:    struct coroutine_handle<noop_coroutine_promise>
+        -:  256:    {
+        -:  257:      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  258:      // 3460. Unimplementable noop_coroutine_handle guarantees
+        -:  259:      // [coroutine.handle.noop.conv], conversion
+function _ZNKSt7__n486116coroutine_handleINS_22noop_coroutine_promiseEEcvNS0_IvEEEv called 0 returned 0% blocks executed 0%
+    #####:  260:      constexpr operator coroutine_handle<>() const noexcept
+    #####:  261:      { return coroutine_handle<>::from_address(address()); }
+call    0 never executed
+call    1 never executed
+        -:  262:
+        -:  263:      // [coroutine.handle.noop.observers], observers
+        -:  264:      constexpr explicit operator bool() const noexcept { return true; }
+        -:  265:
+        -:  266:      constexpr bool done() const noexcept { return false; }
+        -:  267:
+        -:  268:      // [coroutine.handle.noop.resumption], resumption
+        -:  269:      void operator()() const noexcept {}
+        -:  270:
+        -:  271:      void resume() const noexcept {}
+        -:  272:
+        -:  273:      void destroy() const noexcept {}
+        -:  274:
+        -:  275:      // [coroutine.handle.noop.promise], promise access
+        -:  276:      noop_coroutine_promise& promise() const noexcept
+        -:  277:      { return _S_fr.__p; }
+        -:  278:
+        -:  279:      // [coroutine.handle.noop.address], address
+function _ZNKSt7__n486116coroutine_handleINS_22noop_coroutine_promiseEE7addressEv called 0 returned 0% blocks executed 0%
+    #####:  280:      constexpr void* address() const noexcept { return _M_fr_ptr; }
+        -:  281:
+        -:  282:    private:
+        -:  283:      friend coroutine_handle noop_coroutine() noexcept;
+        -:  284:
+        -:  285:      struct __frame
+        -:  286:      {
+function _ZNSt7__n486116coroutine_handleINS_22noop_coroutine_promiseEE7__frame22__dummy_resume_destroyEv called 0 returned 0% blocks executed 0%
+    #####:  287:	static void __dummy_resume_destroy() { }
+        -:  288:
+        -:  289:	void (*__r)() = __dummy_resume_destroy;
+        -:  290:	void (*__d)() = __dummy_resume_destroy;
+        -:  291:	struct noop_coroutine_promise __p;
+        -:  292:      };
+        -:  293:
+        -:  294:      static __frame _S_fr;
+        -:  295:
+function _ZNSt7__n486116coroutine_handleINS_22noop_coroutine_promiseEEC2Ev called 0 returned 0% blocks executed 0%
+    #####:  296:      explicit coroutine_handle() noexcept = default;
+        -:  297:
+        -:  298:      void* _M_fr_ptr = &_S_fr;
+        -:  299:    };
+        -:  300:
+        -:  301:  using noop_coroutine_handle = coroutine_handle<noop_coroutine_promise>;
+        -:  302:
+        -:  303:  inline noop_coroutine_handle::__frame
+        -:  304:  noop_coroutine_handle::_S_fr{};
+        -:  305:
+function _ZNSt7__n486114noop_coroutineEv called 0 returned 0% blocks executed 0%
+    #####:  306:  inline noop_coroutine_handle noop_coroutine() noexcept
+        -:  307:  {
+    #####:  308:    return noop_coroutine_handle();
+call    0 never executed
+        -:  309:  }
+        -:  310:
+        -:  311:  // 17.12.5 Trivial awaitables
+        -:  312:  /// [coroutine.trivial.awaitables]
+        -:  313:  struct suspend_always
+        -:  314:  {
+        -:  315:    constexpr bool await_ready() const noexcept { return false; }
+        -:  316:
+        -:  317:    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+        -:  318:
+        -:  319:    constexpr void await_resume() const noexcept {}
+        -:  320:  };
+        -:  321:
+        -:  322:  struct suspend_never
+        -:  323:  {
+function _ZNKSt7__n486113suspend_never11await_readyEv called 0 returned 0% blocks executed 0%
+    #####:  324:    constexpr bool await_ready() const noexcept { return true; }
+        -:  325:
+function _ZNKSt7__n486113suspend_never13await_suspendENS_16coroutine_handleIvEE called 0 returned 0% blocks executed 0%
+    #####:  326:    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+        -:  327:
+function _ZNKSt7__n486113suspend_never12await_resumeEv called 0 returned 0% blocks executed 0%
+    #####:  328:    constexpr void await_resume() const noexcept {}
+        -:  329:  };
+        -:  330:
+        -:  331:  } // namespace __n4861
+        -:  332:
+        -:  333:#else
+        -:  334:#error "the coroutine header requires -fcoroutines"
+        -:  335:#endif
+        -:  336:
+        -:  337:  _GLIBCXX_END_NAMESPACE_VERSION
+        -:  338:} // namespace std
+        -:  339:
+        -:  340:#endif // C++14 (we are allowing use from at least this)
+        -:  341:
+        -:  342:#endif // _GLIBCXX_COROUTINE

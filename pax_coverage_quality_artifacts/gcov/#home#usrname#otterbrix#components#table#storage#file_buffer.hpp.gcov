@@ -1,0 +1,114 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/file_buffer.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cstdint>
+        -:    4:#include <memory_resource>
+        -:    5:
+        -:    6:namespace core::filesystem {
+        -:    7:    struct file_handle_t;
+        -:    8:}
+        -:    9:
+        -:   10:namespace components::table::storage {
+        -:   11:
+        -:   12:    enum class file_buffer_type : uint8_t
+        -:   13:    {
+        -:   14:        BLOCK = 1,
+        -:   15:        MANAGED_BUFFER = 2,
+        -:   16:        TINY_BUFFER = 3
+        -:   17:    };
+        -:   18:    static constexpr size_t FILE_BUFFER_TYPE_COUNT = 3;
+        -:   19:    static constexpr uint64_t DEFAULT_BLOCK_HEADER_SIZE = sizeof(uint64_t);
+        -:   20:    static constexpr uint64_t SECTOR_SIZE = 4096U;
+        -:   21:    static constexpr uint64_t INVALID_INDEX = uint64_t(-1);
+        -:   22:    static constexpr uint32_t INVALID_BLOCK = uint32_t(-1);
+        -:   23:    static constexpr uint64_t MAXIMUM_BLOCK = uint64_t(1) << 62; // 4611686018427388000ULL
+        -:   24:
+        -:   25:    class file_buffer_t {
+        -:   26:    public:
+        -:   27:        friend class buffer_handle_t;
+        -:   28:
+        -:   29:        file_buffer_t(std::pmr::memory_resource* resource, file_buffer_type type, uint64_t user_size);
+        -:   30:        file_buffer_t(file_buffer_t& source, file_buffer_type type);
+        -:   31:        virtual ~file_buffer_t();
+        -:   32:
+        -:   33:        void read(core::filesystem::file_handle_t& handle, uint64_t location);
+        -:   34:        void write(core::filesystem::file_handle_t& handle, uint64_t location);
+        -:   35:
+        -:   36:        void clear();
+        -:   37:
+        -:   38:        file_buffer_type buffer_type() const { return type_; }
+        -:   39:
+        -:   40:        void resize(uint64_t user_size);
+        -:   41:
+        -:   42:        uint64_t allocation_size() const { return internal_size_; }
+        -:   43:        std::byte* internal_buffer() { return internal_buffer_; }
+        -:   44:        std::byte* buffer() { return buffer_; }
+        -:   45:
+        -:   46:        struct memory_requirement_t {
+        -:   47:            uint64_t alloc_size;
+        -:   48:            uint64_t header_size;
+        -:   49:        };
+        -:   50:
+        -:   51:        memory_requirement_t calculate_memory(uint64_t user_size);
+        -:   52:
+        -:   53:        size_t size() const noexcept { return size_; }
+        -:   54:        size_t& size() noexcept { return size_; }
+        -:   55:        std::pmr::memory_resource* resource() const noexcept { return resource_; }
+        -:   56:
+        -:   57:    protected:
+        -:   58:        void reallocate_buffer(size_t malloc_size);
+        -:   59:
+        -:   60:        std::pmr::memory_resource* resource_;
+        -:   61:        file_buffer_type type_;
+        -:   62:        std::byte* buffer_ = nullptr;
+        -:   63:        size_t size_ = 0;
+        -:   64:        std::byte* internal_buffer_ = nullptr;
+        -:   65:        uint64_t internal_size_ = 0;
+        -:   66:    };
+        -:   67:
+        -:   68:    class block_t : public file_buffer_t {
+        -:   69:    public:
+        -:   70:        block_t(std::pmr::memory_resource* resource, uint64_t id, uint64_t block_size);
+        -:   71:        block_t(std::pmr::memory_resource* resource, uint64_t id, uint32_t internal_size);
+        -:   72:        block_t(file_buffer_t& source, uint64_t id);
+        -:   73:
+        -:   74:        uint64_t id;
+        -:   75:    };
+        -:   76:
+        -:   77:    struct block_pointer_t {
+        -:   78:        block_pointer_t(uint64_t block_id, uint32_t offset)
+        -:   79:            : block_id(block_id)
+        -:   80:            , offset(offset) {}
+        -:   81:        block_pointer_t()
+        -:   82:            : block_id(INVALID_BLOCK)
+        -:   83:            , offset(0) {}
+        -:   84:
+        -:   85:        uint64_t block_id;
+        -:   86:        uint32_t offset;
+        -:   87:        uint32_t unused_padding{0};
+        -:   88:
+        -:   89:        bool is_valid() const { return block_id != INVALID_BLOCK; }
+        -:   90:    };
+        -:   91:
+        -:   92:    struct meta_block_pointer_t {
+        -:   93:        meta_block_pointer_t(uint64_t block_pointer, uint32_t offset)
+        -:   94:            : block_pointer(block_pointer)
+        -:   95:            , offset(offset) {}
+function _ZN10components5table7storage20meta_block_pointer_tC2Ev called 4492 returned 100% blocks executed 100%
+     4492:   96:        meta_block_pointer_t()
+     4492:   97:            : block_pointer(INVALID_INDEX)
+     4492:   98:            , offset(0) {}
+        -:   99:
+        -:  100:        uint64_t block_pointer;
+        -:  101:        uint32_t offset;
+        -:  102:        uint32_t unused_padding{0};
+        -:  103:
+        -:  104:        bool is_valid() const { return block_pointer != INVALID_INDEX; }
+        -:  105:        uint32_t block_id() const;
+        -:  106:        uint32_t GetBlockIndex() const;
+        -:  107:    };
+        -:  108:
+        -:  109:} // namespace components::table::storage

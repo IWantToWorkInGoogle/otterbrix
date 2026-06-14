@@ -1,0 +1,44 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/persistent_column_data.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cstdint>
+        -:    4:#include <memory>
+        -:    5:#include <vector>
+        -:    6:
+        -:    7:#include <components/table/base_statistics.hpp>
+        -:    8:#include <components/table/storage/data_pointer.hpp>
+        -:    9:
+        -:   10:namespace components::table::storage {
+        -:   11:    class metadata_writer_t;
+        -:   12:    class metadata_reader_t;
+        -:   13:} // namespace components::table::storage
+        -:   14:
+        -:   15:namespace components::table {
+        -:   16:
+        -:   17:    struct persistent_column_data_t {
+function _ZN10components5table24persistent_column_data_tC2EPNSt3pmr15memory_resourceE called 3712 returned 100% blocks executed 67%
+     3712:   18:        explicit persistent_column_data_t(std::pmr::memory_resource* resource)
+     3712:   19:            : statistics(resource) {}
+call    0 returned 3712
+call    1 returned 3712
+call    2 returned 3712
+branch  3 taken 3712 (fallthrough)
+branch  4 taken 0 (throw)
+call    5 returned 3712
+call    6 never executed
+call    7 never executed
+        -:   20:
+        -:   21:        std::vector<storage::data_pointer_t> data_pointers;
+        -:   22:        std::vector<std::unique_ptr<persistent_column_data_t>> child_columns;
+        -:   23:        base_statistics_t statistics;
+        -:   24:        std::vector<base_statistics_t> segment_statistics; // per-segment stats (parallel to data_pointers)
+        -:   25:
+        -:   26:        void serialize(storage::metadata_writer_t& writer) const;
+        -:   27:        static persistent_column_data_t deserialize(std::pmr::memory_resource* resource,
+        -:   28:                                                    storage::metadata_reader_t& reader);
+        -:   29:    };
+        -:   30:
+        -:   31:} // namespace components::table

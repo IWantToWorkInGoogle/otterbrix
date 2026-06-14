@@ -1,0 +1,3 @@
+profile,layout,state_bytes,largest_table_bytes,total_table_otbx_bytes,table_count
+fixed_analytic,auto,21491824,2109440,20357120,14
+fixed_analytic,columnar,21491824,2109440,20357120,14

@@ -1,0 +1,113 @@
+        -:    0:Source:/home/usrname/otterbrix/components/vector/data_chunk.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:#include "vector.hpp"
+        -:    3:#include <components/types/logical_value.hpp>
+        -:    4:
+        -:    5:namespace components::vector {
+        -:    6:
+        -:    7:    class data_chunk_t {
+        -:    8:    public:
+        -:    9:        data_chunk_t(std::pmr::memory_resource* resource,
+        -:   10:                     const std::pmr::vector<types::complex_logical_type>& types,
+        -:   11:                     uint64_t capacity = DEFAULT_VECTOR_CAPACITY);
+        -:   12:        // Projected constructor: allocates buffers only for projected_cols; other columns
+        -:   13:        // are placeholders (no buffer) so that column indices stay stable for downstream operators.
+        -:   14:        data_chunk_t(std::pmr::memory_resource* resource,
+        -:   15:                     const std::pmr::vector<types::complex_logical_type>& all_types,
+        -:   16:                     const std::vector<size_t>& projected_cols,
+        -:   17:                     uint64_t capacity);
+        -:   18:        data_chunk_t(const data_chunk_t&) = delete;
+        -:   19:        data_chunk_t& operator=(const data_chunk_t&) = delete;
+function _ZN10components6vector12data_chunk_tC2EOS1_ called 0 returned 0% blocks executed 0%
+    #####:   20:        data_chunk_t(data_chunk_t&&) = default;
+call    0 never executed
+call    1 never executed
+        -:   21:        data_chunk_t& operator=(data_chunk_t&&) = default;
+function _ZN10components6vector12data_chunk_tD2Ev called 0 returned 0% blocks executed 0%
+    #####:   22:        ~data_chunk_t() = default;
+call    0 never executed
+call    1 never executed
+        -:   23:
+        -:   24:        bool empty() const { return count_ == 0; }
+        -:   25:        uint64_t size() const { return count_; }
+        -:   26:        uint64_t capacity() const { return capacity_; }
+        -:   27:        uint64_t column_count() const { return data.size(); }
+        -:   28:        void set_cardinality(uint64_t count) {
+        -:   29:            assert(count <= capacity_);
+        -:   30:            count_ = count;
+        -:   31:        }
+        -:   32:        void set_capacity(uint64_t capacity) { capacity_ = capacity; }
+        -:   33:
+        -:   34:        types::logical_value_t value(uint64_t col_idx, uint64_t index) const;
+        -:   35:        types::logical_value_t value(const std::pmr::vector<size_t>& col_path, uint64_t index) const;
+        -:   36:        void set_value(uint64_t col_idx, uint64_t index, const types::logical_value_t& val);
+        -:   37:        void set_value(const std::pmr::vector<size_t>& col_path, uint64_t index, const types::logical_value_t& val);
+        -:   38:
+        -:   39:        vector_t* at(const std::pmr::vector<size_t>& col_indices);
+        -:   40:        const vector_t* at(const std::pmr::vector<size_t>& col_indices) const;
+        -:   41:
+        -:   42:        uint64_t allocation_size() const;
+        -:   43:
+        -:   44:        bool all_constant() const;
+        -:   45:
+        -:   46:        void reference(data_chunk_t& chunk);
+        -:   47:
+        -:   48:        void destroy();
+        -:   49:
+        -:   50:        void copy(data_chunk_t& other, uint64_t offset = 0) const;
+        -:   51:        void
+        -:   52:        copy(data_chunk_t& other, const indexing_vector_t& indexing, uint64_t source_count, uint64_t offset = 0) const;
+        -:   53:
+        -:   54:        void split(data_chunk_t& other, uint64_t split_idx);
+        -:   55:
+        -:   56:        void fuse(data_chunk_t&& other);
+        -:   57:
+        -:   58:        void reference_columns(data_chunk_t& other, const std::vector<uint64_t>& column_ids);
+        -:   59:
+        -:   60:        void flatten();
+        -:   61:
+        -:   62:        std::vector<unified_vector_format> to_unified_format(std::pmr::memory_resource* resource);
+        -:   63:
+        -:   64:        void slice(const indexing_vector_t& indexing_vector, uint64_t count);
+        -:   65:
+        -:   66:        void
+        -:   67:        slice(const data_chunk_t& other, const indexing_vector_t& indexing, uint64_t count, uint64_t col_offset = 0);
+        -:   68:
+        -:   69:        void slice(std::pmr::memory_resource* resource, uint64_t offset, uint64_t count);
+        -:   70:
+        -:   71:        data_chunk_t partial_copy(std::pmr::memory_resource* resource, uint64_t offset, uint64_t count) const;
+        -:   72:
+        -:   73:        void reset();
+        -:   74:
+        -:   75:        // Drop unprojected placeholder columns in-place (data() == nullptr &&
+        -:   76:        // auxiliary() == nullptr) so user-visible iteration sees only real
+        -:   77:        // data. Used at the cursor boundary where placeholder stability for
+        -:   78:        // downstream operators is no longer needed.
+        -:   79:        void drop_unprojected_placeholders();
+        -:   80:
+        -:   81:        void hash(vector_t& result);
+        -:   82:        void hash(std::vector<uint64_t>& column_ids, vector_t& result);
+        -:   83:        void resize(uint64_t new_size);
+        -:   84:
+        -:   85:        [[nodiscard]] std::pmr::vector<types::complex_logical_type> types() const;
+        -:   86:        size_t column_index(std::string_view key) const;
+        -:   87:        std::pmr::vector<size_t> sub_column_indices(const std::pmr::vector<std::pmr::string>& path) const;
+        -:   88:
+        -:   89:        std::pmr::memory_resource* resource() const;
+        -:   90:
+        -:   91:    private:
+        -:   92:        std::pmr::memory_resource* resource_;
+        -:   93:        uint64_t count_ = 0;
+        -:   94:        uint64_t capacity_ = DEFAULT_VECTOR_CAPACITY;
+        -:   95:
+        -:   96:    public:
+        -:   97:        vector_t row_ids;
+        -:   98:        std::vector<vector_t> data;
+        -:   99:    };
+        -:  100:
+        -:  101:    void validate_chunk_capacity(vector::data_chunk_t& chunk, size_t filled_size);
+        -:  102:
+        -:  103:} // namespace components::vector

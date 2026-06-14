@@ -1,0 +1,168 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/block_handle.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <atomic>
+        -:    4:#include <cassert>
+        -:    5:#include <memory>
+        -:    6:#include <mutex>
+        -:    7:
+        -:    8:#include "file_buffer.hpp"
+        -:    9:
+        -:   10:namespace components::table::storage {
+        -:   11:
+        -:   12:    class block_manager_t;
+        -:   13:    class buffer_pool_t;
+        -:   14:    class buffer_handle_t;
+        -:   15:
+        -:   16:    enum class block_state : uint8_t
+        -:   17:    {
+        -:   18:        UNLOADED = 0,
+        -:   19:        LOADED = 1
+        -:   20:    };
+        -:   21:    enum class memory_tag : uint8_t
+        -:   22:    {
+        -:   23:        BASE_TABLE = 0,
+        -:   24:        HASH_TABLE = 1,
+        -:   25:        PARQUET_READER = 2,
+        -:   26:        CSV_READER = 3,
+        -:   27:        ORDER_BY = 4,
+        -:   28:        ART_INDEX = 5,
+        -:   29:        COLUMN_DATA = 6,
+        -:   30:        METADATA = 7,
+        -:   31:        OVERFLOW_STRINGS = 8,
+        -:   32:        IN_MEMORY_TABLE = 9,
+        -:   33:        ALLOCATOR = 10,
+        -:   34:        EXTENSION = 11,
+        -:   35:        TRANSACTION = 12,
+        -:   36:        MEMORY_TAG_COUNT = 13
+        -:   37:    };
+        -:   38:    enum class destroy_buffer_condition : uint8_t
+        -:   39:    {
+        -:   40:        BLOCK = 0,
+        -:   41:        EVICTION = 1,
+        -:   42:        UNPIN = 2
+        -:   43:    };
+        -:   44:
+        -:   45:    struct buffer_pool_reservation_t {
+        -:   46:        memory_tag tag;
+        -:   47:        uint64_t size{0};
+        -:   48:        buffer_pool_t& pool;
+        -:   49:
+        -:   50:        buffer_pool_reservation_t(memory_tag tag, buffer_pool_t& pool);
+        -:   51:        buffer_pool_reservation_t(const buffer_pool_reservation_t&) = delete;
+        -:   52:        buffer_pool_reservation_t& operator=(const buffer_pool_reservation_t&) = delete;
+        -:   53:        buffer_pool_reservation_t(buffer_pool_reservation_t&&) noexcept;
+        -:   54:        buffer_pool_reservation_t& operator=(buffer_pool_reservation_t&&) noexcept;
+        -:   55:        ~buffer_pool_reservation_t();
+        -:   56:
+        -:   57:        void resize(uint64_t new_size);
+        -:   58:        void merge(buffer_pool_reservation_t src);
+        -:   59:    };
+        -:   60:
+        -:   61:    struct temp_buffer_pool_reservation_t : buffer_pool_reservation_t {
+        -:   62:        temp_buffer_pool_reservation_t(memory_tag tag, buffer_pool_t& pool, uint64_t size)
+        -:   63:            : buffer_pool_reservation_t(tag, pool) {
+        -:   64:            resize(size);
+        -:   65:        }
+        -:   66:        temp_buffer_pool_reservation_t(temp_buffer_pool_reservation_t&&) = default;
+        -:   67:        ~temp_buffer_pool_reservation_t() { resize(0); }
+        -:   68:    };
+        -:   69:
+        -:   70:    class block_handle_t : public std::enable_shared_from_this<block_handle_t> {
+        -:   71:    public:
+        -:   72:        block_handle_t(block_manager_t& block_manager, uint64_t block_id, memory_tag tag);
+        -:   73:        block_handle_t(block_manager_t& block_manager,
+        -:   74:                       uint64_t block_id,
+        -:   75:                       memory_tag tag,
+        -:   76:                       std::unique_ptr<file_buffer_t> buffer,
+        -:   77:                       destroy_buffer_condition destroy_buffer_condition,
+        -:   78:                       uint64_t block_size,
+        -:   79:                       buffer_pool_reservation_t&& reservation);
+        -:   80:        ~block_handle_t();
+        -:   81:
+function _ZNK10components5table7storage14block_handle_t8block_idEv called 0 returned 0% blocks executed 0%
+    #####:   82:        uint64_t block_id() const { return block_id_; }
+        -:   83:
+        -:   84:        uint64_t eviction_sequence_number() const { return eviction_seq_num_; }
+        -:   85:
+        -:   86:        uint64_t next_eviction_sequence_number() { return ++eviction_seq_num_; }
+        -:   87:
+        -:   88:        int32_t readers() const { return readers_; }
+        -:   89:        int32_t decrement_readers() { return --readers_; }
+        -:   90:
+        -:   91:        bool is_swizzled() const { return !unswizzled_; }
+        -:   92:
+        -:   93:        void set_swizzled(const char* unswizzler) { unswizzled_ = unswizzler; }
+        -:   94:
+        -:   95:        memory_tag get_memory_tag() const { return tag_; }
+        -:   96:
+        -:   97:        void set_destroy_buffer_condition(destroy_buffer_condition destroy_buffer_upon) {
+        -:   98:            destroy_condition_ = destroy_buffer_upon;
+        -:   99:        }
+        -:  100:
+        -:  101:        bool must_add_to_eviction_queue() const { return destroy_condition_ != destroy_buffer_condition::UNPIN; }
+        -:  102:
+        -:  103:        uint64_t memory_usage() const { return memory_usage_; }
+        -:  104:
+        -:  105:        bool is_unloaded() const { return state_ == block_state::UNLOADED; }
+        -:  106:
+        -:  107:        void set_eviction_queue_index(uint64_t index) {
+        -:  108:            // can only be set once
+        -:  109:            assert(eviction_queue_idx_ == INVALID_INDEX);
+        -:  110:            assert(buffer_type() == file_buffer_type::MANAGED_BUFFER);
+        -:  111:            eviction_queue_idx_ = index;
+        -:  112:        }
+        -:  113:
+        -:  114:        uint64_t eviction_queue_index() const { return eviction_queue_idx_; }
+        -:  115:
+        -:  116:        file_buffer_type buffer_type() const { return buffer_type_; }
+        -:  117:
+        -:  118:        block_state state() const { return state_; }
+        -:  119:
+        -:  120:        int64_t LRU_timestamp() const { return lru_timestamp_msec_; }
+        -:  121:
+        -:  122:        void set_LRU_timestamp(int64_t timestamp_msec) { lru_timestamp_msec_ = timestamp_msec; }
+        -:  123:
+        -:  124:        std::unique_lock<std::mutex> get_lock() { return std::unique_lock(lock_); }
+        -:  125:
+        -:  126:        std::unique_ptr<file_buffer_t>& get_buffer(std::unique_lock<std::mutex>& l);
+        -:  127:
+        -:  128:        void change_memory_usage(std::unique_lock<std::mutex>& l, int64_t delta);
+        -:  129:        buffer_pool_reservation_t& memory_usage(std::unique_lock<std::mutex>& l);
+        -:  130:        void merge_memory_reservation(std::unique_lock<std::mutex>&, buffer_pool_reservation_t reservation);
+        -:  131:        void resize_memory(std::unique_lock<std::mutex>&, uint64_t alloc_size);
+        -:  132:
+        -:  133:        void resize_buffer(std::unique_lock<std::mutex>&, uint64_t block_size, int64_t memory_delta);
+        -:  134:        buffer_handle_t load(std::unique_ptr<file_buffer_t> buffer = nullptr);
+        -:  135:        buffer_handle_t load_from_buffer(std::unique_lock<std::mutex>& l,
+        -:  136:                                         std::byte* data,
+        -:  137:                                         std::unique_ptr<file_buffer_t> reusable_buffer,
+        -:  138:                                         buffer_pool_reservation_t reservation);
+        -:  139:        std::unique_ptr<file_buffer_t> unload_and_take_block(std::unique_lock<std::mutex>&);
+        -:  140:        void unload(std::unique_lock<std::mutex>&);
+        -:  141:
+        -:  142:        bool can_unload() const;
+        -:  143:
+        -:  144:        block_manager_t& block_manager;
+        -:  145:
+        -:  146:    private:
+        -:  147:        std::mutex lock_;
+        -:  148:        std::atomic<block_state> state_;
+        -:  149:        std::atomic<int32_t> readers_;
+        -:  150:        uint64_t block_id_;
+        -:  151:        const memory_tag tag_;
+        -:  152:        const file_buffer_type buffer_type_;
+        -:  153:        std::unique_ptr<file_buffer_t> buffer_;
+        -:  154:        std::atomic<uint64_t> eviction_seq_num_;
+        -:  155:        std::atomic<int64_t> lru_timestamp_msec_;
+        -:  156:        std::atomic<destroy_buffer_condition> destroy_condition_;
+        -:  157:        std::atomic<uint64_t> memory_usage_;
+        -:  158:        buffer_pool_reservation_t memory_charge_;
+        -:  159:        const char* unswizzled_;
+        -:  160:        std::atomic<uint64_t> eviction_queue_idx_;
+        -:  161:    };
+        -:  162:
+        -:  163:} //namespace components::table::storage

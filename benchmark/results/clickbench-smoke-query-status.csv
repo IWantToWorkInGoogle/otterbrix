@@ -1,0 +1,44 @@
+name,status,error
+clickbench/queries/q1,OK,
+clickbench/queries/q2,OK,
+clickbench/queries/q3,OK,
+clickbench/queries/q4,OK,
+clickbench/queries/q5,OK,
+clickbench/queries/q6,OK,
+clickbench/queries/q7,CRASH,
+clickbench/queries/q8,FAIL,SQL error: code=29 what=Unknown node type in ORDER BY: T_FuncCall
+clickbench/queries/q9,OK,
+clickbench/queries/q10,OK,
+clickbench/queries/q11,OK,
+clickbench/queries/q12,OK,
+clickbench/queries/q13,OK,
+clickbench/queries/q14,OK,
+clickbench/queries/q15,OK,
+clickbench/queries/q16,FAIL,SQL error: code=29 what=Unknown node type in ORDER BY: T_FuncCall
+clickbench/queries/q17,FAIL,SQL error: code=29 what=Unknown node type in ORDER BY: T_FuncCall
+clickbench/queries/q18,OK,
+clickbench/queries/q19,FAIL,SQL error: code=29 what=Unknown node type in ORDER BY: T_FuncCall
+clickbench/queries/q20,OK,
+clickbench/queries/q21,OK,
+clickbench/queries/q22,CRASH,
+clickbench/queries/q23,CRASH,
+clickbench/queries/q24,OK,
+clickbench/queries/q25,OK,
+clickbench/queries/q26,OK,
+clickbench/queries/q27,OK,
+clickbench/queries/q28,FAIL,SQL error: code=22 what=non-scalar expression param is not supported
+clickbench/queries/q29,FAIL,SQL error: code=21 what=path: 'k' was not found
+clickbench/queries/q30,OK,
+clickbench/queries/q31,OK,
+clickbench/queries/q32,OK,
+clickbench/queries/q33,OK,
+clickbench/queries/q34,OK,
+clickbench/queries/q35,FAIL,SQL error: code=29 what=Unknown node type in group by clause: T_A_Const
+clickbench/queries/q36,FAIL,SQL error: code=29 what=Unknown node type in group by clause: T_A_Expr
+clickbench/queries/q37,OK,
+clickbench/queries/q38,OK,
+clickbench/queries/q39,OK,
+clickbench/queries/q40,FAIL,SQL error: code=21 what=path: 'src' was not found
+clickbench/queries/q41,OK,
+clickbench/queries/q42,OK,
+clickbench/queries/q43,FAIL,SQL error: code=29 what=Unknown node type in group by clause: T_FuncCall

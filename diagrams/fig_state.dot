@@ -1,0 +1,35 @@
+digraph life {
+  rankdir=TB; bgcolor="white"; nodesep=0.45; ranksep=0.6;
+  node [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=12,
+        fillcolor="#eef2f7", color="#5b6b7a", penwidth=1.2, margin="0.2,0.12"];
+  edge [fontname="DejaVu Sans", fontsize=10, color="#5b6b7a", penwidth=1.1, arrowsize=0.8];
+
+  start [shape=circle, width=0.2, label="", style=filled, fillcolor="#33373b", color="#33373b"];
+  dirty [label="InMemoryDirty\n(изменения в памяти)"];
+  ckpt  [label="Checkpointing\n(сохранение)"];
+  pc    [label="PersistedColumnar", fillcolor="#dbe9fb"];
+  pf    [label="PersistedPaxFixed", fillcolor="#dcefe1"];
+  pg    [label="PersistedPaxGeneric", fillcolor="#fdf3cf"];
+  load  [label="LoadedFromDisk\n(восстановлено)"];
+  fast  [label="FastProjectedScan", fillcolor="#dcefe1"];
+  fb    [label="FallbackScan", fillcolor="#fbdde0"];
+  reuse [label="ReusedPointer", fillcolor="#e6e8eb"];
+
+  start -> dirty [label="append / update / delete"];
+  dirty -> ckpt [label="CHECKPOINT"];
+  ckpt -> pc [label="COLUMNAR"];
+  ckpt -> pf [label="PAX_FIXED"];
+  ckpt -> pg [label="PAX_GENERIC"];
+  pc -> load [label="load_from_disk()"];
+  pf -> load [label="load_from_disk()"];
+  pg -> load [label="load_from_disk()"];
+  load -> fast [label="поддержанная проекция/фильтр"];
+  load -> fb [label="неподдержанный случай\nили транзакция/удаления"];
+  load -> reuse [label="следующая контрольная\nточка без изменений"];
+  fast -> load [style=dashed];
+  fb -> load [style=dashed];
+  reuse -> load [style=dashed];
+  load -> dirty [label="изменение помечает dirty", constraint=false, style=dashed];
+  {rank=same; pc; pf; pg;}
+  {rank=same; fast; fb; reuse;}
+}

@@ -1,0 +1,2 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+pax/mixed_schema_checkpoint/checkpoint,pax/mixed_schema_checkpoint,auto,disk,warm,true,false,Release,30,50.197,206.971,118.774,126.119,OK,0,0,fnv64:0cda5faad0fc7c7a,""

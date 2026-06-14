@@ -13,11 +13,20 @@ namespace components::operators {
         types::logical_value_t extract_select_value(std::pmr::memory_resource* resource,
                                                     const group_key_t& key,
                                                     const vector::data_chunk_t& chunk,
-                                                    size_t row_idx) {
+                                                    size_t row_idx,
+                                                    const vector::data_chunk_t* right_chunk) {
+            // A right-side column reads from the right chunk. Validation only
+            // stamps a key right when its data physically lives there, so the
+            // caller must supply right_chunk — a joined DELETE/UPDATE RETURNING
+            // passes the gathered USING/FROM rows, a SELECT over a JOIN passes its
+            // merged chunk. A missing right_chunk here is a validation/wiring bug.
+            const bool from_right = key.side == expressions::side_t::right;
+            assert((!from_right || right_chunk != nullptr) && "right-side column requires a right chunk");
+            const vector::data_chunk_t& src = from_right ? *right_chunk : chunk;
             switch (key.type) {
                 case group_key_t::kind::column: {
                     assert(!key.full_path.empty() && "field_ref path must be resolved before execution");
-                    auto val = chunk.value(key.full_path, row_idx);
+                    auto val = src.value(key.full_path, row_idx);
                     val.set_alias(std::string{key.name});
                     return val;
                 }
@@ -30,8 +39,8 @@ namespace components::operators {
                                 return val;
                             }
                         } else {
-                            if (!chunk.data[entry.col_index].is_null(row_idx)) {
-                                auto val = chunk.value(entry.col_index, row_idx);
+                            if (!src.data[entry.col_index].is_null(row_idx)) {
+                                auto val = src.value(entry.col_index, row_idx);
                                 val.set_alias(std::string{key.name});
                                 return val;
                             }
@@ -44,7 +53,7 @@ namespace components::operators {
                 }
                 case group_key_t::kind::case_when: {
                     for (const auto& clause : key.case_clauses) {
-                        auto cond_val = chunk.value(clause.condition_col, row_idx);
+                        auto cond_val = src.value(clause.condition_col, row_idx);
                         auto cmp_result = cond_val.compare(clause.condition_value);
                         bool matches = false;
                         switch (clause.cmp) {
@@ -74,7 +83,7 @@ namespace components::operators {
                             types::logical_value_t result_val =
                                 (clause.res_type == group_key_t::case_clause::result_source::constant)
                                     ? clause.res_constant
-                                    : chunk.value(clause.res_col, row_idx);
+                                    : src.value(clause.res_col, row_idx);
                             result_val.set_alias(std::string{key.name});
                             return result_val;
                         }
@@ -83,7 +92,7 @@ namespace components::operators {
                     types::logical_value_t else_val = [&]() -> types::logical_value_t {
                         switch (key.else_type) {
                             case group_key_t::else_source::column:
-                                return chunk.value(key.else_col, row_idx);
+                                return src.value(key.else_col, row_idx);
                             case group_key_t::else_source::constant:
                                 return key.else_constant;
                             case group_key_t::else_source::null_value:
@@ -109,8 +118,15 @@ namespace components::operators {
 
     void operator_select_t::on_execute_impl(pipeline::context_t* pipeline_context) {
         if (!left_ || !left_->output()) {
-            // No input (no FROM clause): evaluate constants on a virtual single-row empty chunk.
-            if (!columns_.empty()) {
+            // No usable input. If every column is a constant or arithmetic expression
+            // (no field_ref that would require an actual row), evaluate on a virtual
+            // single-row empty chunk. Otherwise return empty — the FROM clause exists
+            // but produced no rows (e.g. a JOIN with an empty working set).
+            bool all_constant =
+                !columns_.empty() && std::all_of(columns_.begin(), columns_.end(), [](const select_column_t& col) {
+                    return col.type == select_column_t::kind::constant || col.type == select_column_t::kind::arithmetic;
+                });
+            if (all_constant) {
                 std::pmr::vector<types::complex_logical_type> empty_types(resource_);
                 vector::data_chunk_t virtual_input(resource_, empty_types, 1);
                 virtual_input.set_cardinality(1);
@@ -138,86 +154,89 @@ namespace components::operators {
         output_ = operators::make_operator_data(resource, std::move(out_chunks));
     }
 
-    vector::data_chunk_t operator_select_t::evaluate(pipeline::context_t* pipeline_context,
-                                                     vector::data_chunk_t& input) {
-        auto num_rows = input.size();
-        auto* function_registry =
-            pipeline_context && pipeline_context->function_registry
-                ? pipeline_context->function_registry
-                : compute::function_registry_t::get_default();
+    core::result_wrapper_t<vector::data_chunk_t> evaluate_projection(std::pmr::memory_resource* resource,
+                                                                     const std::pmr::vector<select_column_t>& columns,
+                                                                     vector::data_chunk_t* input,
+                                                                     const logical_plan::storage_parameters& parameters,
+                                                                     core::date::timezone_offset_t session_tz,
+                                                                     vector::data_chunk_t* right_input) {
+        const auto num_rows = input->size();
+        const uint64_t cap = num_rows > 0 ? num_rows : 1;
+        // Function-kind projection columns evaluate against the process-global
+        // function registry (the RETURNING / select callers do not thread a
+        // per-pipeline registry through evaluate_projection's contract).
+        const auto* function_registry = compute::function_registry_t::get_default();
 
-        // Build one vector_t per SELECT column.
-        std::pmr::vector<vector::vector_t> out_vecs(resource_);
-        out_vecs.reserve(columns_.size());
+        // Assemble the output chunk directly: one column per projection entry
+        // (star_expand fans out to one per input column). Columns are pushed
+        // into result.data as they are built; the chunk derives its types from
+        // those columns.
+        vector::data_chunk_t result(resource, {}, cap);
 
-        for (const auto& col : columns_) {
+        for (const auto& col : columns) {
             switch (col.type) {
                 case select_column_t::kind::field_ref:
                 case select_column_t::kind::coalesce:
                 case select_column_t::kind::case_when: {
-                    // Per-row key extraction.
+                    // Per-row key extraction. The column type follows the first
+                    // non-NA value, so values are materialised before the vector.
                     types::complex_logical_type col_type{types::logical_type::NA};
-                    std::pmr::vector<types::logical_value_t> values(resource_);
+                    std::pmr::vector<types::logical_value_t> values(resource);
                     values.reserve(num_rows);
                     for (uint64_t row = 0; row < num_rows; ++row) {
-                        auto val = extract_select_value(resource_, col.key, input, row);
+                        auto val = extract_select_value(resource, col.key, *input, row, right_input);
                         if (col_type.type() == types::logical_type::NA) {
                             col_type = val.type();
                         }
                         values.push_back(std::move(val));
                     }
-                    vector::vector_t vec(resource_, col_type, num_rows);
+                    vector::vector_t vec(resource, col_type, cap);
                     for (uint64_t row = 0; row < num_rows; ++row) {
                         vec.set_value(row, values[row]);
                     }
                     vec.set_type_alias(std::string{col.key.name});
-                    out_vecs.push_back(std::move(vec));
+                    result.data.push_back(std::move(vec));
                     break;
                 }
                 case select_column_t::kind::arithmetic: {
-                    auto result_vec = evaluate_arithmetic(resource_,
-                                                          col.arith_op,
-                                                          col.operands,
-                                                          input,
-                                                          pipeline_context->parameters,
-                                                          pipeline_context->session_tz);
+                    auto result_vec =
+                        evaluate_arithmetic(resource, col.arith_op, col.operands, *input, parameters, session_tz);
                     if (result_vec.has_error()) {
-                        set_error(result_vec.error());
-                        return vector::data_chunk_t(resource_, {}, 0);
+                        return result_vec.error();
                     }
                     result_vec.value().set_type_alias(std::string{col.key.name});
-                    out_vecs.push_back(std::move(result_vec.value()));
+                    result.data.push_back(std::move(result_vec.value()));
                     break;
                 }
                 case select_column_t::kind::constant: {
-                    uint64_t cap = num_rows > 0 ? num_rows : 1;
-                    vector::vector_t vec(resource_, col.constant_value.type(), cap);
+                    vector::vector_t vec(resource, col.constant_value.type(), cap);
                     for (uint64_t row = 0; row < num_rows; ++row) {
                         vec.set_value(row, col.constant_value);
                     }
                     vec.set_type_alias(std::string{col.key.name});
-                    out_vecs.push_back(std::move(vec));
+                    result.data.push_back(std::move(vec));
                     break;
                 }
                 case select_column_t::kind::function: {
                     if (!col.function_expr || !function_registry) {
-                        set_error(core::error_t(core::error_code_t::unrecognized_function,
-                                                std::pmr::string{"function expression is not resolved", resource_}));
-                        return vector::data_chunk_t(resource_, {}, 0);
+                        return core::error_t(core::error_code_t::unrecognized_function,
+                                             std::pmr::string{"function expression is not resolved", resource});
                     }
 
-                    auto getter = predicates::impl::create_value_getter(resource_,
+                    auto getter = predicates::impl::create_value_getter(resource,
                                                                         function_registry,
                                                                         col.function_expr,
-                                                                        &pipeline_context->parameters);
+                                                                        &parameters);
+                    // A right-side key reads from right_input; the merged JOIN chunk
+                    // is passed as both, so a getter over either side resolves.
+                    const vector::data_chunk_t& right_src = right_input ? *right_input : *input;
                     types::complex_logical_type col_type{types::logical_type::NA};
-                    std::pmr::vector<types::logical_value_t> values(resource_);
+                    std::pmr::vector<types::logical_value_t> values(resource);
                     values.reserve(num_rows);
                     for (uint64_t row = 0; row < num_rows; ++row) {
-                        auto value = getter(input, input, row, row);
+                        auto value = getter(*input, right_src, row, row);
                         if (value.has_error()) {
-                            set_error(value.error());
-                            return vector::data_chunk_t(resource_, {}, 0);
+                            return value.error();
                         }
                         auto val = std::move(value.value());
                         if (col_type.type() == types::logical_type::NA) {
@@ -226,37 +245,48 @@ namespace components::operators {
                         values.push_back(std::move(val));
                     }
 
-                    vector::vector_t vec(resource_, col_type, num_rows);
+                    vector::vector_t vec(resource, col_type, cap);
                     for (uint64_t row = 0; row < num_rows; ++row) {
                         vec.set_value(row, values[row]);
                     }
                     vec.set_type_alias(col.function_expr->result_alias().empty() ? col.function_expr->name()
                                                                                   : col.function_expr->result_alias());
-                    out_vecs.push_back(std::move(vec));
+                    result.data.push_back(std::move(vec));
                     break;
                 }
                 case select_column_t::kind::star_expand: {
-                    // Expand all columns from input chunk.
-                    for (size_t ci = 0; ci < input.column_count(); ++ci) {
-                        out_vecs.push_back(input.data[ci]);
+                    // Bare '*' — expand all columns of the input chunk. Qualified
+                    // 'table.*' is pre-expanded to get_field columns at validation,
+                    // so it never reaches here.
+                    for (size_t ci = 0; ci < input->column_count(); ++ci) {
+                        result.data.push_back(input->data[ci]);
                     }
                     break;
                 }
             }
         }
 
-        // Assemble output chunk from the per-column vectors.
-        std::pmr::vector<types::complex_logical_type> types(resource_);
-        types.reserve(out_vecs.size());
-        for (const auto& vec : out_vecs) {
-            types.push_back(vec.type());
-        }
-        vector::data_chunk_t result(resource_, types, num_rows > 0 ? num_rows : 1);
         result.set_cardinality(num_rows);
-        for (size_t ci = 0; ci < out_vecs.size(); ++ci) {
-            result.data[ci] = std::move(out_vecs[ci]);
-        }
         return result;
+    }
+
+    vector::data_chunk_t operator_select_t::evaluate(pipeline::context_t* pipeline_context,
+                                                     vector::data_chunk_t& input) {
+        // A SELECT over a JOIN receives one merged chunk holding both sides'
+        // columns, yet projection keys keep their resolved side. Pass that chunk as
+        // both input and right_input so a right-side key has a chunk to read from
+        // (its full_path indexes the merged chunk either way).
+        auto result = evaluate_projection(resource_,
+                                          columns_,
+                                          &input,
+                                          pipeline_context->parameters,
+                                          pipeline_context->session_tz,
+                                          &input);
+        if (result.has_error()) {
+            set_error(result.error());
+            return vector::data_chunk_t(resource_, {}, 0);
+        }
+        return std::move(result.value());
     }
 
 } // namespace components::operators

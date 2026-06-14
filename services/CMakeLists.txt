@@ -7,7 +7,6 @@ set( ${PROJECT_NAME}_HEADERS
 
 set(${PROJECT_NAME}_SOURCES
     # collection
-        collection/create_index.cpp
         collection/executor.cpp
 
     # disk
@@ -27,7 +26,9 @@ set(${PROJECT_NAME}_SOURCES
 
     # index
         index/bitcask_task_executor.cpp
+        index/bitcask_hash_key_loader.cpp
         index/bitcask_index_disk.cpp
+        index/disk_hash_table.cpp
         index/btree_index_disk.cpp
         index/index_agent_disk.cpp
         index/manager_index.cpp
@@ -57,6 +58,7 @@ target_link_libraries(
         otterbrix::table
         otterbrix::types
         otterbrix::context
+        otterbrix::physical_plan
         otterbrix::physical_plan_generator
         otterbrix::storage
         otterbrix::catalog

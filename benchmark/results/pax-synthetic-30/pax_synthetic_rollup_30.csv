@@ -1,0 +1,6 @@
+profile,query_rows,auto_query_wins,columnar_query_wins,ties,median_query_delta_pct,checkpoint_delta_pct,query_state_delta_pct,checkpoint_state_delta_pct
+fixed_analytic,8,2,5,1,+2.13,-10.87,+0.00,-3.73
+string_heavy,8,3,4,1,+1.14,-7.16,+0.00,-3.56
+mixed_schema,8,2,4,2,+1.14,-5.73,+0.00,-4.07
+ssb_flat,13,11,1,1,-3.98,-5.05,+0.00,+0.73
+tpch_pax,4,1,1,2,+0.89,-9.45,+0.00,-4.40

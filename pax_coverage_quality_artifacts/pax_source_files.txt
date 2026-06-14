@@ -1,0 +1,8 @@
+/home/usrname/otterbrix/components/table/storage/data_pointer.cpp
+/home/usrname/otterbrix/components/table/storage/data_pointer.hpp
+/home/usrname/otterbrix/components/table/row_group.cpp
+/home/usrname/otterbrix/components/table/row_group.hpp
+/home/usrname/otterbrix/components/table/data_table.cpp
+/home/usrname/otterbrix/components/table/storage/block_manager.hpp
+/home/usrname/otterbrix/components/configuration/configuration.hpp
+/home/usrname/otterbrix/services/disk/manager_disk.cpp

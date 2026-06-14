@@ -1,0 +1,26 @@
+name pax/dml/string_update/update_toggle
+group pax/dml/string_update
+description String-heavy DML benchmark: update string payload columns and restore them every run.
+runs 30
+timeout 120
+
+load
+CREATE DATABASE IF NOT EXISTS pax_dml_string_update;
+CREATE TABLE pax_dml_string_update.rows (
+    id integer,
+    city string,
+    status string,
+    note string,
+    amount integer
+) WITH (storage = 'disk');
+
+load_csv ../data/dml_string.tbl pax_dml_string_update.rows |
+
+run
+UPDATE pax_dml_string_update.rows SET status = 'hot', note = 'updated_hot_range' WHERE id >= 5000 AND id < 9000;
+UPDATE pax_dml_string_update.rows SET status = 'cold', note = 'restored_cold_range' WHERE id >= 5000 AND id < 9000;
+
+verify
+SELECT id FROM pax_dml_string_update.rows WHERE id >= 5000 AND id < 9000 AND status != 'cold';
+
+result 0

@@ -1,0 +1,13 @@
+scenario,page_rows,runs,median_ms,avg_ms,rsd_pct,verified,update_fast,delete_fast,insert_fast,update_fallback,delete_fallback,insert_fallback,pax_fixed_projected,pax_generic_projected,pax_regular,counter_status,error_message
+fixed_delete_insert,128,30,44.438,44.949,3.476,OK,0,30,30,0,0,0,1800,477,0,OK,
+fixed_delete_insert,256,30,44.629,46.082,7.191,OK,0,30,30,0,0,0,1800,477,0,OK,
+fixed_delete_insert,512,30,45.313,46.826,10.682,OK,0,30,30,0,0,0,1800,477,0,OK,
+fixed_delete_insert,1024,30,46.090,48.887,13.598,OK,0,30,30,0,0,0,1800,477,0,OK,
+fixed_update,128,30,233.525,235.774,5.269,OK,60,0,0,0,0,0,1800,0,0,OK,
+fixed_update,256,30,237.999,241.915,6.276,OK,60,0,0,0,0,0,1800,0,0,OK,
+fixed_update,512,30,248.425,255.926,7.374,OK,60,0,0,0,0,0,1800,0,0,OK,
+fixed_update,1024,30,237.659,237.624,5.549,OK,60,0,0,0,0,0,1800,0,0,OK,
+string_update,128,30,102.574,105.088,8.611,OK,60,0,0,0,0,0,0,1200,0,OK,
+string_update,256,30,101.433,103.408,10.449,OK,60,0,0,0,0,0,0,1200,0,OK,
+string_update,512,30,93.653,96.676,10.549,OK,60,0,0,0,0,0,0,1200,0,OK,
+string_update,1024,30,98.923,105.311,11.518,OK,60,0,0,0,0,0,0,1200,0,OK,

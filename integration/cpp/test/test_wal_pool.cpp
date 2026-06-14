@@ -24,7 +24,7 @@ static const collection_name_t collection_name_2 = "testcollection2";
     do {                                                                                                               \
         {                                                                                                              \
             auto session = otterbrix::session_id_t();                                                                  \
-            dispatcher->create_database(session, DB);                                                                  \
+            dispatcher->execute_sql(session, std::string("CREATE DATABASE ") + (DB) + ";");                            \
         }                                                                                                              \
         {                                                                                                              \
             auto session = otterbrix::session_id_t();                                                                  \
@@ -34,7 +34,7 @@ static const collection_name_t collection_name_2 = "testcollection2";
             for (const auto& type : types) {                                                                           \
                 columns.emplace_back(type.alias(), type);                                                              \
             }                                                                                                          \
-            dispatcher->create_collection(session, DB, COLL, columns);                                                 \
+            test_create_collection(dispatcher, session, DB, COLL, columns);                                            \
         }                                                                                                              \
     } while (false)
 
@@ -48,7 +48,9 @@ static const collection_name_t collection_name_2 = "testcollection2";
             components::logical_plan::make_node_insert(dispatcher->resource(), std::move(chunk)));                     \
         {                                                                                                              \
             auto session = otterbrix::session_id_t();                                                                  \
-            dispatcher->execute_plan(session, ins);                                                                    \
+            dispatcher->execute_plan(                                                                                  \
+                session,                                                                                               \
+                components::logical_plan::execution_plan_t{dispatcher->resource(), ins, nullptr});                     \
         }                                                                                                              \
     } while (false)
 
@@ -68,7 +70,9 @@ static const collection_name_t collection_name_2 = "testcollection2";
                                                                      std::move(expr)));                                \
         auto params = components::logical_plan::make_parameter_node(dispatcher->resource());                           \
         params->add_parameter(id_par{1}, VALUE);                                                                       \
-        auto c = dispatcher->find(session, plan, params);                                                              \
+        auto c = dispatcher->execute_plan(                                                                             \
+            session,                                                                                                   \
+            components::logical_plan::execution_plan_t{dispatcher->resource(), plan, params});                         \
         REQUIRE(c->size() == COUNT);                                                                                   \
     } while (false)
 
@@ -222,7 +226,7 @@ TEST_CASE("integration::cpp::test_wal_pool::multiple_collections_routing") {
             for (const auto& type : types) {
                 columns.emplace_back(type.alias(), type);
             }
-            dispatcher->create_collection(session, database_name, collection_name_2, columns);
+            test_create_collection(dispatcher, session, database_name, collection_name_2, columns);
         }
         FILL_COLLECTION_WAL(database_name, collection_name_2, kDocuments);
 
@@ -313,7 +317,7 @@ TEST_CASE("integration::cpp::test_wal_pool::sql_dml_full_cycle") {
 
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, "CREATE DATABASE " + database_name + ";");
         }
         {
             auto session = otterbrix::session_id_t();
@@ -408,7 +412,7 @@ TEST_CASE("integration::cpp::test_wal_pool::sql_constraint_enforcement") {
         // Create database
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, "CREATE DATABASE " + database_name + ";");
         }
 
         // Create table with NOT NULL on a string column
@@ -492,7 +496,7 @@ TEST_CASE("integration::cpp::test_wal_pool::constant_data_checkpoint_restart") {
 
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, "CREATE DATABASE " + database_name + ";");
         }
 
         // Create table with a typed schema
@@ -546,7 +550,7 @@ TEST_CASE("integration::cpp::test_wal_pool::insert_delete_checkpoint_restart") {
 
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, "CREATE DATABASE " + database_name + ";");
         }
 
         {

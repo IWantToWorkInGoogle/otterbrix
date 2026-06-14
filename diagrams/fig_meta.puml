@@ -1,0 +1,92 @@
+@startuml
+skinparam defaultFontName "DejaVu Sans"
+skinparam shadowing false
+skinparam roundcorner 6
+hide circle
+hide empty members
+title Структура метаданных схемы размещения PAX
+class data_table_t
+class collection_t
+class row_group_t {
+  - layout_kind_
+  - pax_fixed_layout_
+  - pax_generic_layout_
+  + write_to_disk()
+  + create_from_pointer()
+}
+class column_data_t {
+  + checkpoint()
+  + scan_committed_range()
+}
+class block_manager_t {
+  + layout_policy()
+}
+class row_group_pointer_t {
+  row_start
+  tuple_count
+  layout_kind
+  columnar_data_pointers
+  pax_fixed_layout
+  pax_generic_layout
+}
+enum row_group_layout_kind {
+  COLUMNAR
+  PAX_FIXED
+  PAX_GENERIC
+}
+class pax_fixed_row_group_layout_t {
+  version
+  rows_per_page
+  pages
+}
+class pax_generic_row_group_layout_t {
+  version
+  rows_per_page
+  pages
+}
+class pax_fixed_page_t {
+  row_offset_in_group
+  tuple_count
+  slices
+}
+class pax_generic_page_t {
+  row_offset_in_group
+  tuple_count
+  slices
+}
+class pax_fixed_slice_t {
+  column_index
+  column_type
+  data_pointer
+  validity_kind
+  validity_data_pointer
+}
+class pax_generic_slice_t {
+  column_index
+  slice_kind
+  codec_kind
+  field_path
+  payload
+}
+class data_pointer_t {
+  row_start
+  tuple_count
+  block_pointer
+  compression
+  segment_size
+}
+data_table_t *-- collection_t
+collection_t *-- row_group_t
+row_group_t --> column_data_t
+row_group_t --> block_manager_t
+row_group_t --> row_group_pointer_t
+row_group_pointer_t --> row_group_layout_kind
+row_group_pointer_t *-- pax_fixed_row_group_layout_t
+row_group_pointer_t *-- pax_generic_row_group_layout_t
+pax_fixed_row_group_layout_t *-- pax_fixed_page_t
+pax_generic_row_group_layout_t *-- pax_generic_page_t
+pax_fixed_page_t *-- pax_fixed_slice_t
+pax_generic_page_t *-- pax_generic_slice_t
+pax_fixed_slice_t --> data_pointer_t
+pax_generic_slice_t --> data_pointer_t
+@enduml

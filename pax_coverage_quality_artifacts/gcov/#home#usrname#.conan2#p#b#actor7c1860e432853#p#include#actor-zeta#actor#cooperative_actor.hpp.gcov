@@ -1,0 +1,697 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/actor/cooperative_actor.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <chrono>
+        -:    4:#include <thread>
+        -:    5:
+        -:    6:#include <actor-zeta/actor/actor_mixin.hpp>
+        -:    7:#include <actor-zeta/detail/behavior_t.hpp>
+        -:    8:#include <actor-zeta/detail/forwards.hpp>
+        -:    9:#include <actor-zeta/detail/memory.hpp>
+        -:   10:#include <actor-zeta/scheduler/resumable.hpp>
+        -:   11:
+        -:   12:namespace actor_zeta { namespace actor {
+        -:   13:
+        -:   14:    enum class actor_state : uint8_t {
+        -:   15:        idle = 0b000,
+        -:   16:        scheduled = 0b001,
+        -:   17:        running = 0b010,
+        -:   18:        running_scheduled = 0b011,
+        -:   19:        idle_destroying = 0b100,
+        -:   20:        scheduled_destroying = 0b101,
+        -:   21:        running_destroying = 0b110,
+        -:   22:        running_scheduled_destroying = 0b111
+        -:   23:    };
+        -:   24:
+function _ZN10actor_zeta5actor12is_scheduledENS0_11actor_stateE called 0 returned 0% blocks executed 0%
+    #####:   25:    constexpr bool is_scheduled(actor_state s) noexcept {
+    #####:   26:        return (static_cast<uint8_t>(s) & 0b001) != 0;
+        -:   27:    }
+        -:   28:
+function _ZN10actor_zeta5actor10is_runningENS0_11actor_stateE called 0 returned 0% blocks executed 0%
+    #####:   29:    constexpr bool is_running(actor_state s) noexcept {
+    #####:   30:        return (static_cast<uint8_t>(s) & 0b010) != 0;
+        -:   31:    }
+        -:   32:
+function _ZN10actor_zeta5actor13is_destroyingENS0_11actor_stateE called 0 returned 0% blocks executed 0%
+    #####:   33:    constexpr bool is_destroying(actor_state s) noexcept {
+    #####:   34:        return (static_cast<uint8_t>(s) & 0b100) != 0;
+        -:   35:    }
+        -:   36:
+function _ZN10actor_zeta5actor13set_scheduledENS0_11actor_stateEb called 0 returned 0% blocks executed 0%
+    #####:   37:    constexpr actor_state set_scheduled(actor_state s, bool value) noexcept {
+    #####:   38:        auto bits = static_cast<uint8_t>(s);
+    #####:   39:        if (value) {
+branch  0 never executed
+branch  1 never executed
+    #####:   40:            bits |= 0b001;
+        -:   41:        } else {
+    #####:   42:            bits &= static_cast<uint8_t>(~0b001);
+        -:   43:        }
+    #####:   44:        return static_cast<actor_state>(bits);
+        -:   45:    }
+        -:   46:
+        -:   47:    constexpr actor_state set_running(actor_state s, bool value) noexcept {
+        -:   48:        auto bits = static_cast<uint8_t>(s);
+        -:   49:        if (value) {
+        -:   50:            bits |= 0b010;
+        -:   51:        } else {
+        -:   52:            bits &= static_cast<uint8_t>(~0b010);
+        -:   53:        }
+        -:   54:        return static_cast<actor_state>(bits);
+        -:   55:    }
+        -:   56:
+        -:   57:    constexpr actor_state set_destroying(actor_state s) noexcept {
+        -:   58:        return static_cast<actor_state>(static_cast<uint8_t>(s) | 0b100);
+        -:   59:    }
+        -:   60:
+        -:   61:    constexpr actor_state make_state(bool scheduled, bool running, bool destroying) noexcept {
+        -:   62:        uint8_t bits = 0;
+        -:   63:        if (scheduled)
+        -:   64:            bits |= 0b001;
+        -:   65:        if (running)
+        -:   66:            bits |= 0b010;
+        -:   67:        if (destroying)
+        -:   68:            bits |= 0b100;
+        -:   69:        return static_cast<actor_state>(bits);
+        -:   70:    }
+        -:   71:
+        -:   72:    template<class Target>
+        -:   73:    Target* check_ptr(Target* ptr) {
+        -:   74:        assert(ptr);
+        -:   75:        return ptr;
+        -:   76:    }
+        -:   77:
+        -:   78:    inline constexpr int kMaxCasAttempts = 1000;
+        -:   79:
+function _ZN10actor_zeta5actor19exponential_backoffEi called 0 returned 0% blocks executed 0%
+    #####:   80:    inline void exponential_backoff(int attempt) noexcept {
+    #####:   81:        constexpr int kSpinPhaseEnd = 4;
+    #####:   82:        constexpr int kYieldPhaseEnd = 10;
+    #####:   83:        constexpr int kMaxSleepMicroseconds = 1000;
+        -:   84:
+    #####:   85:        if (attempt < kSpinPhaseEnd) {
+branch  0 never executed
+branch  1 never executed
+    #####:   86:        } else if (attempt < kYieldPhaseEnd) {
+branch  0 never executed
+branch  1 never executed
+    #####:   87:            std::this_thread::yield();
+call    0 never executed
+        -:   88:        } else {
+    #####:   89:            int computed = 1 << (attempt - kYieldPhaseEnd);
+    #####:   90:            auto sleep_us = computed < kMaxSleepMicroseconds ? computed : kMaxSleepMicroseconds;
+branch  0 never executed
+branch  1 never executed
+    #####:   91:            std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
+call    0 never executed
+call    1 never executed
+        -:   92:        }
+    #####:   93:    }
+        -:   94:
+        -:   95:    template<class Actor, class MailBox>
+        -:   96:    class cooperative_actor
+        -:   97:        : public actor_mixin<Actor> {
+        -:   98:    private:
+        -:   99:        static constexpr bool check_dispatch_traits_exists() {
+        -:  100:            using dispatch_traits_check = typename Actor::dispatch_traits;
+        -:  101:            detail::ignore_unused(sizeof(dispatch_traits_check));
+        -:  102:            return true;
+        -:  103:        }
+        -:  104:
+        -:  105:    public:
+        -:  106:        /// Marker type to identify cooperative actors (for concept detection)
+        -:  107:        using is_cooperative_actor_type = void;
+        -:  108:
+        -:  109:        using typename actor_mixin<Actor>::id_t;
+        -:  110:        using typename actor_mixin<Actor>::placement_tag;
+        -:  111:        using actor_mixin<Actor>::placement;
+        -:  112:
+        -:  113:        using unique_actor = std::unique_ptr<cooperative_actor<Actor, MailBox>, pmr::deleter_t>;
+        -:  114:
+        -:  115:        template<typename T>
+        -:  116:        using promise = actor_zeta::promise<T>;
+        -:  117:
+        -:  118:        template<typename T>
+        -:  119:        using unique_future = actor_zeta::unique_future<T>;
+        -:  120:
+        -:  121:        /// Type-erased enqueue for address_t polymorphism
+        -:  122:        /// Returns: {needs_scheduling, enqueue_result}
+        -:  123:        [[nodiscard]]
+function _ZN10actor_zeta5actor17cooperative_actorIN10components7storage6detail22parallel_scan_worker_tENS_7mailbox9mailbox_tINS6_20default_mailbox_implEEEE12enqueue_implESt10unique_ptrINS6_7messageENS6_15message_deleterEE called 0 returned 0% blocks executed 0%
+    #####:  124:        std::pair<bool, detail::enqueue_result> enqueue_impl(mailbox::message_ptr msg) {
+    #####:  125:            if (is_destroying(state_.load(std::memory_order_acquire))) {
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  126:                return {false, detail::enqueue_result::queue_closed};
+call    0 never executed
+        -:  127:            }
+        -:  128:
+    #####:  129:            auto result = mailbox().push_back(std::move(msg));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+call    6 never executed
+call    7 never executed
+    #####:  130:            bool needs_sched = false;
+        -:  131:
+    #####:  132:            switch (result) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  133:                case detail::enqueue_result::unblocked_reader:
+    #####:  134:                    needs_sched = try_schedule_after_enqueue("enqueue_impl");
+call    0 never executed
+    #####:  135:                    break;
+        -:  136:
+    #####:  137:                case detail::enqueue_result::success:
+        -:  138:                case detail::enqueue_result::queue_closed:
+    #####:  139:                    needs_sched = false;
+    #####:  140:                    break;
+        -:  141:
+    #####:  142:                default:
+    #####:  143:                    assert(false && "enqueue_result: unreachable");
+call    0 never executed
+        -:  144:                    needs_sched = false;
+        -:  145:                    break;
+        -:  146:            }
+        -:  147:
+    #####:  148:            return {needs_sched, result};
+call    0 never executed
+        -:  149:        }
+        -:  150:
+        -:  151:        scheduler::resume_info resume(size_t max_throughput) noexcept {
+        -:  152:            assert(max_throughput > 0 && "max_throughput must be greater than 0");
+        -:  153:
+        -:  154:            // Try to acquire running state. If actor is already running,
+        -:  155:            // mark it as scheduled so it will re-run, and return early.
+        -:  156:            auto try_acquire_running = [this]() -> bool {
+        -:  157:                auto current = state_.load(std::memory_order_acquire);
+        -:  158:                actor_state desired;
+        -:  159:                int cas_attempts = 0;
+        -:  160:
+        -:  161:                while (true) {
+        -:  162:                    exponential_backoff(cas_attempts);
+        -:  163:                    ++cas_attempts;
+        -:  164:
+        -:  165:#ifndef NDEBUG
+        -:  166:                    assert(cas_attempts < kMaxCasAttempts && "try_acquire_running: CAS livelock!");
+        -:  167:#else
+        -:  168:                    if (cas_attempts >= kMaxCasAttempts) {
+        -:  169:                        std::terminate();
+        -:  170:                    }
+        -:  171:#endif
+        -:  172:
+        -:  173:                    // If already running, mark as scheduled so the running actor will re-run
+        -:  174:                    if (is_running(current)) {
+        -:  175:                        desired = set_scheduled(current, true);
+        -:  176:                        if (state_.compare_exchange_weak(current, desired,
+        -:  177:                                                         std::memory_order_acq_rel,
+        -:  178:                                                         std::memory_order_acquire)) {
+        -:  179:                            return false;  // Not acquired, but marked for re-run
+        -:  180:                        }
+        -:  181:                        continue;
+        -:  182:                    }
+        -:  183:
+        -:  184:#ifndef NDEBUG
+        -:  185:                    assert((current == actor_state::idle ||
+        -:  186:                            current == actor_state::scheduled ||
+        -:  187:                            current == actor_state::idle_destroying ||
+        -:  188:                            current == actor_state::scheduled_destroying) &&
+        -:  189:                           "try_acquire_running: unexpected state!");
+        -:  190:#endif
+        -:  191:
+        -:  192:                    desired = set_scheduled(set_running(current, true), false);
+        -:  193:
+        -:  194:                    if (state_.compare_exchange_weak(current, desired,
+        -:  195:                                                     std::memory_order_acq_rel,
+        -:  196:                                                     std::memory_order_acquire)) {
+        -:  197:                        return true;  // Successfully acquired
+        -:  198:                    }
+        -:  199:                }
+        -:  200:            };
+        -:  201:
+        -:  202:            // Try to acquire - if actor already running, return immediately
+        -:  203:            if (!try_acquire_running()) {
+        -:  204:                return scheduler::resume_info(scheduler::resume_result::done, 0);
+        -:  205:            }
+        -:  206:
+        -:  207:            struct resume_guard {
+        -:  208:                std::atomic<actor_state>& state_ref_;
+        -:  209:                bool keep_scheduled_;
+        -:  210:                bool* scheduled_while_running_;
+        -:  211:
+        -:  212:                explicit resume_guard(std::atomic<actor_state>& state, bool* scheduled_while_running)
+        -:  213:                    : state_ref_(state)
+        -:  214:                    , keep_scheduled_(false)
+        -:  215:                    , scheduled_while_running_(scheduled_while_running) {
+        -:  216:                }
+        -:  217:
+        -:  218:                ~resume_guard() {
+        -:  219:                    auto current = state_ref_.load(std::memory_order_acquire);
+        -:  220:                    actor_state desired;
+        -:  221:                    int cas_attempts = 0;
+        -:  222:
+        -:  223:                    *scheduled_while_running_ = is_scheduled(current);
+        -:  224:
+        -:  225:                    while (true) {
+        -:  226:                        exponential_backoff(cas_attempts);
+        -:  227:                        ++cas_attempts;
+        -:  228:
+        -:  229:#ifndef NDEBUG
+        -:  230:                        assert(cas_attempts < kMaxCasAttempts && "~resume_guard: CAS livelock!");
+        -:  231:#else
+        -:  232:                        if (cas_attempts >= kMaxCasAttempts) {
+        -:  233:                            std::terminate();
+        -:  234:                        }
+        -:  235:#endif
+        -:  236:
+        -:  237:                        assert(is_running(current) && "resume_guard: not running!");
+        -:  238:                        desired = set_running(current, false);
+        -:  239:
+        -:  240:                        desired = set_scheduled(desired, keep_scheduled_ || is_scheduled(current));
+        -:  241:
+        -:  242:                        if (state_ref_.compare_exchange_weak(current, desired,
+        -:  243:                                                             std::memory_order_acq_rel,
+        -:  244:                                                             std::memory_order_acquire)) {
+        -:  245:                            break;
+        -:  246:                        }
+        -:  247:                        *scheduled_while_running_ = *scheduled_while_running_ || is_scheduled(current);
+        -:  248:                    }
+        -:  249:                }
+        -:  250:
+        -:  251:                void keep_scheduled() { keep_scheduled_ = true; }
+        -:  252:            };
+        -:  253:
+        -:  254:            auto check_race_window = [this]() -> bool {
+        -:  255:                return !mailbox().blocked() && !mailbox().empty();
+        -:  256:            };
+        -:  257:
+        -:  258:            scheduler::resume_info result_info;
+        -:  259:            bool scheduled_while_running = false;
+        -:  260:
+        -:  261:            {
+        -:  262:                resume_guard guard(state_, &scheduled_while_running);
+        -:  263:
+        -:  264:                auto finalize = [&guard](scheduler::resume_result result, size_t handled, bool keep_sched) -> scheduler::resume_info {
+        -:  265:                    if (keep_sched) {
+        -:  266:                        guard.keep_scheduled();
+        -:  267:                    }
+        -:  268:                    return scheduler::resume_info(result, handled);
+        -:  269:                };
+        -:  270:
+        -:  271:                result_info = resume_impl(max_throughput, finalize, check_race_window);
+        -:  272:            }
+        -:  273:
+        -:  274:            if (result_info.result == scheduler::resume_result::awaiting && scheduled_while_running) {
+        -:  275:                result_info.result = scheduler::resume_result::resume;
+        -:  276:            }
+        -:  277:
+        -:  278:            return result_info;
+        -:  279:        }
+        -:  280:
+        -:  281:    private:
+        -:  282:        template<typename Finalize, typename CheckRaceWindow>
+        -:  283:        scheduler::resume_info resume_impl(size_t max_throughput, Finalize& finalize, CheckRaceWindow& check_race_window) noexcept {
+        -:  284:            size_t handled = 0;
+        -:  285:
+        -:  286:            if (is_destroying(state_.load(std::memory_order_acquire))) {
+        -:  287:                return finalize(scheduler::resume_result::done, 0, false);
+        -:  288:            }
+        -:  289:
+        -:  290:            if (mailbox().closed()) {
+        -:  291:                return finalize(scheduler::resume_result::done, 0, false);
+        -:  292:            }
+        -:  293:
+        -:  294:            if (mailbox().blocked()) {
+        -:  295:                return finalize(scheduler::resume_result::awaiting, 0, false);
+        -:  296:            }
+        -:  297:
+        -:  298:            // Q6: If behavior is suspended on co_await, check if deepest future is ready
+        -:  299:            if (current_behavior_.is_busy()) {
+        -:  300:                if (current_behavior_.is_awaited_ready()) {
+        -:  301:                    // Deepest future ready — take and resume its continuation
+        -:  302:                    // This unwinds the coroutine chain via symmetric transfer in final_suspend
+        -:  303:                    auto cont = current_behavior_.take_awaited_continuation();
+        -:  304:                    if (cont) {
+        -:  305:                        cont.resume();  // Unwinds chain: process → dispatch → behavior_t
+        -:  306:                    }
+        -:  307:                    // After unwinding, behavior may be done or not busy
+        -:  308:                    // Continue to process messages if not busy
+        -:  309:                } else {
+        -:  310:                    // Future not ready — spinning, keep actor scheduled
+        -:  311:                    return finalize(scheduler::resume_result::resume, 0, true);
+        -:  312:                }
+        -:  313:            }
+        -:  314:
+        -:  315:            if (mailbox().empty()) {
+        -:  316:                auto result = mailbox().try_block()
+        -:  317:                                  ? scheduler::resume_result::awaiting
+        -:  318:                                  : scheduler::resume_result::resume;
+        -:  319:                bool keep_scheduled = (result == scheduler::resume_result::resume) ||
+        -:  320:                                      (result == scheduler::resume_result::awaiting && check_race_window());
+        -:  321:                if (keep_scheduled && result == scheduler::resume_result::awaiting) {
+        -:  322:                    result = scheduler::resume_result::resume;
+        -:  323:                }
+        -:  324:                return finalize(result, 0, keep_scheduled);
+        -:  325:            }
+        -:  326:
+        -:  327:            while (handled < max_throughput) {
+        -:  328:                if (is_destroying(state_.load(std::memory_order_acquire))) {
+        -:  329:                    return finalize(scheduler::resume_result::done, handled, false);
+        -:  330:                }
+        -:  331:
+        -:  332:                if (mailbox().closed()) {
+        -:  333:                    return finalize(scheduler::resume_result::done, handled, false);
+        -:  334:                }
+        -:  335:
+        -:  336:                if (mailbox().blocked()) {
+        -:  337:                    return finalize(scheduler::resume_result::awaiting, handled, false);
+        -:  338:                }
+        -:  339:
+        -:  340:                // Q6: Check if behavior became busy after processing previous message
+        -:  341:                if (current_behavior_.is_busy()) {
+        -:  342:                    if (current_behavior_.is_awaited_ready()) {
+        -:  343:                        // Deepest future ready — take and resume its continuation
+        -:  344:                        auto cont = current_behavior_.take_awaited_continuation();
+        -:  345:                        if (cont) {
+        -:  346:                            cont.resume();  // Unwinds chain via symmetric transfer
+        -:  347:                        }
+        -:  348:                        // Continue loop if not busy anymore
+        -:  349:                    } else {
+        -:  350:                        // Future not ready — spinning, keep actor scheduled
+        -:  351:                        return finalize(scheduler::resume_result::resume, handled, true);
+        -:  352:                    }
+        -:  353:                }
+        -:  354:
+        -:  355:                // Skip message processing if still busy after resume attempt
+        -:  356:                if (current_behavior_.is_busy()) {
+        -:  357:                    return finalize(scheduler::resume_result::resume, handled, true);
+        -:  358:                }
+        -:  359:
+        -:  360:                const size_t before = handled;
+        -:  361:
+        -:  362:                auto msg = mailbox().pop_front();
+        -:  363:                if (msg) {
+        -:  364:                    struct message_guard {
+        -:  365:                        cooperative_actor* actor_;
+        -:  366:                        mailbox::message_ptr message_;
+        -:  367:                        mailbox::message* prev_message_;
+        -:  368:
+        -:  369:                        message_guard(cooperative_actor* actor, mailbox::message_ptr msg) noexcept
+        -:  370:                            : actor_(actor)
+        -:  371:                            , message_(std::move(msg))
+        -:  372:                            , prev_message_(actor->current_message_) {
+        -:  373:                            actor_->current_message_ = message_.get();
+        -:  374:                        }
+        -:  375:
+        -:  376:                        ~message_guard() noexcept {
+        -:  377:                            actor_->current_message_ = prev_message_;
+        -:  378:                        }
+        -:  379:
+        -:  380:                        mailbox::message* get() const noexcept { return message_.get(); }
+        -:  381:                    };
+        -:  382:
+        -:  383:                    message_guard msg_guard(this, std::move(msg));
+        -:  384:
+        -:  385:                    if (!is_destroying(state_.load(std::memory_order_acquire))) {
+        -:  386:                        current_behavior_ = self()->behavior(msg_guard.get());
+        -:  387:                    }
+        -:  388:
+        -:  389:                    ++handled;
+        -:  390:                }
+        -:  391:
+        -:  392:                if (handled == before) {
+        -:  393:                    if (mailbox().closed()) {
+        -:  394:                        return finalize(scheduler::resume_result::done, handled, false);
+        -:  395:                    }
+        -:  396:                    auto result = mailbox().try_block()
+        -:  397:                                      ? scheduler::resume_result::awaiting
+        -:  398:                                      : scheduler::resume_result::resume;
+        -:  399:                    bool keep_scheduled = (result == scheduler::resume_result::resume) ||
+        -:  400:                                          (result == scheduler::resume_result::awaiting && check_race_window());
+        -:  401:                    if (keep_scheduled && result == scheduler::resume_result::awaiting) {
+        -:  402:                        result = scheduler::resume_result::resume;
+        -:  403:                    }
+        -:  404:                    return finalize(result, handled, keep_scheduled);
+        -:  405:                }
+        -:  406:            }
+        -:  407:
+        -:  408:            if (mailbox().closed()) {
+        -:  409:                return finalize(scheduler::resume_result::done, handled, false);
+        -:  410:            }
+        -:  411:
+        -:  412:            // If still busy after processing messages, keep spinning
+        -:  413:            if (current_behavior_.is_busy()) {
+        -:  414:                return finalize(scheduler::resume_result::resume, handled, true);
+        -:  415:            }
+        -:  416:
+        -:  417:            auto result = mailbox().try_block()
+        -:  418:                              ? scheduler::resume_result::awaiting
+        -:  419:                              : scheduler::resume_result::resume;
+        -:  420:            bool keep_scheduled = (result == scheduler::resume_result::resume) ||
+        -:  421:                                  (result == scheduler::resume_result::awaiting && check_race_window());
+        -:  422:            if (keep_scheduled && result == scheduler::resume_result::awaiting) {
+        -:  423:                result = scheduler::resume_result::resume;
+        -:  424:            }
+        -:  425:            return finalize(result, handled, keep_scheduled);
+        -:  426:        }
+        -:  427:
+        -:  428:    public:
+        -:  429:        std::pmr::memory_resource* resource() const noexcept {
+        -:  430:#ifndef NDEBUG
+        -:  431:            assert(magic_ == kMagicAlive && "Use-after-free!");
+        -:  432:#endif
+        -:  433:            return resource_;
+        -:  434:        }
+        -:  435:
+        -:  436:        cooperative_actor() = delete;
+        -:  437:
+        -:  438:        ~cooperative_actor() {
+        -:  439:#ifndef NDEBUG
+        -:  440:            assert(magic_ == kMagicAlive && "Double-delete!");
+        -:  441:#endif
+        -:  442:            auto current = state_.load(std::memory_order_acquire);
+        -:  443:            int cas_attempts = 0;
+        -:  444:
+        -:  445:            while (!is_destroying(current)) {
+        -:  446:                exponential_backoff(cas_attempts);
+        -:  447:                ++cas_attempts;
+        -:  448:#ifndef NDEBUG
+        -:  449:                assert(cas_attempts < kMaxCasAttempts && "~cooperative_actor: CAS livelock (1)!");
+        -:  450:#else
+        -:  451:                if (cas_attempts >= kMaxCasAttempts) {
+        -:  452:                    std::terminate();
+        -:  453:                }
+        -:  454:#endif
+        -:  455:                auto desired = set_destroying(current);
+        -:  456:                if (state_.compare_exchange_weak(current, desired,
+        -:  457:                                                 std::memory_order_acq_rel,
+        -:  458:                                                 std::memory_order_acquire)) {
+        -:  459:                    break;
+        -:  460:                }
+        -:  461:            }
+        -:  462:
+        -:  463:            wait_for_resume_to_complete();
+        -:  464:
+        -:  465:            current = state_.load(std::memory_order_acquire);
+        -:  466:            cas_attempts = 0;
+        -:  467:            while (true) {
+        -:  468:                exponential_backoff(cas_attempts);
+        -:  469:                ++cas_attempts;
+        -:  470:#ifndef NDEBUG
+        -:  471:                assert(cas_attempts < kMaxCasAttempts && "~cooperative_actor: CAS livelock (2)!");
+        -:  472:#else
+        -:  473:                if (cas_attempts >= kMaxCasAttempts) {
+        -:  474:                    std::terminate();
+        -:  475:                }
+        -:  476:#endif
+        -:  477:                assert(!is_running(current) && "Destructor: still running!");
+        -:  478:                auto desired = make_state(false, false, true);
+        -:  479:                if (state_.compare_exchange_weak(current, desired,
+        -:  480:                                                 std::memory_order_release,
+        -:  481:                                                 std::memory_order_acquire)) {
+        -:  482:                    break;
+        -:  483:                }
+        -:  484:            }
+        -:  485:        }
+        -:  486:
+        -:  487:    protected:
+        -:  488:        explicit cooperative_actor(std::pmr::memory_resource* in_resource)
+        -:  489:            : actor_mixin<Actor>()
+        -:  490:            , shutdown_guard_(this)
+        -:  491:            , resource_(check_ptr(in_resource))
+        -:  492:            , current_message_(nullptr)
+        -:  493:            , mailbox_()
+        -:  494:#ifndef NDEBUG
+        -:  495:            , magic_(kMagicAlive)
+        -:  496:#endif
+        -:  497:        {
+        -:  498:            static_assert(check_dispatch_traits_exists(),
+        -:  499:                          "Actor must define nested 'dispatch_traits'");
+        -:  500:            mailbox().try_block();
+        -:  501:        }
+        -:  502:
+        -:  503:    private:
+function _ZN10actor_zeta5actor17cooperative_actorIN10components7storage6detail22parallel_scan_worker_tENS_7mailbox9mailbox_tINS6_20default_mailbox_implEEEE26try_schedule_after_enqueueEPKc called 0 returned 0% blocks executed 0%
+    #####:  504:        bool try_schedule_after_enqueue(const char* context) noexcept {
+    #####:  505:            auto current = state_.load(std::memory_order_acquire);
+call    0 never executed
+        -:  506:            actor_state desired;
+    #####:  507:            int cas_attempts = 0;
+        -:  508:
+        -:  509:            while (true) {
+    #####:  510:                exponential_backoff(cas_attempts);
+call    0 never executed
+    #####:  511:                ++cas_attempts;
+        -:  512:
+        -:  513:#ifndef NDEBUG
+    #####:  514:                assert(cas_attempts < kMaxCasAttempts && context);
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+        -:  515:#else
+        -:  516:                detail::ignore_unused(context);
+        -:  517:                if (cas_attempts >= kMaxCasAttempts) {
+        -:  518:                    std::terminate();
+        -:  519:                }
+        -:  520:#endif
+        -:  521:
+    #####:  522:                if (is_destroying(current)) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  523:                    return false;
+        -:  524:                }
+        -:  525:
+    #####:  526:                if (is_scheduled(current)) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  527:                    return false;
+        -:  528:                }
+        -:  529:
+    #####:  530:                desired = set_scheduled(current, true);
+call    0 never executed
+        -:  531:
+    #####:  532:                if (state_.compare_exchange_weak(current, desired,
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  533:                                                 std::memory_order_acq_rel,
+        -:  534:                                                 std::memory_order_acquire)) {
+    #####:  535:                    return !is_running(current);
+call    0 never executed
+        -:  536:                }
+        -:  537:            }
+        -:  538:        }
+        -:  539:
+        -:  540:        void begin_shutdown() noexcept {
+        -:  541:            auto current = state_.load(std::memory_order_acquire);
+        -:  542:            int cas_attempts = 0;
+        -:  543:
+        -:  544:            while (!is_destroying(current)) {
+        -:  545:                exponential_backoff(cas_attempts);
+        -:  546:                ++cas_attempts;
+        -:  547:#ifndef NDEBUG
+        -:  548:                assert(cas_attempts < kMaxCasAttempts && "begin_shutdown: CAS livelock!");
+        -:  549:#else
+        -:  550:                if (cas_attempts >= kMaxCasAttempts) {
+        -:  551:                    std::terminate();
+        -:  552:                }
+        -:  553:#endif
+        -:  554:                auto desired = set_destroying(current);
+        -:  555:                if (state_.compare_exchange_weak(current, desired,
+        -:  556:                                                 std::memory_order_release,
+        -:  557:                                                 std::memory_order_acquire)) {
+        -:  558:                    break;
+        -:  559:                }
+        -:  560:            }
+        -:  561:
+        -:  562:            wait_for_resume_to_complete();
+        -:  563:        }
+        -:  564:
+        -:  565:        struct shutdown_guard_t {
+        -:  566:            cooperative_actor* self_;
+        -:  567:
+        -:  568:            explicit shutdown_guard_t(cooperative_actor* self) noexcept
+        -:  569:                : self_(self) {}
+        -:  570:
+        -:  571:            ~shutdown_guard_t() noexcept {
+        -:  572:                self_->begin_shutdown();
+        -:  573:            }
+        -:  574:
+        -:  575:            shutdown_guard_t(const shutdown_guard_t&) = delete;
+        -:  576:            shutdown_guard_t& operator=(const shutdown_guard_t&) = delete;
+        -:  577:            shutdown_guard_t(shutdown_guard_t&&) = delete;
+        -:  578:            shutdown_guard_t& operator=(shutdown_guard_t&&) = delete;
+        -:  579:        };
+        -:  580:
+        -:  581:        void wait_for_resume_to_complete() noexcept {
+        -:  582:            std::atomic_thread_fence(std::memory_order_seq_cst);
+        -:  583:
+        -:  584:            auto start_time = std::chrono::steady_clock::now();
+        -:  585:#ifndef NDEBUG
+        -:  586:            constexpr auto timeout = std::chrono::seconds(5);
+        -:  587:#else
+        -:  588:            constexpr auto timeout = std::chrono::seconds(30);
+        -:  589:#endif
+        -:  590:
+        -:  591:            int wait_attempts = 0;
+        -:  592:            while (is_running(state_.load(std::memory_order_acquire))) {
+        -:  593:                exponential_backoff(wait_attempts);
+        -:  594:                ++wait_attempts;
+        -:  595:
+        -:  596:                auto elapsed = std::chrono::steady_clock::now() - start_time;
+        -:  597:                if (elapsed > timeout) {
+        -:  598:#ifndef NDEBUG
+        -:  599:                    assert(false && "wait_for_resume_to_complete: timeout!");
+        -:  600:#else
+        -:  601:                    std::terminate();
+        -:  602:#endif
+        -:  603:                }
+        -:  604:            }
+        -:  605:
+        -:  606:            std::atomic_thread_fence(std::memory_order_seq_cst);
+        -:  607:        }
+        -:  608:
+        -:  609:        mailbox::message* current_message() noexcept { return current_message_; }
+        -:  610:
+        -:  611:        inline const Actor* self() const noexcept {
+        -:  612:            return static_cast<const Actor*>(this);
+        -:  613:        }
+        -:  614:
+        -:  615:        inline Actor* self() noexcept {
+        -:  616:            return static_cast<Actor*>(this);
+        -:  617:        }
+        -:  618:
+function _ZN10actor_zeta5actor17cooperative_actorIN10components7storage6detail22parallel_scan_worker_tENS_7mailbox9mailbox_tINS6_20default_mailbox_implEEEE7mailboxEv called 0 returned 0% blocks executed 0%
+    #####:  619:        MailBox& mailbox() noexcept {
+    #####:  620:            return mailbox_;
+        -:  621:        }
+        -:  622:
+        -:  623:        shutdown_guard_t shutdown_guard_;
+        -:  624:
+        -:  625:        std::pmr::memory_resource* resource_;
+        -:  626:        mailbox::message* current_message_;
+        -:  627:        MailBox mailbox_;
+        -:  628:        behavior_t current_behavior_;  // ONE coroutine per actor for behavior()
+        -:  629:        std::atomic<actor_state> state_{actor_state::idle};
+        -:  630:
+        -:  631:#ifndef NDEBUG
+        -:  632:        static constexpr uint32_t kMagicAlive = 0xFEEDFACE;
+        -:  633:        uint32_t magic_;
+        -:  634:#endif
+        -:  635:    };
+        -:  636:
+        -:  637:}} // namespace actor_zeta::actor

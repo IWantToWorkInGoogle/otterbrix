@@ -1,5 +1,6 @@
 #include <catch2/catch.hpp>
 
+#include "catalog_probe.hpp"
 #include "disk_test_helpers.hpp"
 #include <actor-zeta/spawn.hpp>
 #include <components/catalog/catalog_oids.hpp>
@@ -7,22 +8,22 @@
 #include <components/context/execution_context.hpp>
 #include <components/log/log.hpp>
 #include <components/session/session.hpp>
+#include <components/vector/data_chunk.hpp>
 #include <core/non_thread_scheduler/scheduler_test.hpp>
 #include <services/disk/manager_disk.hpp>
 #include <services/wal/manager_wal_replicate.hpp>
 
 #include <filesystem>
+#include <limits>
+#include <thread>
 #include <unistd.h>
 
-// Recovery (3 tests) — covers docs/catalog-migration-to-postgresql-style.md §14
-// "Recovery (3 tests)":
-//   - test_recovery_system_wal_before_user — system DDL replayed first on restart, before
-//     anyone touches user storages.
-//   - test_recovery_ring_buffer_empty — fresh process: no events have been pushed, the
-//     ring buffer reports zero latest_version and an empty since(0); dispatchers see this
-//     as "first contact, do a full resolve".
-//   - test_recovery_ddl_then_dml — a DDL row written through append_pg_catalog_row goes
-//     through WAL + storage; after a fixture restart the row is visible via load.
+// Recovery tests:
+//   - system DDL replays first on restart, before any user storage is touched;
+//   - on a fresh process the event ring buffer reports zero latest_version and
+//     empty since(0), which dispatchers read as "first contact, full resolve";
+//   - a DDL row written via append_pg_catalog_row survives a restart and is
+//     visible via load.
 
 using namespace services::disk;
 using namespace components::catalog;
@@ -63,15 +64,20 @@ namespace {
             , wal(actor_zeta::spawn<services::wal::manager_wal_replicate_t>(&resource, scheduler, wal_config, log))
             , disk(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {
             std::filesystem::create_directories(dir);
-            wal->set_run_fn([this] { scheduler->run(10000); });
-            disk->set_run_fn([this] { scheduler->run(10000); });
-            wal->sync(std::make_tuple(actor_zeta::address_t(disk->address()), actor_zeta::address_t::empty_address()));
-            disk->sync(std::make_tuple(wal->address()));
+            wal->sync(services::wal::wal_sync_pack_t{actor_zeta::address_t(disk->address()),
+                                                     actor_zeta::address_t::empty_address(),
+                                                     actor_zeta::address_t::empty_address()});
+            disk->sync(services::disk::manager_disk_t::disk_sync_pack_t{wal->address()});
             if (bootstrap) {
                 disk->bootstrap_system_tables_sync();
             }
         }
         ~recovery_fixture() {
+            // Destroy the managers first: each dtor joins its internal loop thread,
+            // which may still enqueue children onto the scheduler. Only then is it
+            // safe to stop/delete the scheduler.
+            disk.reset();
+            wal.reset();
             scheduler->stop();
             delete scheduler;
         }
@@ -79,7 +85,11 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(disk->address(), fn, std::forward<Args>(args)...);
-            scheduler->run(10000);
+            for (int i = 0; i < 100000 && !future.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(future.is_ready());
             return std::move(future).get();
         }
 
@@ -92,8 +102,9 @@ namespace {
 // 1. test_recovery_system_wal_before_user — system DDL replayed first on restart.
 //    Drive a CREATE NAMESPACE through the active fixture (writes a pg_namespace row +
 //    a WAL physical record), drop the fixture, spin a fresh one and call
-//    load_system_tables_sync. The system table must come back populated, which can only
-//    happen if the system replay path runs before any user-table loading.
+//    bootstrap_system_tables_sync (its load path picks up existing .otbx files). The
+//    system table must come back populated, which can only happen if the system replay
+//    path runs before any user-table loading.
 TEST_CASE("test_recovery_system_wal_before_user") {
     auto dir = recovery_test_dir() + "/sys_first";
     cleanup_dir(dir);
@@ -105,15 +116,16 @@ TEST_CASE("test_recovery_system_wal_before_user") {
         REQUIRE(created_namespace_oid != components::catalog::INVALID_OID);
     }
 
-    // Restart: skip bootstrap (already done), call load_system_tables_sync.
+    // Restart: re-run bootstrap_system_tables_sync, whose load path re-hydrates the
+    // already-created system tables from their .otbx files.
     {
         recovery_fixture fx(dir, /*bootstrap=*/false);
-        // load_system_tables_sync MUST run before any user storage is touched on restart;
+        // bootstrap_system_tables_sync MUST run before any user storage is touched on restart;
         // here we call it explicitly and require the previously-created namespace OID is
         // recovered from pg_namespace via restore_oid_generator_sync (its scan walks
         // pg_namespace as a "fresh OID source", which proves the system table's rows are
         // back in place before user paths run).
-        REQUIRE_NOTHROW(fx.disk->load_system_tables_sync());
+        REQUIRE_NOTHROW(fx.disk->bootstrap_system_tables_sync());
         REQUIRE_NOTHROW(fx.disk->restore_oid_generator_sync());
     }
     cleanup_dir(dir);
@@ -155,17 +167,20 @@ TEST_CASE("test_recovery_ddl_then_dml") {
         // replay on the second fixture. Pass wal_id=0 since we don't have a live WAL id
         // tracker in this test path; checkpoint_all is happy to skip the wal-id sidecar
         // when value is 0.
-        auto cp_future = fx.invoke(&manager_disk_t::checkpoint_all, session_id_t{}, services::wal::id_t{0});
+        auto cp_future = fx.invoke(&manager_disk_t::checkpoint_all,
+                                    session_id_t{},
+                                    services::wal::id_t{0},
+                                    std::numeric_limits<uint64_t>::max());
         (void) cp_future;
     }
 
-    // Restart and verify the DDL state is durable: load_system_tables_sync must succeed,
+    // Restart and verify the DDL state is durable: bootstrap_system_tables_sync must succeed,
     // restore_oid_generator_sync must seed the counter past ns_oid (since pg_namespace
     // now contains its row), and a brand-new namespace allocation yields a strictly
     // higher OID.
     {
         recovery_fixture fx(dir, /*bootstrap=*/false);
-        REQUIRE_NOTHROW(fx.disk->load_system_tables_sync());
+        REQUIRE_NOTHROW(fx.disk->bootstrap_system_tables_sync());
         REQUIRE_NOTHROW(fx.disk->restore_oid_generator_sync());
 
         const auto post_ns_oid = disk_test_helpers::test_create_namespace(fx, std::string("post_recovery_ns"));
@@ -174,10 +189,10 @@ TEST_CASE("test_recovery_ddl_then_dml") {
     cleanup_dir(dir);
 }
 
-// 4. test_recovery_orphaned_uncommitted_ddl — DDL rows written under a non-zero txn_id
-//    but never committed (storage_commit_appends not called, simulating a crash) must
-//    be invisible after manager restart, because rebuild_lookup_indexes uses inline_scan →
-//    scan_committed which filters any row whose txn_id has not been flipped to a commit_id.
+// DDL rows written under a non-zero txn_id but never committed (no
+// storage_publish_commits — a simulated crash) must be invisible after restart:
+// rebuild_lookup_indexes scans via scan_committed, which filters any row whose
+// txn_id was never flipped to a commit_id.
 TEST_CASE("test_recovery_orphaned_uncommitted_ddl") {
     auto dir = recovery_test_dir() + "/orphaned_ddl";
     cleanup_dir(dir);
@@ -185,7 +200,7 @@ TEST_CASE("test_recovery_orphaned_uncommitted_ddl") {
     {
         recovery_fixture fx(dir);
         // Use txn_id=1 so append_pg_catalog_row writes the pg_namespace row under a
-        // non-zero txn (not immediately visible). Without storage_commit_appends the
+        // non-zero txn (not immediately visible). Without storage_publish_commits the
         // flip from txn_id to commit_id never happens.
         components::execution_context_t uncommitted_ctx{session_id_t{}, components::table::transaction_data{1, 0}, {}};
         auto oids = fx.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{1});
@@ -195,12 +210,12 @@ TEST_CASE("test_recovery_orphaned_uncommitted_ddl") {
             components::catalog::build_create_namespace_writes(&fx.resource, std::string("orphaned_ns"), ns_oid);
         for (auto& w : writes)
             fx.invoke(&manager_disk_t::append_pg_catalog_row, uncommitted_ctx, w.table_oid, std::move(w.row));
-        // Intentionally omit storage_commit_appends — simulates crash before commit.
+        // Intentionally omit storage_publish_commits — simulates crash before commit.
     }
 
     {
         recovery_fixture fx(dir, /*bootstrap=*/false);
-        REQUIRE_NOTHROW(fx.disk->load_system_tables_sync());
+        REQUIRE_NOTHROW(fx.disk->bootstrap_system_tables_sync());
         REQUIRE_NOTHROW(fx.disk->restore_oid_generator_sync());
 
         // ns_name_to_oid_ is rebuilt by rebuild_lookup_indexes via inline_scan →
@@ -218,7 +233,7 @@ TEST_CASE("test_recovery_orphaned_uncommitted_ddl") {
 //    on restart replays WAL via direct_append_sync (bypassing the operator pipeline).
 //    This test verifies the round trip: register two columns under a 'g' table, drop the
 //    fixture (flushes WAL + checkpoint persists storage), spin a fresh fixture pointing at
-//    the same path, run load_system_tables_sync, and require pg_computed_column reports
+//    the same path, run bootstrap_system_tables_sync, and require pg_computed_column reports
 //    both rows + resolve_table reconstructs both columns from them.
 TEST_CASE("services::disk::recovery::dynamic_schema_persists_across_restart") {
     auto dir = recovery_test_dir() + "/dynamic_schema";
@@ -253,17 +268,21 @@ TEST_CASE("services::disk::recovery::dynamic_schema_persists_across_restart") {
         // Force durability for the on-disk pg_* storages (fsyncs the .otbx files).
         // Without checkpoint, pg_computed_column rows live only in WAL; we still
         // expect them back via the bootstrap-replay path on restart.
-        auto cp_future = fx.invoke(&manager_disk_t::checkpoint_all, session_id_t{}, services::wal::id_t{0});
+        auto cp_future = fx.invoke(&manager_disk_t::checkpoint_all,
+                                    session_id_t{},
+                                    services::wal::id_t{0},
+                                    std::numeric_limits<uint64_t>::max());
         (void) cp_future;
     }
 
     // Restart: bootstrap=false → don't re-create fresh empty system tables; instead
-    // call load_system_tables_sync, which replays WAL via direct_append_sync into
-    // pg_computed_column. After that, pg_computed_column must hold both rows and
-    // resolve_table must reconstruct the dynamic schema for "docs".
+    // bootstrap_system_tables_sync re-hydrates them from disk (its load path) and the
+    // recovery fixture replays WAL via direct_append_sync into pg_computed_column. After
+    // that, pg_computed_column must hold both rows and resolve_table must reconstruct the
+    // dynamic schema for "docs".
     {
         recovery_fixture fx_reopen(dir, /*bootstrap=*/false);
-        REQUIRE_NOTHROW(fx_reopen.disk->load_system_tables_sync());
+        REQUIRE_NOTHROW(fx_reopen.disk->bootstrap_system_tables_sync());
         REQUIRE_NOTHROW(fx_reopen.disk->restore_oid_generator_sync());
 
         // Direct read of pg_computed_column: relid=table_oid → 2 live rows.
@@ -273,27 +292,37 @@ TEST_CASE("services::disk::recovery::dynamic_schema_persists_across_restart") {
         rk.emplace_back("relid");
         std::pmr::vector<components::types::logical_value_t> rv{&fx_reopen.resource};
         rv.emplace_back(toid_lv);
-        auto rows =
-            fx_reopen.invoke(&manager_disk_t::read_rows_by_key, fx_reopen.ctx(), pg_cc, std::move(rk), std::move(rv));
-        REQUIRE(rows.size() == 2);
+        auto batches = fx_reopen.invoke(&manager_disk_t::read_chunks_by_key,
+                                        fx_reopen.ctx(),
+                                        pg_cc,
+                                        std::move(rk),
+                                        test_probe::build_key_chunk(&fx_reopen.resource, std::move(rv)));
+        std::uint64_t total = 0;
+        for (const auto& c : batches)
+            total += c.size();
+        REQUIRE(total == 2);
         bool saw_a = false;
         bool saw_b = false;
-        for (const auto& row : rows) {
-            REQUIRE(row.size() >= 7);
-            // pg_computed_column layout: [0]=relid, [1]=attoid, [2]=attname,
-            // [3]=atttypid, [4]=atttypspec, [5]=attversion, [6]=attrefcount.
-            const auto attname = row[2].is_null() ? std::string{} : std::string(row[2].value<std::string_view>());
-            const auto atttypid = row[3].is_null()
-                                      ? components::catalog::INVALID_OID
-                                      : static_cast<components::catalog::oid_t>(row[3].value<std::uint32_t>());
-            const auto refcount = row[6].value<std::int64_t>();
-            REQUIRE(refcount == 1);
-            if (attname == "a") {
-                REQUIRE(atttypid == components::catalog::well_known_oid::int64_type);
-                saw_a = true;
-            } else if (attname == "b") {
-                REQUIRE(atttypid == components::catalog::well_known_oid::string_type);
-                saw_b = true;
+        for (const auto& chunk : batches) {
+            REQUIRE(chunk.column_count() >= 7);
+            for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                // pg_computed_column layout: [0]=relid, [1]=attoid, [2]=attname,
+                // [3]=atttypid, [4]=atttypspec, [5]=attversion, [6]=attrefcount.
+                const auto attname =
+                    chunk.value(2, i).is_null() ? std::string{} : std::string(chunk.value(2, i).value<std::string_view>());
+                const auto atttypid =
+                    chunk.value(3, i).is_null()
+                        ? components::catalog::INVALID_OID
+                        : static_cast<components::catalog::oid_t>(chunk.value(3, i).value<std::uint32_t>());
+                const auto refcount = chunk.value(6, i).value<std::int64_t>();
+                REQUIRE(refcount == 1);
+                if (attname == "a") {
+                    REQUIRE(atttypid == components::catalog::well_known_oid::int64_type);
+                    saw_a = true;
+                } else if (attname == "b") {
+                    REQUIRE(atttypid == components::catalog::well_known_oid::string_type);
+                    saw_b = true;
+                }
             }
         }
         REQUIRE(saw_a);
@@ -302,11 +331,7 @@ TEST_CASE("services::disk::recovery::dynamic_schema_persists_across_restart") {
         // resolve_table on restart must report relkind='g' and reconstruct both columns
         // from the replayed pg_computed_column rows (computed-schema path skips
         // pg_attribute and reads pg_computed_column directly).
-        auto rs = fx_reopen.invoke(&manager_disk_t::resolve_table,
-                                   fx_reopen.ctx(),
-                                   ns_oid,
-                                   std::string("docs"),
-                                   std::uint64_t{0});
+        auto rs = test_probe::probe_table(fx_reopen, fx_reopen.ctx(), ns_oid, std::string("docs"));
         REQUIRE(rs.found);
         REQUIRE(rs.relkind == components::catalog::relkind::computed);
         REQUIRE(rs.columns.size() == 2);

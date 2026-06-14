@@ -1,0 +1,2 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch_pax_checkpoint/checkpoint,tpch_pax_checkpoint,columnar,disk,warm,true,false,Release,30,64.304,169.904,106.973,106.579,OK,0,0,fnv64:0cda5faad0fc7c7a,""

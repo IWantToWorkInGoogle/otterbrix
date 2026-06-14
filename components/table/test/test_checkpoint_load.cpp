@@ -2060,7 +2060,7 @@ TEST_CASE("checkpoint_load: clean restored row group checkpoint reuses persisted
         metadata_reader_t reader(meta_mgr, table_pointer);
         auto loaded = data_table_t::load_from_disk(&env.resource, bm, reader);
 
-        loaded->compact();
+        loaded->compact(UINT64_MAX);
 
         metadata_writer_t writer(meta_mgr);
         loaded->checkpoint(writer);
@@ -3411,7 +3411,7 @@ TEST_CASE("checkpoint_load: pax generic projected scan applies active transactio
             row_ids.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(deleted_rows[i])});
         }
 
-        transaction_manager_t txn_manager;
+        transaction_manager_t txn_manager(&env.resource);
         auto writer_session = components::session::session_id_t::generate_uid();
         auto& writer_txn = txn_manager.begin_transaction(writer_session);
         auto delete_state = loaded->initialize_delete({});
@@ -3472,6 +3472,7 @@ TEST_CASE("checkpoint_load: pax generic projected scan applies active transactio
         const auto writer_txn_id = writer_txn.transaction_id();
         const auto commit_id = txn_manager.commit(writer_session);
         loaded->commit_all_deletes(writer_txn_id, commit_id);
+        txn_manager.publish(commit_id);
 
         auto fresh_session = components::session::session_id_t::generate_uid();
         auto& fresh_txn = txn_manager.begin_transaction(fresh_session);
@@ -4577,7 +4578,7 @@ TEST_CASE("checkpoint_load: pax fixed projected scan applies active transaction 
             row_ids.set_value(i, logical_value_t{&env.resource, static_cast<int64_t>(deleted_rows[i])});
         }
 
-        transaction_manager_t txn_manager;
+        transaction_manager_t txn_manager(&env.resource);
         auto writer_session = components::session::session_id_t::generate_uid();
         auto& writer_txn = txn_manager.begin_transaction(writer_session);
         auto delete_state = loaded->initialize_delete({});
@@ -4638,6 +4639,7 @@ TEST_CASE("checkpoint_load: pax fixed projected scan applies active transaction 
         const auto writer_txn_id = writer_txn.transaction_id();
         const auto commit_id = txn_manager.commit(writer_session);
         loaded->commit_all_deletes(writer_txn_id, commit_id);
+        txn_manager.publish(commit_id);
 
         auto fresh_session = components::session::session_id_t::generate_uid();
         auto& fresh_txn = txn_manager.begin_transaction(fresh_session);

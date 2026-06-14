@@ -1,0 +1,175 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/in_memory_block_manager.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include "block_manager.hpp"
+        -:    4:
+        -:    5:namespace components::table::storage {
+        -:    6:
+        -:    7:    class in_memory_block_manager_t : public block_manager_t {
+        -:    8:    public:
+        -:    9:        using block_manager_t::block_manager_t;
+        -:   10:
+function _ZN10components5table7storage25in_memory_block_manager_t13convert_blockEmRNS1_13file_buffer_tE called 0 returned 0% blocks executed 0%
+    #####:   11:        std::unique_ptr<block_t> convert_block(uint64_t, file_buffer_t&) override {
+    #####:   12:            throw std::logic_error("Cannot perform IO in in-memory database - convert_block!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   13:        }
+function _ZN10components5table7storage25in_memory_block_manager_t12create_blockEmPNS1_13file_buffer_tE called 0 returned 0% blocks executed 0%
+    #####:   14:        std::unique_ptr<block_t> create_block(uint64_t, file_buffer_t*) override {
+    #####:   15:            throw std::logic_error("Cannot perform IO in in-memory database - create_block!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   16:        }
+function _ZN10components5table7storage25in_memory_block_manager_t13free_block_idEv called 0 returned 0% blocks executed 0%
+    #####:   17:        uint64_t free_block_id() override {
+    #####:   18:            throw std::logic_error("Cannot perform IO in in-memory database - free_block_id!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   19:        }
+function _ZN10components5table7storage25in_memory_block_manager_t18peek_free_block_idEv called 0 returned 0% blocks executed 0%
+    #####:   20:        uint64_t peek_free_block_id() override {
+    #####:   21:            throw std::logic_error("Cannot perform IO in in-memory database - peek_free_block_id!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   22:        }
+function _ZN10components5table7storage25in_memory_block_manager_t13is_root_blockENS1_20meta_block_pointer_tE called 0 returned 0% blocks executed 0%
+    #####:   23:        bool is_root_block(meta_block_pointer_t) override {
+    #####:   24:            throw std::logic_error("Cannot perform IO in in-memory database - is_root_block!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   25:        }
+function _ZN10components5table7storage25in_memory_block_manager_t12mark_as_freeEm called 0 returned 0% blocks executed 0%
+    #####:   26:        void mark_as_free(uint64_t) override {
+    #####:   27:            throw std::logic_error("Cannot perform IO in in-memory database - mark_as_free!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   28:        }
+function _ZN10components5table7storage25in_memory_block_manager_t12mark_as_usedEm called 0 returned 0% blocks executed 0%
+    #####:   29:        void mark_as_used(uint64_t) override {
+    #####:   30:            throw std::logic_error("Cannot perform IO in in-memory database - mark_as_used!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   31:        }
+function _ZN10components5table7storage25in_memory_block_manager_t16mark_as_modifiedEm called 0 returned 0% blocks executed 0%
+    #####:   32:        void mark_as_modified(uint64_t) override {
+    #####:   33:            throw std::logic_error("Cannot perform IO in in-memory database - mark_as_modified!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   34:        }
+function _ZN10components5table7storage25in_memory_block_manager_t24increase_block_ref_countEm called 0 returned 0% blocks executed 0%
+    #####:   35:        void increase_block_ref_count(uint64_t) override {
+    #####:   36:            throw std::logic_error("Cannot perform IO in in-memory database - increase_block_ref_count!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   37:        }
+function _ZN10components5table7storage25in_memory_block_manager_t10meta_blockEv called 0 returned 0% blocks executed 0%
+    #####:   38:        uint64_t meta_block() override {
+    #####:   39:            throw std::logic_error("Cannot perform IO in in-memory database - meta_block!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   40:        }
+function _ZN10components5table7storage25in_memory_block_manager_t4readERNS1_7block_tE called 0 returned 0% blocks executed 0%
+    #####:   41:        void read(block_t&) override { throw std::logic_error("Cannot perform IO in in-memory database - read!"); }
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+function _ZN10components5table7storage25in_memory_block_manager_t11read_blocksERNS1_13file_buffer_tEmm called 0 returned 0% blocks executed 0%
+    #####:   42:        void read_blocks(file_buffer_t&, uint64_t, uint64_t) override {
+    #####:   43:            throw std::logic_error("Cannot perform IO in in-memory database - read_blocks!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   44:        }
+function _ZN10components5table7storage25in_memory_block_manager_t5writeERNS1_13file_buffer_tEm called 0 returned 0% blocks executed 0%
+    #####:   45:        void write(file_buffer_t&, uint64_t) override {
+    #####:   46:            throw std::logic_error("Cannot perform IO in in-memory database - write!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   47:        }
+function _ZN10components5table7storage25in_memory_block_manager_t9in_memoryEv called 0 returned 0% blocks executed 0%
+    #####:   48:        bool in_memory() override { return true; }
+function _ZN10components5table7storage25in_memory_block_manager_t9file_syncEv called 0 returned 0% blocks executed 0%
+    #####:   49:        void file_sync() override { throw std::logic_error("Cannot perform IO in in-memory database - file_sync!"); }
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+function _ZN10components5table7storage25in_memory_block_manager_t12total_blocksEv called 0 returned 0% blocks executed 0%
+    #####:   50:        uint64_t total_blocks() override {
+    #####:   51:            throw std::logic_error("Cannot perform IO in in-memory database - total_blocks!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   52:        }
+function _ZN10components5table7storage25in_memory_block_manager_t11free_blocksEv called 0 returned 0% blocks executed 0%
+    #####:   53:        uint64_t free_blocks() override {
+    #####:   54:            throw std::logic_error("Cannot perform IO in in-memory database - free_blocks!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   55:        }
+        -:   56:    };
+        -:   57:
+        -:   58:} // namespace components::table::storage

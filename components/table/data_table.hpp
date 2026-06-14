@@ -48,11 +48,6 @@ namespace components::table {
                                     transaction_data txn,
                                     std::pmr::memory_resource* resource);
 
-        // Scan only committed rows via committed_version_operator. Uncommitted deletes
-        // from in-flight transactions are NOT visible. Used by resolve_* on pg_catalog.* —
-        // those reads must not observe half-applied DDLs.
-        void scan_committed(vector::data_chunk_t& result, table_scan_state& state);
-
         void fetch(vector::data_chunk_t& result,
                    const std::vector<storage_index_t>& column_ids,
                    const vector::vector_t& row_ids,
@@ -87,6 +82,7 @@ namespace components::table {
         void commit_append(uint64_t commit_id, int64_t row_start, uint64_t count);
         void revert_append(int64_t row_start, uint64_t count);
         void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
+        void revert_all_deletes(uint64_t txn_id);
         void scan_table_segment(int64_t start_row,
                                 uint64_t count,
                                 const std::function<void(vector::data_chunk_t& chunk)>& function);
@@ -114,7 +110,14 @@ namespace components::table {
         uint64_t calculate_size();
         void cleanup_versions(uint64_t lowest_active_start_time);
         bool has_persisted_pax_layout() const;
-        void compact();
+        // Rebuild row_groups_ keeping only rows visible to the txn-less
+        // "see all committed" scan, dropping all version history. Runs ONLY when
+        // every version stamp is at/below `compact_watermark` — the
+        // visible-to-all horizon from transaction_manager_t::compact_watermark()
+        // — otherwise it is a no-op returning false (MVCC: older snapshots and
+        // in-flight commits still need the history). True = table is fully
+        // compacted (or empty) and safe to checkpoint without version metadata.
+        bool compact(uint64_t compact_watermark);
 
         std::shared_ptr<parallel_table_scan_state_t>
         create_parallel_scan_state(const std::vector<storage_index_t>& column_ids,

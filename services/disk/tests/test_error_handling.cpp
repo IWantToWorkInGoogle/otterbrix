@@ -1,5 +1,6 @@
 #include <catch2/catch.hpp>
 
+#include "catalog_probe.hpp"
 #include "disk_test_helpers.hpp"
 #include <actor-zeta/spawn.hpp>
 #include <components/catalog/catalog_codes.hpp>
@@ -15,6 +16,7 @@
 
 #include <filesystem>
 #include <limits>
+#include <thread>
 #include <unistd.h>
 
 // Edge cases for ddl_*: missing parent, RESTRICT blocks with descriptive error,
@@ -53,10 +55,13 @@ namespace {
             , manager(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {
             cleanup();
             std::filesystem::create_directories(err_dir());
-            manager->set_run_fn([this] { scheduler->run(10000); });
             manager->bootstrap_system_tables_sync();
         }
         ~fixture() {
+            // Destroy the manager first: its dtor joins the internal loop thread,
+            // which may still enqueue children onto the scheduler. Only then is it
+            // safe to stop/delete the scheduler.
+            manager.reset();
             scheduler->stop();
             delete scheduler;
             cleanup();
@@ -65,7 +70,11 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(manager->address(), fn, std::forward<Args>(args)...);
-            scheduler->run(10000);
+            for (int i = 0; i < 100000 && !future.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(future.is_ready());
             return std::move(future).get();
         }
 
@@ -86,14 +95,14 @@ TEST_CASE("services::disk::error::resolve_unknown_namespace") {
 TEST_CASE("services::disk::error::resolve_unknown_table") {
     fixture fx;
     auto ns_oid = test_create_namespace(fx, "ns");
-    auto rt = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("not_a_table"), std::uint64_t{0});
+    auto rt = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("not_a_table"));
     REQUIRE_FALSE(rt.found);
 }
 
 // 3. resolve_table with INVALID_OID namespace returns found=false.
 TEST_CASE("services::disk::error::resolve_table_invalid_namespace") {
     fixture fx;
-    auto rt = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), INVALID_OID, std::string("any"), std::uint64_t{0});
+    auto rt = test_probe::probe_table(fx, fx.ctx(), INVALID_OID, std::string("any"));
     REQUIRE_FALSE(rt.found);
 }
 
@@ -145,7 +154,6 @@ TEST_CASE("services::disk::error::empty_name_accepted") {
 TEST_CASE("services::disk::error::resolve_unknown_function") {
     fixture fx;
     auto ns_oid = test_create_namespace(fx, "ns");
-    auto rf =
-        fx.invoke(&manager_disk_t::resolve_function, fx.ctx(), ns_oid, std::string("unknown_fn"), std::uint64_t{0});
+    auto rf = test_probe::probe_function(fx, fx.ctx(), ns_oid, std::string("unknown_fn"));
     REQUIRE_FALSE(rf.found);
 }

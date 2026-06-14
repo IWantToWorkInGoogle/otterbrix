@@ -1,0 +1,23 @@
+digraph component {
+  rankdir=TB; bgcolor="white"; splines=ortho; nodesep=0.5; ranksep=0.65;
+  node [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=12,
+        margin="0.18,0.12", penwidth=1.2, color="#5b6b7a"];
+  edge [fontname="DejaVu Sans", fontsize=10, color="#5b6b7a", penwidth=1.1, arrowsize=0.8];
+
+  sql   [label="SQL / диспетчер запросов", fillcolor="#dbe9fb"];
+  mgr   [label="services/disk: manager_disk\n(сохранение и загрузка\nконтрольной точки)", fillcolor="#dcefe1"];
+  tstor [label="table_storage_t\n(жизненный цикл дисковой таблицы)", fillcolor="#dcefe1"];
+  dtab  [label="data_table_t\n(определения столбцов,\nнабор групп строк)", fillcolor="#fdf3cf"];
+  rg    [label="row_group_t\nвыбор схемы размещения:\nCOLUMNAR / PAX_FIXED / PAX_GENERIC", fillcolor="#fbdde0"];
+  meta  [label="metadata_writer / metadata_reader\n(раздел схемы размещения)", fillcolor="#ecdcfb"];
+  blk   [label="single_file_block_manager +\npartial_block_manager\n(физические блоки)", fillcolor="#e6e8eb"];
+
+  sql -> mgr;
+  mgr -> tstor;
+  tstor -> dtab;
+  tstor -> meta;
+  dtab -> rg;
+  rg -> meta;
+  rg -> blk;
+  {rank=same; dtab; rg; meta;}
+}

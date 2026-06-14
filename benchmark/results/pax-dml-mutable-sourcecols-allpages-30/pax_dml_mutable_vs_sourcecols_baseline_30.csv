@@ -1,0 +1,4 @@
+scenario,mutable_best_page_rows,mutable_median_ms,pax_baseline_median_ms,columnar_baseline_median_ms,mutable_vs_pax_speedup_pct,mutable_vs_columnar_speedup_pct,mutable_fast_update_delete_insert,mutable_fallback_update_delete_insert,mutable_pax_regular,mutable_counters,mutable_verified,pax_verified,columnar_verified
+fixed_delete_insert,256,42.381,48.032,47.620,13.33,12.36,0/30/30,0/0/0,0,OK,OK,OK,OK
+fixed_update,256,52.769,285.617,289.197,441.26,448.04,60/0/0,0/0/0,0,OK,OK,OK,OK
+string_update,512,40.645,149.404,153.205,267.58,276.93,60/0/0,0/0/0,0,OK,OK,OK,OK

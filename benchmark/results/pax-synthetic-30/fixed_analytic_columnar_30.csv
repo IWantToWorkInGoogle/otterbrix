@@ -1,0 +1,9 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+pax/fixed_analytic/queries/q1,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.217,0.385,0.278,0.276,OK,32,4,fnv64:1ad03bfc2e2106a6,""
+pax/fixed_analytic/queries/q2,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.211,0.388,0.284,0.272,OK,32,1,fnv64:050b1186933b1fb5,""
+pax/fixed_analytic/queries/q3,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.238,0.354,0.305,0.307,OK,16,2,fnv64:168425e64c58183e,""
+pax/fixed_analytic/queries/q4,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.229,0.336,0.292,0.296,OK,1,1,fnv64:97fc22d077d90b75,""
+pax/fixed_analytic/queries/q5,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.292,0.353,0.318,0.313,OK,5,2,fnv64:fb918c8b2a29ef90,""
+pax/fixed_analytic/queries/q6,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.215,0.389,0.286,0.279,OK,11,1,fnv64:f0715bfe072394ad,""
+pax/fixed_analytic/queries/q7,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.255,0.472,0.348,0.348,OK,1,2,fnv64:8f898a6b2c58c291,""
+pax/fixed_analytic/queries/q8,pax/fixed_analytic,columnar,disk,warm,true,false,Release,30,0.257,0.419,0.354,0.355,OK,8,2,fnv64:0af000da1559fd84,""

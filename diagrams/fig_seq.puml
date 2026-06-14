@@ -1,0 +1,30 @@
+@startuml
+skinparam defaultFontName "DejaVu Sans"
+skinparam shadowing false
+title Последовательность записи PAX при сохранении контрольной точки
+actor "Пользователь" as U
+participant "manager_disk_t" as M
+participant "table_storage_t" as T
+participant "data_table_t" as D
+participant "collection_t" as C
+participant "row_group_t" as R
+participant "partial_block_manager_t" as P
+participant "metadata_writer_t" as W
+U -> M : CHECKPOINT
+M -> T : checkpoint()
+T -> D : checkpoint(writer)
+D -> C : checkpoint(partial_block_manager)
+C -> R : write_to_disk(partial_block_manager)
+alt сохранённый указатель можно переиспользовать
+  R --> C : существующий row_group_pointer_t
+else требуется запись
+  R -> P : запись блоков данных PAX / columnar
+  R --> C : row_group_pointer_t(layout_kind)
+end
+C -> P : flush_partial_blocks()
+D -> W : сериализация схемы и row_group_pointer_t
+opt есть метаданные PAX
+  D -> W : сериализация раздела схемы размещения
+end
+M -> M : flush() и обновление заголовка базы
+@enduml

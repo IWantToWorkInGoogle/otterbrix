@@ -1,0 +1,810 @@
+        -:    0:Source:/usr/include/c++/11/memory_resource
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:// <memory_resource> -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2018-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file include/memory_resource
+        -:   26: *  This is a Standard C++ Library header.
+        -:   27: */
+        -:   28:
+        -:   29:#ifndef _GLIBCXX_MEMORY_RESOURCE
+        -:   30:#define _GLIBCXX_MEMORY_RESOURCE 1
+        -:   31:
+        -:   32:#pragma GCC system_header
+        -:   33:
+        -:   34:#if __cplusplus >= 201703L
+        -:   35:
+        -:   36:#include <vector>			// vector
+        -:   37:#include <cstddef>			// size_t, max_align_t, byte
+        -:   38:#include <shared_mutex>			// shared_mutex
+        -:   39:#include <bits/align.h>			// align
+        -:   40:#include <bits/functexcept.h>		// __throw_bad_array_new_length
+        -:   41:#include <bits/uses_allocator.h>	// __use_alloc
+        -:   42:#include <bits/uses_allocator_args.h>	// uninitialized_construct_using_alloc
+        -:   43:#include <ext/numeric_traits.h>
+        -:   44:#include <debug/assertions.h>
+        -:   45:
+        -:   46:#if ! __cpp_lib_make_obj_using_allocator
+        -:   47:# include <utility>			// pair, index_sequence
+        -:   48:# include <tuple>			// tuple, forward_as_tuple
+        -:   49:#endif
+        -:   50:
+        -:   51:namespace std _GLIBCXX_VISIBILITY(default)
+        -:   52:{
+        -:   53:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   54:namespace pmr
+        -:   55:{
+        -:   56:#ifdef _GLIBCXX_HAS_GTHREADS
+        -:   57:  // Header and all contents are present.
+        -:   58:# define __cpp_lib_memory_resource 201603L
+        -:   59:#else
+        -:   60:  // The pmr::synchronized_pool_resource type is missing.
+        -:   61:# define __cpp_lib_memory_resource 1
+        -:   62:#endif
+        -:   63:
+        -:   64:  class memory_resource;
+        -:   65:
+        -:   66:#if __cplusplus == 201703L
+        -:   67:  template<typename _Tp>
+        -:   68:    class polymorphic_allocator;
+        -:   69:#else // C++20
+        -:   70:# define __cpp_lib_polymorphic_allocator 201902L
+        -:   71:  template<typename _Tp = std::byte>
+        -:   72:    class polymorphic_allocator;
+        -:   73:#endif
+        -:   74:
+        -:   75:  // Global memory resources
+        -:   76:  memory_resource* new_delete_resource() noexcept;
+        -:   77:  memory_resource* null_memory_resource() noexcept;
+        -:   78:  memory_resource* set_default_resource(memory_resource* __r) noexcept;
+        -:   79:  memory_resource* get_default_resource() noexcept
+        -:   80:    __attribute__((__returns_nonnull__));
+        -:   81:
+        -:   82:  // Pool resource classes
+        -:   83:  struct pool_options;
+        -:   84:#ifdef _GLIBCXX_HAS_GTHREADS
+        -:   85:  class synchronized_pool_resource;
+        -:   86:#endif
+        -:   87:  class unsynchronized_pool_resource;
+        -:   88:  class monotonic_buffer_resource;
+        -:   89:
+        -:   90:  /// Class memory_resource
+        -:   91:  class memory_resource
+        -:   92:  {
+        -:   93:    static constexpr size_t _S_max_align = alignof(max_align_t);
+        -:   94:
+        -:   95:  public:
+        -:   96:    memory_resource() = default;
+        -:   97:    memory_resource(const memory_resource&) = default;
+        -:   98:    virtual ~memory_resource(); // key function
+        -:   99:
+        -:  100:    memory_resource& operator=(const memory_resource&) = default;
+        -:  101:
+        -:  102:    [[nodiscard]]
+        -:  103:    void*
+function _ZNSt3pmr15memory_resource8allocateEmm called 0 returned 0% blocks executed 0%
+    #####:  104:    allocate(size_t __bytes, size_t __alignment = _S_max_align)
+        -:  105:    __attribute__((__returns_nonnull__,__alloc_size__(2),__alloc_align__(3)))
+    #####:  106:    { return do_allocate(__bytes, __alignment); }
+call    0 never executed
+        -:  107:
+        -:  108:    void
+function _ZNSt3pmr15memory_resource10deallocateEPvmm called 0 returned 0% blocks executed 0%
+    #####:  109:    deallocate(void* __p, size_t __bytes, size_t __alignment = _S_max_align)
+        -:  110:    __attribute__((__nonnull__))
+    #####:  111:    { return do_deallocate(__p, __bytes, __alignment); }
+call    0 never executed
+        -:  112:
+        -:  113:    bool
+        -:  114:    is_equal(const memory_resource& __other) const noexcept
+        -:  115:    { return do_is_equal(__other); }
+        -:  116:
+        -:  117:  private:
+        -:  118:    virtual void*
+        -:  119:    do_allocate(size_t __bytes, size_t __alignment) = 0;
+        -:  120:
+        -:  121:    virtual void
+        -:  122:    do_deallocate(void* __p, size_t __bytes, size_t __alignment) = 0;
+        -:  123:
+        -:  124:    virtual bool
+        -:  125:    do_is_equal(const memory_resource& __other) const noexcept = 0;
+        -:  126:  };
+        -:  127:
+        -:  128:  inline bool
+        -:  129:  operator==(const memory_resource& __a, const memory_resource& __b) noexcept
+        -:  130:  { return &__a == &__b || __a.is_equal(__b); }
+        -:  131:
+        -:  132:#if __cpp_impl_three_way_comparison < 201907L
+        -:  133:  inline bool
+        -:  134:  operator!=(const memory_resource& __a, const memory_resource& __b) noexcept
+        -:  135:  { return !(__a == __b); }
+        -:  136:#endif
+        -:  137:
+        -:  138:  // C++17 23.12.3 Class template polymorphic_allocator
+        -:  139:  template<typename _Tp>
+        -:  140:    class polymorphic_allocator
+        -:  141:    {
+        -:  142:      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  143:      // 2975. Missing case for pair construction in polymorphic allocators
+        -:  144:      template<typename _Up>
+        -:  145:	struct __not_pair { using type = void; };
+        -:  146:
+        -:  147:      template<typename _Up1, typename _Up2>
+        -:  148:	struct __not_pair<pair<_Up1, _Up2>> { };
+        -:  149:
+        -:  150:    public:
+        -:  151:      using value_type = _Tp;
+        -:  152:
+        -:  153:      polymorphic_allocator() noexcept
+        -:  154:      : _M_resource(get_default_resource())
+        -:  155:      { }
+        -:  156:
+function _ZNSt3pmr21polymorphic_allocatorIN10components6vector12data_chunk_tEEC2EPNS_15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:  157:      polymorphic_allocator(memory_resource* __r) noexcept
+        -:  158:      __attribute__((__nonnull__))
+    #####:  159:      : _M_resource(__r)
+    #####:  160:      { _GLIBCXX_DEBUG_ASSERT(__r); }
+        -:  161:
+        -:  162:      polymorphic_allocator(const polymorphic_allocator& __other) = default;
+        -:  163:
+        -:  164:      template<typename _Up>
+        -:  165:	polymorphic_allocator(const polymorphic_allocator<_Up>& __x) noexcept
+        -:  166:	: _M_resource(__x.resource())
+        -:  167:	{ }
+        -:  168:
+        -:  169:      polymorphic_allocator&
+        -:  170:      operator=(const polymorphic_allocator&) = delete;
+        -:  171:
+        -:  172:      [[nodiscard]]
+        -:  173:      _Tp*
+        -:  174:      allocate(size_t __n)
+        -:  175:      __attribute__((__returns_nonnull__))
+        -:  176:      {
+        -:  177:	if ((__gnu_cxx::__int_traits<size_t>::__max / sizeof(_Tp)) < __n)
+        -:  178:	  std::__throw_bad_array_new_length();
+        -:  179:	return static_cast<_Tp*>(_M_resource->allocate(__n * sizeof(_Tp),
+        -:  180:						       alignof(_Tp)));
+        -:  181:      }
+        -:  182:
+        -:  183:      void
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+------------------
+_ZNSt3pmr21polymorphic_allocatorISt6vectorIN10components5types15logical_value_tENS0_IS4_EEEE10deallocateEPS6_m:
+function _ZNSt3pmr21polymorphic_allocatorISt6vectorIN10components5types15logical_value_tENS0_IS4_EEEE10deallocateEPS6_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE10deallocateEPS6_m:
+function _ZNSt3pmr21polymorphic_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE10deallocateEPS6_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN8services4disk25resolve_function_result_tEE10deallocateEPS3_m:
+function _ZNSt3pmr21polymorphic_allocatorIN8services4disk25resolve_function_result_tEE10deallocateEPS3_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components6vector12data_chunk_tEE10deallocateEPS3_m:
+function _ZNSt3pmr21polymorphic_allocatorIN10components6vector12data_chunk_tEE10deallocateEPS3_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components5types20complex_logical_typeEE10deallocateEPS3_m:
+function _ZNSt3pmr21polymorphic_allocatorIN10components5types20complex_logical_typeEE10deallocateEPS3_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIlE10deallocateEPlm:
+function _ZNSt3pmr21polymorphic_allocatorIlE10deallocateEPlm called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components5types15logical_value_tEE10deallocateEPS3_m:
+function _ZNSt3pmr21polymorphic_allocatorIN10components5types15logical_value_tEE10deallocateEPS3_m called 0 returned 0% blocks executed 0%
+    #####:  184:      deallocate(_Tp* __p, size_t __n) noexcept
+        -:  185:      __attribute__((__nonnull__))
+    #####:  186:      { _M_resource->deallocate(__p, __n * sizeof(_Tp), alignof(_Tp)); }
+call    0 never executed
+------------------
+        -:  187:
+        -:  188:#if __cplusplus > 201703L
+        -:  189:      [[nodiscard]] void*
+        -:  190:      allocate_bytes(size_t __nbytes,
+        -:  191:		     size_t __alignment = alignof(max_align_t))
+        -:  192:      { return _M_resource->allocate(__nbytes, __alignment); }
+        -:  193:
+        -:  194:      void
+        -:  195:      deallocate_bytes(void* __p, size_t __nbytes,
+        -:  196:		       size_t __alignment = alignof(max_align_t))
+        -:  197:      { _M_resource->deallocate(__p, __nbytes, __alignment); }
+        -:  198:
+        -:  199:      template<typename _Up>
+        -:  200:	[[nodiscard]] _Up*
+        -:  201:	allocate_object(size_t __n = 1)
+        -:  202:	{
+        -:  203:	  if ((__gnu_cxx::__int_traits<size_t>::__max / sizeof(_Up)) < __n)
+        -:  204:	    std::__throw_bad_array_new_length();
+        -:  205:	  return static_cast<_Up*>(allocate_bytes(__n * sizeof(_Up),
+        -:  206:						  alignof(_Up)));
+        -:  207:	}
+        -:  208:
+        -:  209:      template<typename _Up>
+        -:  210:	void
+        -:  211:	deallocate_object(_Up* __p, size_t __n = 1)
+        -:  212:	{ deallocate_bytes(__p, __n * sizeof(_Up), alignof(_Up)); }
+        -:  213:
+        -:  214:      template<typename _Up, typename... _CtorArgs>
+        -:  215:	[[nodiscard]] _Up*
+        -:  216:	new_object(_CtorArgs&&... __ctor_args)
+        -:  217:	{
+        -:  218:	  _Up* __p = allocate_object<_Up>();
+        -:  219:	  __try
+        -:  220:	    {
+        -:  221:	      construct(__p, std::forward<_CtorArgs>(__ctor_args)...);
+        -:  222:	    }
+        -:  223:	  __catch (...)
+        -:  224:	    {
+        -:  225:	      deallocate_object(__p);
+        -:  226:	      __throw_exception_again;
+        -:  227:	    }
+        -:  228:	  return __p;
+        -:  229:	}
+        -:  230:
+        -:  231:      template<typename _Up>
+        -:  232:	void
+        -:  233:	delete_object(_Up* __p)
+        -:  234:	{
+        -:  235:	  destroy(__p);
+        -:  236:	  deallocate_object(__p);
+        -:  237:	}
+        -:  238:#endif // C++2a
+        -:  239:
+        -:  240:#if ! __cpp_lib_make_obj_using_allocator
+        -:  241:      template<typename _Tp1, typename... _Args>
+        -:  242:	__attribute__((__nonnull__))
+        -:  243:	typename __not_pair<_Tp1>::type
+        -:  244:	construct(_Tp1* __p, _Args&&... __args)
+        -:  245:	{
+        -:  246:	  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  247:	  // 2969. polymorphic_allocator::construct() shouldn't pass resource()
+        -:  248:	  using __use_tag
+        -:  249:	    = std::__uses_alloc_t<_Tp1, polymorphic_allocator, _Args...>;
+        -:  250:	  if constexpr (is_base_of_v<__uses_alloc0, __use_tag>)
+        -:  251:	    ::new(__p) _Tp1(std::forward<_Args>(__args)...);
+        -:  252:	  else if constexpr (is_base_of_v<__uses_alloc1_, __use_tag>)
+        -:  253:	    ::new(__p) _Tp1(allocator_arg, *this,
+        -:  254:			    std::forward<_Args>(__args)...);
+        -:  255:	  else
+        -:  256:	    ::new(__p) _Tp1(std::forward<_Args>(__args)..., *this);
+        -:  257:	}
+        -:  258:
+        -:  259:      template<typename _Tp1, typename _Tp2,
+        -:  260:	       typename... _Args1, typename... _Args2>
+        -:  261:	__attribute__((__nonnull__))
+        -:  262:	void
+        -:  263:	construct(pair<_Tp1, _Tp2>* __p, piecewise_construct_t,
+        -:  264:		  tuple<_Args1...> __x, tuple<_Args2...> __y)
+        -:  265:	{
+        -:  266:	  auto __x_tag =
+        -:  267:	    __use_alloc<_Tp1, polymorphic_allocator, _Args1...>(*this);
+        -:  268:	  auto __y_tag =
+        -:  269:	    __use_alloc<_Tp2, polymorphic_allocator, _Args2...>(*this);
+        -:  270:	  index_sequence_for<_Args1...> __x_i;
+        -:  271:	  index_sequence_for<_Args2...> __y_i;
+        -:  272:
+        -:  273:	  ::new(__p) pair<_Tp1, _Tp2>(piecewise_construct,
+        -:  274:				      _S_construct_p(__x_tag, __x_i, __x),
+        -:  275:				      _S_construct_p(__y_tag, __y_i, __y));
+        -:  276:	}
+        -:  277:
+        -:  278:      template<typename _Tp1, typename _Tp2>
+        -:  279:	__attribute__((__nonnull__))
+        -:  280:	void
+        -:  281:	construct(pair<_Tp1, _Tp2>* __p)
+        -:  282:	{ this->construct(__p, piecewise_construct, tuple<>(), tuple<>()); }
+        -:  283:
+        -:  284:      template<typename _Tp1, typename _Tp2, typename _Up, typename _Vp>
+        -:  285:	__attribute__((__nonnull__))
+        -:  286:	void
+        -:  287:	construct(pair<_Tp1, _Tp2>* __p, _Up&& __x, _Vp&& __y)
+        -:  288:	{
+        -:  289:	  this->construct(__p, piecewise_construct,
+        -:  290:	      std::forward_as_tuple(std::forward<_Up>(__x)),
+        -:  291:	      std::forward_as_tuple(std::forward<_Vp>(__y)));
+        -:  292:	}
+        -:  293:
+        -:  294:      template <typename _Tp1, typename _Tp2, typename _Up, typename _Vp>
+        -:  295:	__attribute__((__nonnull__))
+        -:  296:	void
+        -:  297:	construct(pair<_Tp1, _Tp2>* __p, const std::pair<_Up, _Vp>& __pr)
+        -:  298:	{
+        -:  299:	  this->construct(__p, piecewise_construct,
+        -:  300:	      std::forward_as_tuple(__pr.first),
+        -:  301:	      std::forward_as_tuple(__pr.second));
+        -:  302:	}
+        -:  303:
+        -:  304:      template<typename _Tp1, typename _Tp2, typename _Up, typename _Vp>
+        -:  305:	__attribute__((__nonnull__))
+        -:  306:	void
+        -:  307:	construct(pair<_Tp1, _Tp2>* __p, pair<_Up, _Vp>&& __pr)
+        -:  308:	{
+        -:  309:	  this->construct(__p, piecewise_construct,
+        -:  310:	      std::forward_as_tuple(std::forward<_Up>(__pr.first)),
+        -:  311:	      std::forward_as_tuple(std::forward<_Vp>(__pr.second)));
+        -:  312:	}
+        -:  313:#else // make_obj_using_allocator
+        -:  314:      template<typename _Tp1, typename... _Args>
+        -:  315:	__attribute__((__nonnull__))
+        -:  316:	void
+        -:  317:	construct(_Tp1* __p, _Args&&... __args)
+        -:  318:	{
+        -:  319:	  std::uninitialized_construct_using_allocator(__p, *this,
+        -:  320:	      std::forward<_Args>(__args)...);
+        -:  321:	}
+        -:  322:#endif
+        -:  323:
+        -:  324:      template<typename _Up>
+        -:  325:	_GLIBCXX20_DEPRECATED_SUGGEST("allocator_traits::destroy")
+        -:  326:	__attribute__((__nonnull__))
+        -:  327:	void
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+------------------
+_ZNSt3pmr21polymorphic_allocatorISt6vectorIN10components5types15logical_value_tENS0_IS4_EEEE7destroyIS6_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorISt6vectorIN10components5types15logical_value_tENS0_IS4_EEEE7destroyIS6_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIlE7destroyIlEEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorIlE7destroyIlEEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+------------------
+_ZNSt3pmr21polymorphic_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE7destroyIS6_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE7destroyIS6_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN8services4disk25resolve_function_result_tEE7destroyIS3_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorIN8services4disk25resolve_function_result_tEE7destroyIS3_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components6vector12data_chunk_tEE7destroyIS3_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorIN10components6vector12data_chunk_tEE7destroyIS3_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components5types20complex_logical_typeEE7destroyIS3_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorIN10components5types20complex_logical_typeEE7destroyIS3_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+_ZNSt3pmr21polymorphic_allocatorIN10components5types15logical_value_tEE7destroyIS3_EEvPT_:
+function _ZNSt3pmr21polymorphic_allocatorIN10components5types15logical_value_tEE7destroyIS3_EEvPT_ called 0 returned 0% blocks executed 0%
+    #####:  328:	destroy(_Up* __p)
+    #####:  329:	{ __p->~_Up(); }
+call    0 never executed
+------------------
+        -:  330:
+        -:  331:      polymorphic_allocator
+        -:  332:      select_on_container_copy_construction() const noexcept
+        -:  333:      { return polymorphic_allocator(); }
+        -:  334:
+        -:  335:      memory_resource*
+        -:  336:      resource() const noexcept
+        -:  337:      __attribute__((__returns_nonnull__))
+        -:  338:      { return _M_resource; }
+        -:  339:
+        -:  340:    private:
+        -:  341:      using __uses_alloc1_ = __uses_alloc1<polymorphic_allocator>;
+        -:  342:      using __uses_alloc2_ = __uses_alloc2<polymorphic_allocator>;
+        -:  343:
+        -:  344:#if ! __cpp_lib_make_obj_using_allocator
+        -:  345:      template<typename _Ind, typename... _Args>
+        -:  346:	static tuple<_Args&&...>
+        -:  347:	_S_construct_p(__uses_alloc0, _Ind, tuple<_Args...>& __t)
+        -:  348:	{ return std::move(__t); }
+        -:  349:
+        -:  350:      template<size_t... _Ind, typename... _Args>
+        -:  351:	static tuple<allocator_arg_t, polymorphic_allocator, _Args&&...>
+        -:  352:	_S_construct_p(__uses_alloc1_ __ua, index_sequence<_Ind...>,
+        -:  353:		       tuple<_Args...>& __t)
+        -:  354:	{
+        -:  355:	  return {
+        -:  356:	      allocator_arg, *__ua._M_a, std::get<_Ind>(std::move(__t))...
+        -:  357:	  };
+        -:  358:	}
+        -:  359:
+        -:  360:      template<size_t... _Ind, typename... _Args>
+        -:  361:	static tuple<_Args&&..., polymorphic_allocator>
+        -:  362:	_S_construct_p(__uses_alloc2_ __ua, index_sequence<_Ind...>,
+        -:  363:		       tuple<_Args...>& __t)
+        -:  364:	{ return { std::get<_Ind>(std::move(__t))..., *__ua._M_a }; }
+        -:  365:#endif
+        -:  366:
+        -:  367:      memory_resource* _M_resource;
+        -:  368:    };
+        -:  369:
+        -:  370:  template<typename _Tp1, typename _Tp2>
+        -:  371:    inline bool
+        -:  372:    operator==(const polymorphic_allocator<_Tp1>& __a,
+        -:  373:	       const polymorphic_allocator<_Tp2>& __b) noexcept
+        -:  374:    { return *__a.resource() == *__b.resource(); }
+        -:  375:
+        -:  376:#if __cpp_impl_three_way_comparison < 201907L
+        -:  377:  template<typename _Tp1, typename _Tp2>
+        -:  378:    inline bool
+        -:  379:    operator!=(const polymorphic_allocator<_Tp1>& __a,
+        -:  380:	       const polymorphic_allocator<_Tp2>& __b) noexcept
+        -:  381:    { return !(__a == __b); }
+        -:  382:#endif
+        -:  383:
+        -:  384:  /// Parameters for tuning a pool resource's behaviour.
+        -:  385:  struct pool_options
+        -:  386:  {
+        -:  387:    /** @brief Upper limit on number of blocks in a chunk.
+        -:  388:     *
+        -:  389:     * A lower value prevents allocating huge chunks that could remain mostly
+        -:  390:     * unused, but means pools will need to replenished more frequently.
+        -:  391:     */
+        -:  392:    size_t max_blocks_per_chunk = 0;
+        -:  393:
+        -:  394:    /* @brief Largest block size (in bytes) that should be served from pools.
+        -:  395:     *
+        -:  396:     * Larger allocations will be served directly by the upstream resource,
+        -:  397:     * not from one of the pools managed by the pool resource.
+        -:  398:     */
+        -:  399:    size_t largest_required_pool_block = 0;
+        -:  400:  };
+        -:  401:
+        -:  402:  // Common implementation details for un-/synchronized pool resources.
+        -:  403:  class __pool_resource
+        -:  404:  {
+        -:  405:    friend class synchronized_pool_resource;
+        -:  406:    friend class unsynchronized_pool_resource;
+        -:  407:
+        -:  408:    __pool_resource(const pool_options& __opts, memory_resource* __upstream);
+        -:  409:
+        -:  410:    ~__pool_resource();
+        -:  411:
+        -:  412:    __pool_resource(const __pool_resource&) = delete;
+        -:  413:    __pool_resource& operator=(const __pool_resource&) = delete;
+        -:  414:
+        -:  415:    // Allocate a large unpooled block.
+        -:  416:    void*
+        -:  417:    allocate(size_t __bytes, size_t __alignment);
+        -:  418:
+        -:  419:    // Deallocate a large unpooled block.
+        -:  420:    void
+        -:  421:    deallocate(void* __p, size_t __bytes, size_t __alignment);
+        -:  422:
+        -:  423:
+        -:  424:    // Deallocate unpooled memory.
+        -:  425:    void release() noexcept;
+        -:  426:
+        -:  427:    memory_resource* resource() const noexcept
+        -:  428:    { return _M_unpooled.get_allocator().resource(); }
+        -:  429:
+        -:  430:    struct _Pool;
+        -:  431:
+        -:  432:    _Pool* _M_alloc_pools();
+        -:  433:
+        -:  434:    const pool_options _M_opts;
+        -:  435:
+        -:  436:    struct _BigBlock;
+        -:  437:    // Collection of blocks too big for any pool, sorted by address.
+        -:  438:    // This also stores the only copy of the upstream memory resource pointer.
+        -:  439:    _GLIBCXX_STD_C::pmr::vector<_BigBlock> _M_unpooled;
+        -:  440:
+        -:  441:    const int _M_npools;
+        -:  442:  };
+        -:  443:
+        -:  444:#ifdef _GLIBCXX_HAS_GTHREADS
+        -:  445:  /// A thread-safe memory resource that manages pools of fixed-size blocks.
+        -:  446:  class synchronized_pool_resource : public memory_resource
+        -:  447:  {
+        -:  448:  public:
+        -:  449:    synchronized_pool_resource(const pool_options& __opts,
+        -:  450:				 memory_resource* __upstream)
+        -:  451:    __attribute__((__nonnull__));
+        -:  452:
+        -:  453:    synchronized_pool_resource()
+        -:  454:    : synchronized_pool_resource(pool_options(), get_default_resource())
+        -:  455:    { }
+        -:  456:
+        -:  457:    explicit
+        -:  458:    synchronized_pool_resource(memory_resource* __upstream)
+        -:  459:    __attribute__((__nonnull__))
+        -:  460:    : synchronized_pool_resource(pool_options(), __upstream)
+        -:  461:    { }
+        -:  462:
+        -:  463:    explicit
+        -:  464:    synchronized_pool_resource(const pool_options& __opts)
+        -:  465:    : synchronized_pool_resource(__opts, get_default_resource()) { }
+        -:  466:
+        -:  467:    synchronized_pool_resource(const synchronized_pool_resource&) = delete;
+        -:  468:
+        -:  469:    virtual ~synchronized_pool_resource();
+        -:  470:
+        -:  471:    synchronized_pool_resource&
+        -:  472:    operator=(const synchronized_pool_resource&) = delete;
+        -:  473:
+        -:  474:    void release();
+        -:  475:
+        -:  476:    memory_resource*
+        -:  477:    upstream_resource() const noexcept
+        -:  478:    __attribute__((__returns_nonnull__))
+        -:  479:    { return _M_impl.resource(); }
+        -:  480:
+        -:  481:    pool_options options() const noexcept { return _M_impl._M_opts; }
+        -:  482:
+        -:  483:  protected:
+        -:  484:    void*
+        -:  485:    do_allocate(size_t __bytes, size_t __alignment) override;
+        -:  486:
+        -:  487:    void
+        -:  488:    do_deallocate(void* __p, size_t __bytes, size_t __alignment) override;
+        -:  489:
+        -:  490:    bool
+        -:  491:    do_is_equal(const memory_resource& __other) const noexcept override
+        -:  492:    { return this == &__other; }
+        -:  493:
+        -:  494:  public:
+        -:  495:    // Thread-specific pools (only public for access by implementation details)
+        -:  496:    struct _TPools;
+        -:  497:
+        -:  498:  private:
+        -:  499:    _TPools* _M_alloc_tpools(lock_guard<shared_mutex>&);
+        -:  500:    _TPools* _M_alloc_shared_tpools(lock_guard<shared_mutex>&);
+        -:  501:    auto _M_thread_specific_pools() noexcept;
+        -:  502:
+        -:  503:    __pool_resource _M_impl;
+        -:  504:    __gthread_key_t _M_key;
+        -:  505:    // Linked list of thread-specific pools. All threads share _M_tpools[0].
+        -:  506:    _TPools* _M_tpools = nullptr;
+        -:  507:    mutable shared_mutex _M_mx;
+        -:  508:  };
+        -:  509:#endif
+        -:  510:
+        -:  511:  /// A non-thread-safe memory resource that manages pools of fixed-size blocks.
+        -:  512:  class unsynchronized_pool_resource : public memory_resource
+        -:  513:  {
+        -:  514:  public:
+        -:  515:    [[__gnu__::__nonnull__]]
+        -:  516:    unsynchronized_pool_resource(const pool_options& __opts,
+        -:  517:				 memory_resource* __upstream);
+        -:  518:
+        -:  519:    unsynchronized_pool_resource()
+        -:  520:    : unsynchronized_pool_resource(pool_options(), get_default_resource())
+        -:  521:    { }
+        -:  522:
+        -:  523:    [[__gnu__::__nonnull__]]
+        -:  524:    explicit
+        -:  525:    unsynchronized_pool_resource(memory_resource* __upstream)
+        -:  526:    : unsynchronized_pool_resource(pool_options(), __upstream)
+        -:  527:    { }
+        -:  528:
+        -:  529:    explicit
+        -:  530:    unsynchronized_pool_resource(const pool_options& __opts)
+        -:  531:    : unsynchronized_pool_resource(__opts, get_default_resource()) { }
+        -:  532:
+        -:  533:    unsynchronized_pool_resource(const unsynchronized_pool_resource&) = delete;
+        -:  534:
+        -:  535:    virtual ~unsynchronized_pool_resource();
+        -:  536:
+        -:  537:    unsynchronized_pool_resource&
+        -:  538:    operator=(const unsynchronized_pool_resource&) = delete;
+        -:  539:
+        -:  540:    void release();
+        -:  541:
+        -:  542:    [[__gnu__::__returns_nonnull__]]
+        -:  543:    memory_resource*
+        -:  544:    upstream_resource() const noexcept
+        -:  545:    { return _M_impl.resource(); }
+        -:  546:
+        -:  547:    pool_options options() const noexcept { return _M_impl._M_opts; }
+        -:  548:
+        -:  549:  protected:
+        -:  550:    void*
+        -:  551:    do_allocate(size_t __bytes, size_t __alignment) override;
+        -:  552:
+        -:  553:    void
+        -:  554:    do_deallocate(void* __p, size_t __bytes, size_t __alignment) override;
+        -:  555:
+        -:  556:    bool
+        -:  557:    do_is_equal(const memory_resource& __other) const noexcept override
+        -:  558:    { return this == &__other; }
+        -:  559:
+        -:  560:  private:
+        -:  561:    using _Pool = __pool_resource::_Pool;
+        -:  562:
+        -:  563:    auto _M_find_pool(size_t) noexcept;
+        -:  564:
+        -:  565:    __pool_resource _M_impl;
+        -:  566:    _Pool* _M_pools = nullptr;
+        -:  567:  };
+        -:  568:
+        -:  569:  class monotonic_buffer_resource : public memory_resource
+        -:  570:  {
+        -:  571:  public:
+        -:  572:    explicit
+        -:  573:    monotonic_buffer_resource(memory_resource* __upstream) noexcept
+        -:  574:    __attribute__((__nonnull__))
+        -:  575:    : _M_upstream(__upstream)
+        -:  576:    { _GLIBCXX_DEBUG_ASSERT(__upstream != nullptr); }
+        -:  577:
+        -:  578:    monotonic_buffer_resource(size_t __initial_size,
+        -:  579:			      memory_resource* __upstream) noexcept
+        -:  580:    __attribute__((__nonnull__))
+        -:  581:    : _M_next_bufsiz(__initial_size),
+        -:  582:      _M_upstream(__upstream)
+        -:  583:    {
+        -:  584:      _GLIBCXX_DEBUG_ASSERT(__upstream != nullptr);
+        -:  585:      _GLIBCXX_DEBUG_ASSERT(__initial_size > 0);
+        -:  586:    }
+        -:  587:
+        -:  588:    monotonic_buffer_resource(void* __buffer, size_t __buffer_size,
+        -:  589:			      memory_resource* __upstream) noexcept
+        -:  590:    __attribute__((__nonnull__(4)))
+        -:  591:    : _M_current_buf(__buffer), _M_avail(__buffer_size),
+        -:  592:      _M_next_bufsiz(_S_next_bufsize(__buffer_size)),
+        -:  593:      _M_upstream(__upstream),
+        -:  594:      _M_orig_buf(__buffer), _M_orig_size(__buffer_size)
+        -:  595:    {
+        -:  596:      _GLIBCXX_DEBUG_ASSERT(__upstream != nullptr);
+        -:  597:      _GLIBCXX_DEBUG_ASSERT(__buffer != nullptr || __buffer_size == 0);
+        -:  598:    }
+        -:  599:
+        -:  600:    monotonic_buffer_resource() noexcept
+        -:  601:    : monotonic_buffer_resource(get_default_resource())
+        -:  602:    { }
+        -:  603:
+        -:  604:    explicit
+        -:  605:    monotonic_buffer_resource(size_t __initial_size) noexcept
+        -:  606:    : monotonic_buffer_resource(__initial_size, get_default_resource())
+        -:  607:    { }
+        -:  608:
+        -:  609:    monotonic_buffer_resource(void* __buffer, size_t __buffer_size) noexcept
+        -:  610:    : monotonic_buffer_resource(__buffer, __buffer_size, get_default_resource())
+        -:  611:    { }
+        -:  612:
+        -:  613:    monotonic_buffer_resource(const monotonic_buffer_resource&) = delete;
+        -:  614:
+        -:  615:    virtual ~monotonic_buffer_resource(); // key function
+        -:  616:
+        -:  617:    monotonic_buffer_resource&
+        -:  618:    operator=(const monotonic_buffer_resource&) = delete;
+        -:  619:
+        -:  620:    void
+        -:  621:    release() noexcept
+        -:  622:    {
+        -:  623:      if (_M_head)
+        -:  624:	_M_release_buffers();
+        -:  625:
+        -:  626:      // reset to initial state at contruction:
+        -:  627:      if ((_M_current_buf = _M_orig_buf))
+        -:  628:	{
+        -:  629:	  _M_avail = _M_orig_size;
+        -:  630:	  _M_next_bufsiz = _S_next_bufsize(_M_orig_size);
+        -:  631:	}
+        -:  632:      else
+        -:  633:	{
+        -:  634:	  _M_avail = 0;
+        -:  635:	  _M_next_bufsiz = _M_orig_size;
+        -:  636:	}
+        -:  637:    }
+        -:  638:
+        -:  639:    memory_resource*
+        -:  640:    upstream_resource() const noexcept
+        -:  641:    __attribute__((__returns_nonnull__))
+        -:  642:    { return _M_upstream; }
+        -:  643:
+        -:  644:  protected:
+        -:  645:    void*
+        -:  646:    do_allocate(size_t __bytes, size_t __alignment) override
+        -:  647:    {
+        -:  648:      if (__builtin_expect(__bytes == 0, false))
+        -:  649:	__bytes = 1; // Ensures we don't return the same pointer twice.
+        -:  650:
+        -:  651:      void* __p = std::align(__alignment, __bytes, _M_current_buf, _M_avail);
+        -:  652:      if (__builtin_expect(__p == nullptr, false))
+        -:  653:	{
+        -:  654:	  _M_new_buffer(__bytes, __alignment);
+        -:  655:	  __p = _M_current_buf;
+        -:  656:	}
+        -:  657:      _M_current_buf = (char*)_M_current_buf + __bytes;
+        -:  658:      _M_avail -= __bytes;
+        -:  659:      return __p;
+        -:  660:    }
+        -:  661:
+        -:  662:    void
+        -:  663:    do_deallocate(void*, size_t, size_t) override
+        -:  664:    { }
+        -:  665:
+        -:  666:    bool
+        -:  667:    do_is_equal(const memory_resource& __other) const noexcept override
+        -:  668:    { return this == &__other; }
+        -:  669:
+        -:  670:  private:
+        -:  671:    // Update _M_current_buf and _M_avail to refer to a new buffer with
+        -:  672:    // at least the specified size and alignment, allocated from upstream.
+        -:  673:    void
+        -:  674:    _M_new_buffer(size_t __bytes, size_t __alignment);
+        -:  675:
+        -:  676:    // Deallocate all buffers obtained from upstream.
+        -:  677:    void
+        -:  678:    _M_release_buffers() noexcept;
+        -:  679:
+        -:  680:    static size_t
+        -:  681:    _S_next_bufsize(size_t __buffer_size) noexcept
+        -:  682:    {
+        -:  683:      if (__builtin_expect(__buffer_size == 0, false))
+        -:  684:	__buffer_size = 1;
+        -:  685:      return __buffer_size * _S_growth_factor;
+        -:  686:    }
+        -:  687:
+        -:  688:    static constexpr size_t _S_init_bufsize = 128 * sizeof(void*);
+        -:  689:    static constexpr float _S_growth_factor = 1.5;
+        -:  690:
+        -:  691:    void*	_M_current_buf = nullptr;
+        -:  692:    size_t	_M_avail = 0;
+        -:  693:    size_t	_M_next_bufsiz = _S_init_bufsize;
+        -:  694:
+        -:  695:    // Initial values set at construction and reused by release():
+        -:  696:    memory_resource* const	_M_upstream;
+        -:  697:    void* const			_M_orig_buf = nullptr;
+        -:  698:    size_t const		_M_orig_size = _M_next_bufsiz;
+        -:  699:
+        -:  700:    class _Chunk;
+        -:  701:    _Chunk* _M_head = nullptr;
+        -:  702:  };
+        -:  703:
+        -:  704:} // namespace pmr
+        -:  705:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  706:} // namespace std
+        -:  707:
+        -:  708:#endif // C++17
+        -:  709:#endif // _GLIBCXX_MEMORY_RESOURCE

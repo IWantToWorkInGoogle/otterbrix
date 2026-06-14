@@ -1,0 +1,4 @@
+query,parameter,value
+tpch/q6,:1,1994-01-01
+tpch/q6,:2,0.06
+tpch/q6,:3,24

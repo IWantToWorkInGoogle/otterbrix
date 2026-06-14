@@ -1,0 +1,1 @@
+JOBS=4 CXXFLAGS='-Wno-mismatched-new-delete' ./build.sh

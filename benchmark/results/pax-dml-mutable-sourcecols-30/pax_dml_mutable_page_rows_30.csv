@@ -1,0 +1,4 @@
+scenario,page_rows,runs,median_ms,avg_ms,rsd_pct,verified,update_fast,delete_fast,insert_fast,update_fallback,delete_fallback,insert_fallback,pax_fixed_projected,pax_generic_projected,pax_regular,counter_status,error_message
+fixed_delete_insert,128,30,44.123,44.260,3.125,OK,0,30,30,0,0,0,1800,477,0,OK,
+fixed_update,128,30,54.920,56.639,8.072,OK,60,0,0,0,0,0,1800,0,0,OK,
+string_update,128,30,53.219,49.294,12.368,OK,60,0,0,0,0,0,0,1200,0,OK,

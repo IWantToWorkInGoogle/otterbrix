@@ -5,6 +5,7 @@
 #include <components/types/type_spec.hpp>
 #include <components/vector/data_chunk.hpp>
 #include <components/vector/vector_operations.hpp>
+#include <cstdlib>
 #include <thread>
 #include <unordered_set>
 
@@ -174,13 +175,33 @@ namespace components::table {
 
     bool data_table_t::has_persisted_pax_layout() const { return row_groups_->has_persisted_pax_layout(); }
 
-    void data_table_t::compact() {
+    bool data_table_t::compact(uint64_t compact_watermark) {
         auto total = row_groups_->total_rows();
         if (total == 0) {
-            return;
+            return true;
+        }
+
+        // MVCC safety gate (all-or-nothing). The rebuild below scans with the
+        // txn-less "see all committed" view and re-stamps every surviving row
+        // with transaction_data{0,0} — it collapses the version history. That is
+        // only correct when EVERY stamp in the table is already visible to all
+        // current and future snapshots, i.e. no stamp is above the caller's
+        // watermark (transaction_manager_t::compact_watermark()):
+        //   * a pending txn id (>= TRANSACTION_ID_START) means an uncommitted or
+        //     committed-but-not-yet-storage-stamped write: the scan would drop
+        //     the row AND a later positional commit_append would target moved
+        //     rows — the mid-update "row vanishes" window;
+        //   * a committed id above the watermark means some active snapshot (or
+        //     one taken while that commit_id is still in in_flight_commits_)
+        //     must NOT see that insert / must STILL see that deleted row.
+        // The watermark only goes stale in the safe direction: ids above it stay
+        // above any earlier-computed value, so a watermark computed before this
+        // call (it rides actor messages) never green-lights an unsafe compact.
+        if (row_groups_->has_version_above(compact_watermark)) {
+            return false;
         }
         if (row_groups_->committed_row_count() == total) {
-            return;
+            return true;
         }
 
         auto types = row_groups_->types();
@@ -206,7 +227,7 @@ namespace components::table {
             while (true) {
                 auto scan_types = copy_types();
                 vector::data_chunk_t chunk(resource_, scan_types, vector::DEFAULT_VECTOR_CAPACITY);
-                state.table_state.scan_committed(chunk, table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
+                state.table_state.scan(chunk);
                 if (chunk.size() == 0) {
                     break;
                 }
@@ -220,16 +241,10 @@ namespace components::table {
 
         // Swap old collection with compacted one
         row_groups_ = std::move(new_collection);
+        return true;
     }
 
     void data_table_t::scan(vector::data_chunk_t& result, table_scan_state& state) { state.table_state.scan(result); }
-
-    void data_table_t::scan_committed(vector::data_chunk_t& result, table_scan_state& state) {
-        // Route through committed_version_operator (COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED)
-        // so resolve_* paths drop tombstoned rows. COMMITTED_ROWS skips the visibility filter
-        // entirely and would still see deleted entries.
-        state.table_state.scan_committed(result, table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
-    }
 
     void data_table_t::scan_batched(const std::pmr::vector<types::complex_logical_type>& types,
                                     const std::vector<size_t>* projected_cols,
@@ -312,16 +327,22 @@ namespace components::table {
 
     void data_table_t::append_lock(table_append_state& state) {
         state.append_lock = std::unique_lock(append_lock_);
+        // Concurrent DDL altered the table. abort() rather than throw: under
+        // -fno-exceptions a throw inside an actor-zeta coroutine is silently
+        // swallowed (UB). TODO: return core::error_t for a graceful txn abort.
+        assert(is_root_ && "Transaction conflict: adding entries to a table that has been altered!");
         if (!is_root_) {
-            throw std::logic_error("Transaction conflict: adding entries to a table that has been altered!");
+            std::abort();
         }
         state.row_start = static_cast<int64_t>(row_groups_->total_rows());
         state.current_row = state.row_start;
     }
 
     void data_table_t::initialize_append(table_append_state& state) {
+        assert(state.append_lock &&
+               "data_table_t::append_lock should be called before data_table_t::initialize_append");
         if (!state.append_lock) {
-            throw std::logic_error("data_table_t::append_lock should be called before data_table_t::initialize_append");
+            std::abort();
         }
         row_groups_->initialize_append(state);
     }
@@ -346,6 +367,8 @@ namespace components::table {
     void data_table_t::commit_all_deletes(uint64_t txn_id, uint64_t commit_id) {
         row_groups_->commit_all_deletes(txn_id, commit_id);
     }
+
+    void data_table_t::revert_all_deletes(uint64_t txn_id) { row_groups_->revert_all_deletes(txn_id); }
 
     void data_table_t::scan_table_segment(int64_t row_start,
                                           uint64_t count,
@@ -536,8 +559,12 @@ namespace components::table {
             return;
         }
 
+        // Concurrent DDL altered the table. abort() rather than throw: under
+        // -fno-exceptions a throw inside an actor-zeta coroutine is silently
+        // swallowed (UB). TODO: return core::error_t for a graceful txn abort.
+        assert(is_root_ && "Transaction conflict: cannot update a table that has been altered!");
         if (!is_root_) {
-            throw std::logic_error("Transaction conflict: cannot update a table that has been altered!");
+            std::abort();
         }
 
         updates.flatten();

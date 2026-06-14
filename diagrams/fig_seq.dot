@@ -1,0 +1,29 @@
+digraph seq {
+  rankdir=TB; bgcolor="white"; nodesep=0.4; ranksep=0.5;
+  node [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=11,
+        fillcolor="#eef2f7", color="#5b6b7a", penwidth=1.2, margin="0.2,0.12"];
+  edge [color="#5b6b7a", penwidth=1.1, arrowsize=0.8, fontname="DejaVu Sans", fontsize=10];
+
+  s0 [label="CHECKPOINT (пользователь)", fillcolor="#dbe9fb"];
+  s1 [label="manager_disk: checkpoint()"];
+  s2 [label="table_storage: checkpoint(writer)"];
+  s3 [label="data_table: checkpoint(partial_block_manager)"];
+  s4 [label="row_group: write_to_disk(partial_block_manager)", fillcolor="#fbdde0"];
+  d1 [shape=diamond, label="Можно переиспользовать\nсохранённый указатель?", fillcolor="#fdf3cf", margin="0.05,0.0"];
+  r1 [label="взять существующий\nrow_group_pointer_t", fillcolor="#dcefe1"];
+  w1 [label="записать блоки данных\nPAX / columnar", fillcolor="#dcefe1"];
+  w2 [label="сформировать\nrow_group_pointer_t(layout_kind)", fillcolor="#dcefe1"];
+  f1 [label="partial_block_manager: flush_partial_blocks()"];
+  m1 [label="metadata_writer: сериализация схемы\nи row_group_pointer_t", fillcolor="#ecdcfb"];
+  o1 [label="если есть метаданные PAX:\nсериализация раздела схемы размещения", fillcolor="#ecdcfb"];
+  e1 [label="flush() и обновление заголовка базы", fillcolor="#dbe9fb"];
+
+  s0 -> s1 -> s2 -> s3 -> s4 -> d1;
+  d1 -> r1 [label="да"];
+  d1 -> w1 [label="нет"];
+  w1 -> w2;
+  r1 -> f1;
+  w2 -> f1;
+  f1 -> m1 -> o1 -> e1;
+  {rank=same; r1; w1;}
+}

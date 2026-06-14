@@ -1,0 +1,329 @@
+        -:    0:Source:/usr/include/c++/11/bits/uses_allocator_args.h
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:// Utility functions for uses-allocator construction -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2019-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file include/bits/uses_allocator_args.h
+        -:   26: *  This is an internal header file, included by other library headers.
+        -:   27: *  Do not attempt to use it directly. @headername{memory}
+        -:   28: */
+        -:   29:
+        -:   30:#ifndef _USES_ALLOCATOR_ARGS
+        -:   31:#define _USES_ALLOCATOR_ARGS 1
+        -:   32:
+        -:   33:#pragma GCC system_header
+        -:   34:
+        -:   35:#if __cplusplus > 201703L && __cpp_concepts
+        -:   36:
+        -:   37:#include <new>			// for placement operator new
+        -:   38:#include <tuple>		// for tuple, make_tuple, make_from_tuple
+        -:   39:#include <bits/stl_construct.h> // construct_at
+        -:   40:#include <bits/stl_pair.h>      // pair
+        -:   41:
+        -:   42:namespace std _GLIBCXX_VISIBILITY(default)
+        -:   43:{
+        -:   44:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   45:  template<typename _Tp>
+        -:   46:    inline constexpr bool __is_pair = false;
+        -:   47:  template<typename _Tp, typename _Up>
+        -:   48:    inline constexpr bool __is_pair<pair<_Tp, _Up>> = true;
+        -:   49:  template<typename _Tp, typename _Up>
+        -:   50:    inline constexpr bool __is_pair<const pair<_Tp, _Up>> = true;
+        -:   51:
+        -:   52:  template<typename _Tp>
+        -:   53:    concept _Std_pair = __is_pair<_Tp>;
+        -:   54:
+        -:   55:/** @addtogroup allocators
+        -:   56: *  @{
+        -:   57: */
+        -:   58:
+        -:   59:// Not specified by C++20, used internally
+        -:   60:#define __cpp_lib_make_obj_using_allocator 201811L
+        -:   61:
+        -:   62:  template<typename _Tp, typename _Alloc, typename... _Args>
+        -:   63:    constexpr auto
+      59*:   64:    uses_allocator_construction_args(const _Alloc& __a,
+        -:   65:				     _Args&&... __args) noexcept
+        -:   66:    requires (! _Std_pair<_Tp>)
+        -:   67:    {
+        -:   68:      if constexpr (uses_allocator_v<remove_cv_t<_Tp>, _Alloc>)
+        -:   69:	{
+        -:   70:	  if constexpr (is_constructible_v<_Tp, allocator_arg_t,
+        -:   71:					   const _Alloc&, _Args...>)
+        -:   72:	    {
+        -:   73:	      return tuple<allocator_arg_t, const _Alloc&, _Args&&...>(
+        -:   74:		  allocator_arg, __a, std::forward<_Args>(__args)...);
+        -:   75:	    }
+        -:   76:	  else
+        -:   77:	    {
+        -:   78:	      static_assert(is_constructible_v<_Tp, _Args..., const _Alloc&>,
+        -:   79:		  "construction with an allocator must be possible"
+        -:   80:		  " if uses_allocator is true");
+        -:   81:
+        -:   82:	      return tuple<_Args&&..., const _Alloc&>(
+        -:   83:		  std::forward<_Args>(__args)..., __a);
+        -:   84:	    }
+        -:   85:	}
+        -:   86:      else
+        -:   87:	{
+        -:   88:	  static_assert(is_constructible_v<_Tp, _Args...>);
+        -:   89:
+      59*:   90:	  return tuple<_Args&&...>(std::forward<_Args>(__args)...);
+        -:   91:	}
+        -:   92:    }
+------------------
+_ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJS2_EEDaRKT0_DpOT1_:
+function _ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJS2_EEDaRKT0_DpOT1_ called 0 returned 0% blocks executed 0%
+    #####:   64:    uses_allocator_construction_args(const _Alloc& __a,
+        -:   65:				     _Args&&... __args) noexcept
+        -:   66:    requires (! _Std_pair<_Tp>)
+        -:   67:    {
+        -:   68:      if constexpr (uses_allocator_v<remove_cv_t<_Tp>, _Alloc>)
+        -:   69:	{
+        -:   70:	  if constexpr (is_constructible_v<_Tp, allocator_arg_t,
+        -:   71:					   const _Alloc&, _Args...>)
+        -:   72:	    {
+        -:   73:	      return tuple<allocator_arg_t, const _Alloc&, _Args&&...>(
+        -:   74:		  allocator_arg, __a, std::forward<_Args>(__args)...);
+        -:   75:	    }
+        -:   76:	  else
+        -:   77:	    {
+        -:   78:	      static_assert(is_constructible_v<_Tp, _Args..., const _Alloc&>,
+        -:   79:		  "construction with an allocator must be possible"
+        -:   80:		  " if uses_allocator is true");
+        -:   81:
+        -:   82:	      return tuple<_Args&&..., const _Alloc&>(
+        -:   83:		  std::forward<_Args>(__args)..., __a);
+        -:   84:	    }
+        -:   85:	}
+        -:   86:      else
+        -:   87:	{
+        -:   88:	  static_assert(is_constructible_v<_Tp, _Args...>);
+        -:   89:
+    #####:   90:	  return tuple<_Args&&...>(std::forward<_Args>(__args)...);
+call    0 never executed
+call    1 never executed
+        -:   91:	}
+        -:   92:    }
+------------------
+_ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJRS2_EEDaRKT0_DpOT1_:
+function _ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJRS2_EEDaRKT0_DpOT1_ called 59 returned 100% blocks executed 100%
+       59:   64:    uses_allocator_construction_args(const _Alloc& __a,
+        -:   65:				     _Args&&... __args) noexcept
+        -:   66:    requires (! _Std_pair<_Tp>)
+        -:   67:    {
+        -:   68:      if constexpr (uses_allocator_v<remove_cv_t<_Tp>, _Alloc>)
+        -:   69:	{
+        -:   70:	  if constexpr (is_constructible_v<_Tp, allocator_arg_t,
+        -:   71:					   const _Alloc&, _Args...>)
+        -:   72:	    {
+        -:   73:	      return tuple<allocator_arg_t, const _Alloc&, _Args&&...>(
+        -:   74:		  allocator_arg, __a, std::forward<_Args>(__args)...);
+        -:   75:	    }
+        -:   76:	  else
+        -:   77:	    {
+        -:   78:	      static_assert(is_constructible_v<_Tp, _Args..., const _Alloc&>,
+        -:   79:		  "construction with an allocator must be possible"
+        -:   80:		  " if uses_allocator is true");
+        -:   81:
+        -:   82:	      return tuple<_Args&&..., const _Alloc&>(
+        -:   83:		  std::forward<_Args>(__args)..., __a);
+        -:   84:	    }
+        -:   85:	}
+        -:   86:      else
+        -:   87:	{
+        -:   88:	  static_assert(is_constructible_v<_Tp, _Args...>);
+        -:   89:
+       59:   90:	  return tuple<_Args&&...>(std::forward<_Args>(__args)...);
+call    0 returned 59
+call    1 returned 59
+        -:   91:	}
+        -:   92:    }
+------------------
+_ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJRKS2_EEDaRKT0_DpOT1_:
+function _ZSt32uses_allocator_construction_argsIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS2_EEJRKS2_EEDaRKT0_DpOT1_ called 0 returned 0% blocks executed 0%
+    #####:   64:    uses_allocator_construction_args(const _Alloc& __a,
+        -:   65:				     _Args&&... __args) noexcept
+        -:   66:    requires (! _Std_pair<_Tp>)
+        -:   67:    {
+        -:   68:      if constexpr (uses_allocator_v<remove_cv_t<_Tp>, _Alloc>)
+        -:   69:	{
+        -:   70:	  if constexpr (is_constructible_v<_Tp, allocator_arg_t,
+        -:   71:					   const _Alloc&, _Args...>)
+        -:   72:	    {
+        -:   73:	      return tuple<allocator_arg_t, const _Alloc&, _Args&&...>(
+        -:   74:		  allocator_arg, __a, std::forward<_Args>(__args)...);
+        -:   75:	    }
+        -:   76:	  else
+        -:   77:	    {
+        -:   78:	      static_assert(is_constructible_v<_Tp, _Args..., const _Alloc&>,
+        -:   79:		  "construction with an allocator must be possible"
+        -:   80:		  " if uses_allocator is true");
+        -:   81:
+        -:   82:	      return tuple<_Args&&..., const _Alloc&>(
+        -:   83:		  std::forward<_Args>(__args)..., __a);
+        -:   84:	    }
+        -:   85:	}
+        -:   86:      else
+        -:   87:	{
+        -:   88:	  static_assert(is_constructible_v<_Tp, _Args...>);
+        -:   89:
+    #####:   90:	  return tuple<_Args&&...>(std::forward<_Args>(__args)...);
+call    0 never executed
+call    1 never executed
+        -:   91:	}
+        -:   92:    }
+------------------
+        -:   93:
+        -:   94:  template<_Std_pair _Tp, typename _Alloc, typename _Tuple1, typename _Tuple2>
+        -:   95:    constexpr auto
+        -:   96:    uses_allocator_construction_args(const _Alloc& __a, piecewise_construct_t,
+        -:   97:				     _Tuple1&& __x, _Tuple2&& __y) noexcept;
+        -:   98:
+        -:   99:  template<_Std_pair _Tp, typename _Alloc>
+        -:  100:    constexpr auto
+        -:  101:    uses_allocator_construction_args(const _Alloc&) noexcept;
+        -:  102:
+        -:  103:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  104:    constexpr auto
+        -:  105:    uses_allocator_construction_args(const _Alloc&, _Up&&, _Vp&&) noexcept;
+        -:  106:
+        -:  107:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  108:    constexpr auto
+        -:  109:    uses_allocator_construction_args(const _Alloc&,
+        -:  110:				     const pair<_Up, _Vp>&) noexcept;
+        -:  111:
+        -:  112:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  113:    constexpr auto
+        -:  114:    uses_allocator_construction_args(const _Alloc&, pair<_Up, _Vp>&&) noexcept;
+        -:  115:
+        -:  116:  template<_Std_pair _Tp, typename _Alloc, typename _Tuple1, typename _Tuple2>
+        -:  117:    constexpr auto
+        -:  118:    uses_allocator_construction_args(const _Alloc& __a, piecewise_construct_t,
+        -:  119:				     _Tuple1&& __x, _Tuple2&& __y) noexcept
+        -:  120:    {
+        -:  121:      using _Tp1 = typename _Tp::first_type;
+        -:  122:      using _Tp2 = typename _Tp::second_type;
+        -:  123:
+        -:  124:      return std::make_tuple(piecewise_construct,
+        -:  125:	  std::apply([&__a](auto&&... __args1) {
+        -:  126:	      return std::uses_allocator_construction_args<_Tp1>(
+        -:  127:		  __a, std::forward<decltype(__args1)>(__args1)...);
+        -:  128:	  }, std::forward<_Tuple1>(__x)),
+        -:  129:	  std::apply([&__a](auto&&... __args2) {
+        -:  130:	      return std::uses_allocator_construction_args<_Tp2>(
+        -:  131:		  __a, std::forward<decltype(__args2)>(__args2)...);
+        -:  132:	  }, std::forward<_Tuple2>(__y)));
+        -:  133:    }
+        -:  134:
+        -:  135:  template<_Std_pair _Tp, typename _Alloc>
+        -:  136:    constexpr auto
+        -:  137:    uses_allocator_construction_args(const _Alloc& __a) noexcept
+        -:  138:    {
+        -:  139:      using _Tp1 = typename _Tp::first_type;
+        -:  140:      using _Tp2 = typename _Tp::second_type;
+        -:  141:
+        -:  142:      return std::make_tuple(piecewise_construct,
+        -:  143:	  std::uses_allocator_construction_args<_Tp1>(__a),
+        -:  144:	  std::uses_allocator_construction_args<_Tp2>(__a));
+        -:  145:    }
+        -:  146:
+        -:  147:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  148:    constexpr auto
+        -:  149:    uses_allocator_construction_args(const _Alloc& __a, _Up&& __u, _Vp&& __v)
+        -:  150:      noexcept
+        -:  151:    {
+        -:  152:      using _Tp1 = typename _Tp::first_type;
+        -:  153:      using _Tp2 = typename _Tp::second_type;
+        -:  154:
+        -:  155:      return std::make_tuple(piecewise_construct,
+        -:  156:	  std::uses_allocator_construction_args<_Tp1>(__a,
+        -:  157:	    std::forward<_Up>(__u)),
+        -:  158:	  std::uses_allocator_construction_args<_Tp2>(__a,
+        -:  159:	    std::forward<_Vp>(__v)));
+        -:  160:    }
+        -:  161:
+        -:  162:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  163:    constexpr auto
+        -:  164:    uses_allocator_construction_args(const _Alloc& __a,
+        -:  165:				     const pair<_Up, _Vp>& __pr) noexcept
+        -:  166:    {
+        -:  167:      using _Tp1 = typename _Tp::first_type;
+        -:  168:      using _Tp2 = typename _Tp::second_type;
+        -:  169:
+        -:  170:      return std::make_tuple(piecewise_construct,
+        -:  171:	  std::uses_allocator_construction_args<_Tp1>(__a, __pr.first),
+        -:  172:	  std::uses_allocator_construction_args<_Tp2>(__a, __pr.second));
+        -:  173:    }
+        -:  174:
+        -:  175:  template<_Std_pair _Tp, typename _Alloc, typename _Up, typename _Vp>
+        -:  176:    constexpr auto
+        -:  177:    uses_allocator_construction_args(const _Alloc& __a,
+        -:  178:				     pair<_Up, _Vp>&& __pr) noexcept
+        -:  179:    {
+        -:  180:      using _Tp1 = typename _Tp::first_type;
+        -:  181:      using _Tp2 = typename _Tp::second_type;
+        -:  182:
+        -:  183:      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  184:      // 3527. uses_allocator_construction_args handles rvalue pairs
+        -:  185:      // of rvalue references incorrectly
+        -:  186:      return std::make_tuple(piecewise_construct,
+        -:  187:	  std::uses_allocator_construction_args<_Tp1>(__a,
+        -:  188:	    std::get<0>(std::move(__pr))),
+        -:  189:	  std::uses_allocator_construction_args<_Tp2>(__a,
+        -:  190:	    std::get<1>(std::move(__pr))));
+        -:  191:    }
+        -:  192:
+        -:  193:  template<typename _Tp, typename _Alloc, typename... _Args>
+        -:  194:    constexpr _Tp
+        -:  195:    make_obj_using_allocator(const _Alloc& __a, _Args&&... __args)
+        -:  196:    {
+        -:  197:      return std::make_from_tuple<_Tp>(
+        -:  198:	  std::uses_allocator_construction_args<_Tp>(__a,
+        -:  199:	    std::forward<_Args>(__args)...));
+        -:  200:    }
+        -:  201:
+        -:  202:  template<typename _Tp, typename _Alloc, typename... _Args>
+        -:  203:    constexpr _Tp*
+      59*:  204:    uninitialized_construct_using_allocator(_Tp* __p, const _Alloc& __a,
+        -:  205:					    _Args&&... __args)
+        -:  206:    {
+     236*:  207:      return std::apply([&](auto&&... __xs) {
+      59*:  208:	return std::construct_at(__p, std::forward<decltype(__xs)>(__xs)...);
+call    0 never executed
+call    1 never executed
+call    2 returned 59
+call    3 returned 59
+call    4 never executed
+call    5 never executed
+        -:  209:      }, std::uses_allocator_construction_args<_Tp>(__a,
+     118*:  210:	std::forward<_Args>(__args)...));
+        -:  211:    }
+        -:  212:/// @}
+        -:  213:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  214:} // namespace std
+        -:  215:#endif // C++20
+        -:  216:#endif // _USES_ALLOCATOR_ARGS

@@ -1,0 +1,991 @@
+        -:    0:Source:/usr/include/c++/11/bits/iterator_concepts.h
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:// Concepts and traits for use with iterators -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2019-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file bits/iterator_concepts.h
+        -:   26: *  This is an internal header file, included by other library headers.
+        -:   27: *  Do not attempt to use it directly. @headername{iterator}
+        -:   28: */
+        -:   29:
+        -:   30:#ifndef _ITERATOR_CONCEPTS_H
+        -:   31:#define _ITERATOR_CONCEPTS_H 1
+        -:   32:
+        -:   33:#pragma GCC system_header
+        -:   34:
+        -:   35:#include <concepts>
+        -:   36:#include <bits/ptr_traits.h>	// to_address
+        -:   37:#include <bits/ranges_cmp.h>	// identity, ranges::less
+        -:   38:
+        -:   39:#if __cpp_lib_concepts
+        -:   40:namespace std _GLIBCXX_VISIBILITY(default)
+        -:   41:{
+        -:   42:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   43:
+        -:   44:  struct input_iterator_tag;
+        -:   45:  struct output_iterator_tag;
+        -:   46:  struct forward_iterator_tag;
+        -:   47:  struct bidirectional_iterator_tag;
+        -:   48:  struct random_access_iterator_tag;
+        -:   49:  struct contiguous_iterator_tag;
+        -:   50:
+        -:   51:  template<typename _Iterator>
+        -:   52:    struct iterator_traits;
+        -:   53:
+        -:   54:  template<typename _Tp> requires is_object_v<_Tp>
+        -:   55:    struct iterator_traits<_Tp*>;
+        -:   56:
+        -:   57:  template<typename _Iterator, typename>
+        -:   58:    struct __iterator_traits;
+        -:   59:
+        -:   60:  namespace __detail
+        -:   61:  {
+        -:   62:    template<typename _Tp>
+        -:   63:      using __with_ref = _Tp&;
+        -:   64:
+        -:   65:    template<typename _Tp>
+        -:   66:      concept __can_reference = requires { typename __with_ref<_Tp>; };
+        -:   67:
+        -:   68:    template<typename _Tp>
+        -:   69:      concept __dereferenceable = requires(_Tp& __t)
+        -:   70:	{
+        -:   71:	  { *__t } -> __can_reference;
+        -:   72:	};
+        -:   73:  } // namespace __detail
+        -:   74:
+        -:   75:  template<__detail::__dereferenceable _Tp>
+        -:   76:    using iter_reference_t = decltype(*std::declval<_Tp&>());
+        -:   77:
+        -:   78:  namespace ranges
+        -:   79:  {
+        -:   80:    namespace __cust_imove
+        -:   81:    {
+        -:   82:      void iter_move();
+        -:   83:
+        -:   84:      template<typename _Tp>
+        -:   85:	concept __adl_imove
+        -:   86:	  = (std::__detail::__class_or_enum<remove_reference_t<_Tp>>)
+        -:   87:	  && requires(_Tp&& __t) { iter_move(static_cast<_Tp&&>(__t)); };
+        -:   88:
+        -:   89:      struct _IMove
+        -:   90:      {
+        -:   91:      private:
+        -:   92:	template<typename _Tp>
+        -:   93:	  struct __result
+        -:   94:	  { using type = iter_reference_t<_Tp>; };
+        -:   95:
+        -:   96:	template<typename _Tp>
+        -:   97:	  requires __adl_imove<_Tp>
+        -:   98:	  struct __result<_Tp>
+        -:   99:	  { using type = decltype(iter_move(std::declval<_Tp>())); };
+        -:  100:
+        -:  101:	template<typename _Tp>
+        -:  102:	  requires (!__adl_imove<_Tp>)
+        -:  103:	  && is_lvalue_reference_v<iter_reference_t<_Tp>>
+        -:  104:	  struct __result<_Tp>
+        -:  105:	  { using type = remove_reference_t<iter_reference_t<_Tp>>&&; };
+        -:  106:
+        -:  107:	template<typename _Tp>
+        -:  108:	  static constexpr bool
+        -:  109:	  _S_noexcept()
+        -:  110:	  {
+        -:  111:	    if constexpr (__adl_imove<_Tp>)
+        -:  112:	      return noexcept(iter_move(std::declval<_Tp>()));
+        -:  113:	    else
+        -:  114:	      return noexcept(*std::declval<_Tp>());
+        -:  115:	  }
+        -:  116:
+        -:  117:      public:
+        -:  118:	// The result type of iter_move(std::declval<_Tp>())
+        -:  119:	template<std::__detail::__dereferenceable _Tp>
+        -:  120:	  using __type = typename __result<_Tp>::type;
+        -:  121:
+        -:  122:	template<std::__detail::__dereferenceable _Tp>
+        -:  123:	  constexpr __type<_Tp>
+function _ZNKSt6ranges12__cust_imove6_IMoveclIRKPN10components5types20complex_logical_typeEEENS1_8__resultIT_E4typeEOSA_ called 0 returned 0% blocks executed 0%
+    #####:  124:	  operator()(_Tp&& __e) const
+        -:  125:	  noexcept(_S_noexcept<_Tp>())
+        -:  126:	  {
+        -:  127:	    if constexpr (__adl_imove<_Tp>)
+        -:  128:	      return iter_move(static_cast<_Tp&&>(__e));
+        -:  129:	    else if constexpr (is_lvalue_reference_v<iter_reference_t<_Tp>>)
+    #####:  130:	      return static_cast<__type<_Tp>>(*__e);
+        -:  131:	    else
+        -:  132:	      return *__e;
+        -:  133:	  }
+        -:  134:      };
+        -:  135:    } // namespace __cust_imove
+        -:  136:
+        -:  137:    inline namespace __cust
+        -:  138:    {
+        -:  139:      inline constexpr __cust_imove::_IMove iter_move{};
+        -:  140:    } // inline namespace __cust
+        -:  141:  } // namespace ranges
+        -:  142:
+        -:  143:  template<__detail::__dereferenceable _Tp>
+        -:  144:    requires __detail::
+        -:  145:      __can_reference<ranges::__cust_imove::_IMove::__type<_Tp&>>
+        -:  146:    using iter_rvalue_reference_t
+        -:  147:      = ranges::__cust_imove::_IMove::__type<_Tp&>;
+        -:  148:
+        -:  149:  template<typename> struct incrementable_traits { };
+        -:  150:
+        -:  151:  template<typename _Tp> requires is_object_v<_Tp>
+        -:  152:    struct incrementable_traits<_Tp*>
+        -:  153:    { using difference_type = ptrdiff_t; };
+        -:  154:
+        -:  155:  template<typename _Iter>
+        -:  156:    struct incrementable_traits<const _Iter>
+        -:  157:    : incrementable_traits<_Iter> { };
+        -:  158:
+        -:  159:  template<typename _Tp> requires requires { typename _Tp::difference_type; }
+        -:  160:    struct incrementable_traits<_Tp>
+        -:  161:    { using difference_type = typename _Tp::difference_type; };
+        -:  162:
+        -:  163:  template<typename _Tp>
+        -:  164:    requires (!requires { typename _Tp::difference_type; }
+        -:  165:	      && requires(const _Tp& __a, const _Tp& __b)
+        -:  166:	      { { __a - __b } -> integral; })
+        -:  167:    struct incrementable_traits<_Tp>
+        -:  168:    {
+        -:  169:      using difference_type
+        -:  170:	= make_signed_t<decltype(std::declval<_Tp>() - std::declval<_Tp>())>;
+        -:  171:    };
+        -:  172:
+        -:  173:#if defined __STRICT_ANSI__ && defined __SIZEOF_INT128__
+        -:  174:  // __int128 is incrementable even if !integral<__int128>
+        -:  175:  template<>
+        -:  176:    struct incrementable_traits<__int128>
+        -:  177:    { using difference_type = __int128; };
+        -:  178:
+        -:  179:  template<>
+        -:  180:    struct incrementable_traits<unsigned __int128>
+        -:  181:    { using difference_type = __int128; };
+        -:  182:#endif
+        -:  183:
+        -:  184:  namespace __detail
+        -:  185:  {
+        -:  186:    // An iterator such that iterator_traits<_Iter> names a specialization
+        -:  187:    // generated from the primary template.
+        -:  188:    template<typename _Iter>
+        -:  189:      concept __primary_traits_iter
+        -:  190:	= __is_base_of(__iterator_traits<_Iter, void>, iterator_traits<_Iter>);
+        -:  191:
+        -:  192:    template<typename _Iter, typename _Tp>
+        -:  193:      struct __iter_traits_impl
+        -:  194:      { using type = iterator_traits<_Iter>; };
+        -:  195:
+        -:  196:    template<typename _Iter, typename _Tp>
+        -:  197:      requires __primary_traits_iter<_Iter>
+        -:  198:      struct __iter_traits_impl<_Iter, _Tp>
+        -:  199:      { using type = _Tp; };
+        -:  200:
+        -:  201:    // ITER_TRAITS
+        -:  202:    template<typename _Iter, typename _Tp = _Iter>
+        -:  203:      using __iter_traits = typename __iter_traits_impl<_Iter, _Tp>::type;
+        -:  204:
+        -:  205:    template<typename _Tp>
+        -:  206:      using __iter_diff_t = typename
+        -:  207:	__iter_traits<_Tp, incrementable_traits<_Tp>>::difference_type;
+        -:  208:  } // namespace __detail
+        -:  209:
+        -:  210:  template<typename _Tp>
+        -:  211:    using iter_difference_t = __detail::__iter_diff_t<remove_cvref_t<_Tp>>;
+        -:  212:
+        -:  213:  namespace __detail
+        -:  214:  {
+        -:  215:    template<typename> struct __cond_value_type { };
+        -:  216:
+        -:  217:    template<typename _Tp> requires is_object_v<_Tp>
+        -:  218:      struct __cond_value_type<_Tp>
+        -:  219:      { using value_type = remove_cv_t<_Tp>; };
+        -:  220:
+        -:  221:    template<typename _Tp>
+        -:  222:      concept __has_member_value_type
+        -:  223:	= requires { typename _Tp::value_type; };
+        -:  224:
+        -:  225:    template<typename _Tp>
+        -:  226:      concept __has_member_element_type
+        -:  227:	= requires { typename _Tp::element_type; };
+        -:  228:
+        -:  229:  } // namespace __detail
+        -:  230:
+        -:  231:  template<typename> struct indirectly_readable_traits { };
+        -:  232:
+        -:  233:  template<typename _Tp>
+        -:  234:    struct indirectly_readable_traits<_Tp*>
+        -:  235:    : __detail::__cond_value_type<_Tp>
+        -:  236:    { };
+        -:  237:
+        -:  238:  template<typename _Iter> requires is_array_v<_Iter>
+        -:  239:    struct indirectly_readable_traits<_Iter>
+        -:  240:    { using value_type = remove_cv_t<remove_extent_t<_Iter>>; };
+        -:  241:
+        -:  242:  template<typename _Iter>
+        -:  243:    struct indirectly_readable_traits<const _Iter>
+        -:  244:    : indirectly_readable_traits<_Iter>
+        -:  245:    { };
+        -:  246:
+        -:  247:  template<__detail::__has_member_value_type _Tp>
+        -:  248:    struct indirectly_readable_traits<_Tp>
+        -:  249:    : __detail::__cond_value_type<typename _Tp::value_type>
+        -:  250:    { };
+        -:  251:
+        -:  252:  template<__detail::__has_member_element_type _Tp>
+        -:  253:    struct indirectly_readable_traits<_Tp>
+        -:  254:    : __detail::__cond_value_type<typename _Tp::element_type>
+        -:  255:    { };
+        -:  256:
+        -:  257:  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  258:  // 3446. indirectly_readable_traits ambiguity for types with both [...]
+        -:  259:  template<__detail::__has_member_value_type _Tp>
+        -:  260:    requires __detail::__has_member_element_type<_Tp>
+        -:  261:    && same_as<remove_cv_t<typename _Tp::element_type>,
+        -:  262:	       remove_cv_t<typename _Tp::value_type>>
+        -:  263:    struct indirectly_readable_traits<_Tp>
+        -:  264:    : __detail::__cond_value_type<typename _Tp::value_type>
+        -:  265:    { };
+        -:  266:
+        -:  267:  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  268:  // 3541. indirectly_readable_traits should be SFINAE-friendly for all types
+        -:  269:  template<__detail::__has_member_value_type _Tp>
+        -:  270:    requires __detail::__has_member_element_type<_Tp>
+        -:  271:    struct indirectly_readable_traits<_Tp>
+        -:  272:    { };
+        -:  273:
+        -:  274:  namespace __detail
+        -:  275:  {
+        -:  276:    template<typename _Tp>
+        -:  277:      using __iter_value_t = typename
+        -:  278:	__iter_traits<_Tp, indirectly_readable_traits<_Tp>>::value_type;
+        -:  279:  } // namespace __detail
+        -:  280:
+        -:  281:  template<typename _Tp>
+        -:  282:    using iter_value_t = __detail::__iter_value_t<remove_cvref_t<_Tp>>;
+        -:  283:
+        -:  284:  namespace __detail
+        -:  285:  {
+        -:  286:    // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  287:    // 3420. cpp17-iterator should check [type] looks like an iterator first
+        -:  288:    template<typename _Iter>
+        -:  289:      concept __cpp17_iterator = requires(_Iter __it)
+        -:  290:	{
+        -:  291:	  { *__it } -> __can_reference;
+        -:  292:	  { ++__it } -> same_as<_Iter&>;
+        -:  293:	  { *__it++ } -> __can_reference;
+        -:  294:	} && copyable<_Iter>;
+        -:  295:
+        -:  296:    template<typename _Iter>
+        -:  297:      concept __cpp17_input_iterator = __cpp17_iterator<_Iter>
+        -:  298:	&& equality_comparable<_Iter>
+        -:  299:	&& requires(_Iter __it)
+        -:  300:	{
+        -:  301:	  typename incrementable_traits<_Iter>::difference_type;
+        -:  302:	  typename indirectly_readable_traits<_Iter>::value_type;
+        -:  303:	  typename common_reference_t<iter_reference_t<_Iter>&&,
+        -:  304:		   typename indirectly_readable_traits<_Iter>::value_type&>;
+        -:  305:	  typename common_reference_t<decltype(*__it++)&&,
+        -:  306:		   typename indirectly_readable_traits<_Iter>::value_type&>;
+        -:  307:	  requires signed_integral<
+        -:  308:	    typename incrementable_traits<_Iter>::difference_type>;
+        -:  309:	};
+        -:  310:
+        -:  311:    template<typename _Iter>
+        -:  312:      concept __cpp17_fwd_iterator = __cpp17_input_iterator<_Iter>
+        -:  313:	&& constructible_from<_Iter>
+        -:  314:	&& is_lvalue_reference_v<iter_reference_t<_Iter>>
+        -:  315:	&& same_as<remove_cvref_t<iter_reference_t<_Iter>>,
+        -:  316:		   typename indirectly_readable_traits<_Iter>::value_type>
+        -:  317:	&& requires(_Iter __it)
+        -:  318:	{
+        -:  319:	  {  __it++ } -> convertible_to<const _Iter&>;
+        -:  320:	  { *__it++ } -> same_as<iter_reference_t<_Iter>>;
+        -:  321:	};
+        -:  322:
+        -:  323:    template<typename _Iter>
+        -:  324:      concept __cpp17_bidi_iterator = __cpp17_fwd_iterator<_Iter>
+        -:  325:	&& requires(_Iter __it)
+        -:  326:	{
+        -:  327:	  {  --__it } -> same_as<_Iter&>;
+        -:  328:	  {  __it-- } -> convertible_to<const _Iter&>;
+        -:  329:	  { *__it-- } -> same_as<iter_reference_t<_Iter>>;
+        -:  330:	};
+        -:  331:
+        -:  332:    template<typename _Iter>
+        -:  333:      concept __cpp17_randacc_iterator = __cpp17_bidi_iterator<_Iter>
+        -:  334:	&& totally_ordered<_Iter>
+        -:  335:	&& requires(_Iter __it,
+        -:  336:		    typename incrementable_traits<_Iter>::difference_type __n)
+        -:  337:	{
+        -:  338:	  { __it += __n } -> same_as<_Iter&>;
+        -:  339:	  { __it -= __n } -> same_as<_Iter&>;
+        -:  340:	  { __it +  __n } -> same_as<_Iter>;
+        -:  341:	  { __n +  __it } -> same_as<_Iter>;
+        -:  342:	  { __it -  __n } -> same_as<_Iter>;
+        -:  343:	  { __it -  __it } -> same_as<decltype(__n)>;
+        -:  344:	  {  __it[__n]  } -> convertible_to<iter_reference_t<_Iter>>;
+        -:  345:	};
+        -:  346:
+        -:  347:    template<typename _Iter>
+        -:  348:      concept __iter_with_nested_types = requires {
+        -:  349:	typename _Iter::iterator_category;
+        -:  350:	typename _Iter::value_type;
+        -:  351:	typename _Iter::difference_type;
+        -:  352:	typename _Iter::reference;
+        -:  353:      };
+        -:  354:
+        -:  355:    template<typename _Iter>
+        -:  356:      concept __iter_without_nested_types = !__iter_with_nested_types<_Iter>;
+        -:  357:
+        -:  358:    template<typename _Iter>
+        -:  359:      concept __iter_without_category
+        -:  360:	= !requires { typename _Iter::iterator_category; };
+        -:  361:
+        -:  362:  } // namespace __detail
+        -:  363:
+        -:  364:  template<typename _Iterator>
+        -:  365:    requires __detail::__iter_with_nested_types<_Iterator>
+        -:  366:    struct __iterator_traits<_Iterator, void>
+        -:  367:    {
+        -:  368:    private:
+        -:  369:      template<typename _Iter>
+        -:  370:	struct __ptr
+        -:  371:	{ using type = void; };
+        -:  372:
+        -:  373:      template<typename _Iter> requires requires { typename _Iter::pointer; }
+        -:  374:	struct __ptr<_Iter>
+        -:  375:	{ using type = typename _Iter::pointer; };
+        -:  376:
+        -:  377:    public:
+        -:  378:      using iterator_category = typename _Iterator::iterator_category;
+        -:  379:      using value_type	      = typename _Iterator::value_type;
+        -:  380:      using difference_type   = typename _Iterator::difference_type;
+        -:  381:      using pointer	      = typename __ptr<_Iterator>::type;
+        -:  382:      using reference	      = typename _Iterator::reference;
+        -:  383:    };
+        -:  384:
+        -:  385:  template<typename _Iterator>
+        -:  386:    requires __detail::__iter_without_nested_types<_Iterator>
+        -:  387:	      && __detail::__cpp17_input_iterator<_Iterator>
+        -:  388:    struct __iterator_traits<_Iterator, void>
+        -:  389:    {
+        -:  390:    private:
+        -:  391:      template<typename _Iter>
+        -:  392:	struct __cat
+        -:  393:	{ using type = input_iterator_tag; };
+        -:  394:
+        -:  395:      template<typename _Iter>
+        -:  396:	requires requires { typename _Iter::iterator_category; }
+        -:  397:	struct __cat<_Iter>
+        -:  398:	{ using type = typename _Iter::iterator_category; };
+        -:  399:
+        -:  400:      template<typename _Iter>
+        -:  401:	requires __detail::__iter_without_category<_Iter>
+        -:  402:		  && __detail::__cpp17_randacc_iterator<_Iter>
+        -:  403:	struct __cat<_Iter>
+        -:  404:	{ using type = random_access_iterator_tag; };
+        -:  405:
+        -:  406:      template<typename _Iter>
+        -:  407:	requires __detail::__iter_without_category<_Iter>
+        -:  408:		  && __detail::__cpp17_bidi_iterator<_Iter>
+        -:  409:	struct __cat<_Iter>
+        -:  410:	{ using type = bidirectional_iterator_tag; };
+        -:  411:
+        -:  412:      template<typename _Iter>
+        -:  413:	requires __detail::__iter_without_category<_Iter>
+        -:  414:		  && __detail::__cpp17_fwd_iterator<_Iter>
+        -:  415:	struct __cat<_Iter>
+        -:  416:	{ using type = forward_iterator_tag; };
+        -:  417:
+        -:  418:      template<typename _Iter>
+        -:  419:	struct __ptr
+        -:  420:	{ using type = void; };
+        -:  421:
+        -:  422:      template<typename _Iter> requires requires { typename _Iter::pointer; }
+        -:  423:	struct __ptr<_Iter>
+        -:  424:	{ using type = typename _Iter::pointer; };
+        -:  425:
+        -:  426:      template<typename _Iter>
+        -:  427:	requires (!requires { typename _Iter::pointer; }
+        -:  428:	    && requires(_Iter& __it) { __it.operator->(); })
+        -:  429:	struct __ptr<_Iter>
+        -:  430:	{ using type = decltype(std::declval<_Iter&>().operator->()); };
+        -:  431:
+        -:  432:      template<typename _Iter>
+        -:  433:	struct __ref
+        -:  434:	{ using type = iter_reference_t<_Iter>; };
+        -:  435:
+        -:  436:      template<typename _Iter> requires requires { typename _Iter::reference; }
+        -:  437:	struct __ref<_Iter>
+        -:  438:	{ using type = typename _Iter::reference; };
+        -:  439:
+        -:  440:    public:
+        -:  441:      using iterator_category = typename __cat<_Iterator>::type;
+        -:  442:      using value_type
+        -:  443:	= typename indirectly_readable_traits<_Iterator>::value_type;
+        -:  444:      using difference_type
+        -:  445:	= typename incrementable_traits<_Iterator>::difference_type;
+        -:  446:      using pointer	      = typename __ptr<_Iterator>::type;
+        -:  447:      using reference	      = typename __ref<_Iterator>::type;
+        -:  448:    };
+        -:  449:
+        -:  450:  template<typename _Iterator>
+        -:  451:    requires __detail::__iter_without_nested_types<_Iterator>
+        -:  452:	      && __detail::__cpp17_iterator<_Iterator>
+        -:  453:    struct __iterator_traits<_Iterator, void>
+        -:  454:    {
+        -:  455:    private:
+        -:  456:      template<typename _Iter>
+        -:  457:	struct __diff
+        -:  458:	{ using type = void; };
+        -:  459:
+        -:  460:      template<typename _Iter>
+        -:  461:	requires requires
+        -:  462:	{ typename incrementable_traits<_Iter>::difference_type; }
+        -:  463:	struct __diff<_Iter>
+        -:  464:	{
+        -:  465:	  using type = typename incrementable_traits<_Iter>::difference_type;
+        -:  466:	};
+        -:  467:
+        -:  468:    public:
+        -:  469:      using iterator_category = output_iterator_tag;
+        -:  470:      using value_type	      = void;
+        -:  471:      using difference_type   = typename __diff<_Iterator>::type;
+        -:  472:      using pointer	      = void;
+        -:  473:      using reference	      = void;
+        -:  474:    };
+        -:  475:
+        -:  476:  namespace __detail
+        -:  477:  {
+        -:  478:    template<typename _Iter>
+        -:  479:      struct __iter_concept_impl;
+        -:  480:
+        -:  481:    // ITER_CONCEPT(I) is ITER_TRAITS(I)::iterator_concept if that is valid.
+        -:  482:    template<typename _Iter>
+        -:  483:      requires requires { typename __iter_traits<_Iter>::iterator_concept; }
+        -:  484:      struct __iter_concept_impl<_Iter>
+        -:  485:      { using type = typename __iter_traits<_Iter>::iterator_concept; };
+        -:  486:
+        -:  487:    // Otherwise, ITER_TRAITS(I)::iterator_category if that is valid.
+        -:  488:    template<typename _Iter>
+        -:  489:      requires (!requires { typename __iter_traits<_Iter>::iterator_concept; }
+        -:  490:	  && requires { typename __iter_traits<_Iter>::iterator_category; })
+        -:  491:      struct __iter_concept_impl<_Iter>
+        -:  492:      { using type = typename __iter_traits<_Iter>::iterator_category; };
+        -:  493:
+        -:  494:    // Otherwise, random_access_tag if iterator_traits<I> is not specialized.
+        -:  495:    template<typename _Iter>
+        -:  496:      requires (!requires { typename __iter_traits<_Iter>::iterator_concept; }
+        -:  497:	  && !requires { typename __iter_traits<_Iter>::iterator_category; }
+        -:  498:	  && __primary_traits_iter<_Iter>)
+        -:  499:      struct __iter_concept_impl<_Iter>
+        -:  500:      { using type = random_access_iterator_tag; };
+        -:  501:
+        -:  502:    // Otherwise, there is no ITER_CONCEPT(I) type.
+        -:  503:    template<typename _Iter>
+        -:  504:      struct __iter_concept_impl
+        -:  505:      { };
+        -:  506:
+        -:  507:    // ITER_CONCEPT
+        -:  508:    template<typename _Iter>
+        -:  509:      using __iter_concept = typename __iter_concept_impl<_Iter>::type;
+        -:  510:
+        -:  511:  template<typename _In>
+        -:  512:    concept __indirectly_readable_impl = requires
+        -:  513:      {
+        -:  514:	typename iter_value_t<_In>;
+        -:  515:	typename iter_reference_t<_In>;
+        -:  516:	typename iter_rvalue_reference_t<_In>;
+        -:  517:	requires same_as<iter_reference_t<const _In>,
+        -:  518:			 iter_reference_t<_In>>;
+        -:  519:	requires same_as<iter_rvalue_reference_t<const _In>,
+        -:  520:			 iter_rvalue_reference_t<_In>>;
+        -:  521:      }
+        -:  522:      && common_reference_with<iter_reference_t<_In>&&, iter_value_t<_In>&>
+        -:  523:      && common_reference_with<iter_reference_t<_In>&&,
+        -:  524:			      iter_rvalue_reference_t<_In>&&>
+        -:  525:      && common_reference_with<iter_rvalue_reference_t<_In>&&,
+        -:  526:			       const iter_value_t<_In>&>;
+        -:  527:
+        -:  528:  } // namespace __detail
+        -:  529:
+        -:  530:  /// Requirements for types that are readable by applying operator*.
+        -:  531:  template<typename _In>
+        -:  532:    concept indirectly_readable
+        -:  533:      = __detail::__indirectly_readable_impl<remove_cvref_t<_In>>;
+        -:  534:
+        -:  535:  template<indirectly_readable _Tp>
+        -:  536:    using iter_common_reference_t
+        -:  537:      = common_reference_t<iter_reference_t<_Tp>, iter_value_t<_Tp>&>;
+        -:  538:
+        -:  539:  /// Requirements for writing a value into an iterator's referenced object.
+        -:  540:  template<typename _Out, typename _Tp>
+        -:  541:    concept indirectly_writable = requires(_Out&& __o, _Tp&& __t)
+        -:  542:      {
+        -:  543:	*__o = std::forward<_Tp>(__t);
+        -:  544:	*std::forward<_Out>(__o) = std::forward<_Tp>(__t);
+        -:  545:	const_cast<const iter_reference_t<_Out>&&>(*__o)
+        -:  546:	  = std::forward<_Tp>(__t);
+        -:  547:	const_cast<const iter_reference_t<_Out>&&>(*std::forward<_Out>(__o))
+        -:  548:	  = std::forward<_Tp>(__t);
+        -:  549:      };
+        -:  550:
+        -:  551:  namespace ranges::__detail
+        -:  552:  {
+        -:  553:    class __max_diff_type;
+        -:  554:    class __max_size_type;
+        -:  555:
+        -:  556:    template<typename _Tp>
+        -:  557:      concept __is_signed_int128
+        -:  558:#if __SIZEOF_INT128__
+        -:  559:	= same_as<_Tp, __int128>;
+        -:  560:#else
+        -:  561:	= false;
+        -:  562:#endif
+        -:  563:
+        -:  564:    template<typename _Tp>
+        -:  565:      concept __is_unsigned_int128
+        -:  566:#if __SIZEOF_INT128__
+        -:  567:	= same_as<_Tp, unsigned __int128>;
+        -:  568:#else
+        -:  569:	= false;
+        -:  570:#endif
+        -:  571:
+        -:  572:    template<typename _Tp>
+        -:  573:      concept __cv_bool = same_as<const volatile _Tp, const volatile bool>;
+        -:  574:
+        -:  575:    template<typename _Tp>
+        -:  576:      concept __integral_nonbool = integral<_Tp> && !__cv_bool<_Tp>;
+        -:  577:
+        -:  578:    template<typename _Tp>
+        -:  579:      concept __is_int128 = __is_signed_int128<_Tp> || __is_unsigned_int128<_Tp>;
+        -:  580:
+        -:  581:    template<typename _Tp>
+        -:  582:      concept __is_integer_like = __integral_nonbool<_Tp>
+        -:  583:	|| __is_int128<_Tp>
+        -:  584:	|| same_as<_Tp, __max_diff_type> || same_as<_Tp, __max_size_type>;
+        -:  585:
+        -:  586:    template<typename _Tp>
+        -:  587:      concept __is_signed_integer_like = signed_integral<_Tp>
+        -:  588:	|| __is_signed_int128<_Tp>
+        -:  589:	|| same_as<_Tp, __max_diff_type>;
+        -:  590:
+        -:  591:  } // namespace ranges::__detail
+        -:  592:
+        -:  593:  namespace __detail { using ranges::__detail::__is_signed_integer_like; }
+        -:  594:
+        -:  595:  /// Requirements on types that can be incremented with ++.
+        -:  596:  template<typename _Iter>
+        -:  597:    concept weakly_incrementable = movable<_Iter>
+        -:  598:      && requires(_Iter __i)
+        -:  599:      {
+        -:  600:	typename iter_difference_t<_Iter>;
+        -:  601:	requires __detail::__is_signed_integer_like<iter_difference_t<_Iter>>;
+        -:  602:	{ ++__i } -> same_as<_Iter&>;
+        -:  603:	__i++;
+        -:  604:      };
+        -:  605:
+        -:  606:  template<typename _Iter>
+        -:  607:    concept incrementable = regular<_Iter> && weakly_incrementable<_Iter>
+        -:  608:      && requires(_Iter __i) { { __i++ } -> same_as<_Iter>; };
+        -:  609:
+        -:  610:  template<typename _Iter>
+        -:  611:    concept input_or_output_iterator
+        -:  612:      = requires(_Iter __i) { { *__i } -> __detail::__can_reference; }
+        -:  613:	&& weakly_incrementable<_Iter>;
+        -:  614:
+        -:  615:  template<typename _Sent, typename _Iter>
+        -:  616:    concept sentinel_for = semiregular<_Sent>
+        -:  617:      && input_or_output_iterator<_Iter>
+        -:  618:      && __detail::__weakly_eq_cmp_with<_Sent, _Iter>;
+        -:  619:
+        -:  620:  template<typename _Sent, typename _Iter>
+        -:  621:    inline constexpr bool disable_sized_sentinel_for = false;
+        -:  622:
+        -:  623:  template<typename _Sent, typename _Iter>
+        -:  624:    concept sized_sentinel_for = sentinel_for<_Sent, _Iter>
+        -:  625:    && !disable_sized_sentinel_for<remove_cv_t<_Sent>, remove_cv_t<_Iter>>
+        -:  626:    && requires(const _Iter& __i, const _Sent& __s)
+        -:  627:    {
+        -:  628:      { __s - __i } -> same_as<iter_difference_t<_Iter>>;
+        -:  629:      { __i - __s } -> same_as<iter_difference_t<_Iter>>;
+        -:  630:    };
+        -:  631:
+        -:  632:  template<typename _Iter>
+        -:  633:    concept input_iterator = input_or_output_iterator<_Iter>
+        -:  634:      && indirectly_readable<_Iter>
+        -:  635:      && requires { typename __detail::__iter_concept<_Iter>; }
+        -:  636:      && derived_from<__detail::__iter_concept<_Iter>, input_iterator_tag>;
+        -:  637:
+        -:  638:  template<typename _Iter, typename _Tp>
+        -:  639:    concept output_iterator = input_or_output_iterator<_Iter>
+        -:  640:      && indirectly_writable<_Iter, _Tp>
+        -:  641:      && requires(_Iter __i, _Tp&& __t) { *__i++ = std::forward<_Tp>(__t); };
+        -:  642:
+        -:  643:  template<typename _Iter>
+        -:  644:    concept forward_iterator = input_iterator<_Iter>
+        -:  645:      && derived_from<__detail::__iter_concept<_Iter>, forward_iterator_tag>
+        -:  646:      && incrementable<_Iter> && sentinel_for<_Iter, _Iter>;
+        -:  647:
+        -:  648:  template<typename _Iter>
+        -:  649:    concept bidirectional_iterator = forward_iterator<_Iter>
+        -:  650:      && derived_from<__detail::__iter_concept<_Iter>,
+        -:  651:		      bidirectional_iterator_tag>
+        -:  652:      && requires(_Iter __i)
+        -:  653:      {
+        -:  654:	{ --__i } -> same_as<_Iter&>;
+        -:  655:	{ __i-- } -> same_as<_Iter>;
+        -:  656:      };
+        -:  657:
+        -:  658:  template<typename _Iter>
+        -:  659:    concept random_access_iterator = bidirectional_iterator<_Iter>
+        -:  660:      && derived_from<__detail::__iter_concept<_Iter>,
+        -:  661:		      random_access_iterator_tag>
+        -:  662:      && totally_ordered<_Iter> && sized_sentinel_for<_Iter, _Iter>
+        -:  663:      && requires(_Iter __i, const _Iter __j,
+        -:  664:		  const iter_difference_t<_Iter> __n)
+        -:  665:      {
+        -:  666:	{ __i += __n } -> same_as<_Iter&>;
+        -:  667:	{ __j +  __n } -> same_as<_Iter>;
+        -:  668:	{ __n +  __j } -> same_as<_Iter>;
+        -:  669:	{ __i -= __n } -> same_as<_Iter&>;
+        -:  670:	{ __j -  __n } -> same_as<_Iter>;
+        -:  671:	{  __j[__n]  } -> same_as<iter_reference_t<_Iter>>;
+        -:  672:      };
+        -:  673:
+        -:  674:  template<typename _Iter>
+        -:  675:    concept contiguous_iterator = random_access_iterator<_Iter>
+        -:  676:      && derived_from<__detail::__iter_concept<_Iter>, contiguous_iterator_tag>
+        -:  677:      && is_lvalue_reference_v<iter_reference_t<_Iter>>
+        -:  678:      && same_as<iter_value_t<_Iter>, remove_cvref_t<iter_reference_t<_Iter>>>
+        -:  679:      && requires(const _Iter& __i)
+        -:  680:      {
+        -:  681:	{ std::to_address(__i) }
+        -:  682:	  -> same_as<add_pointer_t<iter_reference_t<_Iter>>>;
+        -:  683:      };
+        -:  684:
+        -:  685:  // [indirectcallable], indirect callable requirements
+        -:  686:
+        -:  687:  // [indirectcallable.indirectinvocable], indirect callables
+        -:  688:
+        -:  689:  template<typename _Fn, typename _Iter>
+        -:  690:    concept indirectly_unary_invocable = indirectly_readable<_Iter>
+        -:  691:      && copy_constructible<_Fn> && invocable<_Fn&, iter_value_t<_Iter>&>
+        -:  692:      && invocable<_Fn&, iter_reference_t<_Iter>>
+        -:  693:      && invocable<_Fn&, iter_common_reference_t<_Iter>>
+        -:  694:      && common_reference_with<invoke_result_t<_Fn&, iter_value_t<_Iter>&>,
+        -:  695:			       invoke_result_t<_Fn&, iter_reference_t<_Iter>>>;
+        -:  696:
+        -:  697:  template<typename _Fn, typename _Iter>
+        -:  698:    concept indirectly_regular_unary_invocable = indirectly_readable<_Iter>
+        -:  699:      && copy_constructible<_Fn>
+        -:  700:      && regular_invocable<_Fn&, iter_value_t<_Iter>&>
+        -:  701:      && regular_invocable<_Fn&, iter_reference_t<_Iter>>
+        -:  702:      && regular_invocable<_Fn&, iter_common_reference_t<_Iter>>
+        -:  703:      && common_reference_with<invoke_result_t<_Fn&, iter_value_t<_Iter>&>,
+        -:  704:			       invoke_result_t<_Fn&, iter_reference_t<_Iter>>>;
+        -:  705:
+        -:  706:  template<typename _Fn, typename _Iter>
+        -:  707:    concept indirect_unary_predicate = indirectly_readable<_Iter>
+        -:  708:      && copy_constructible<_Fn> && predicate<_Fn&, iter_value_t<_Iter>&>
+        -:  709:      && predicate<_Fn&, iter_reference_t<_Iter>>
+        -:  710:      && predicate<_Fn&, iter_common_reference_t<_Iter>>;
+        -:  711:
+        -:  712:  template<typename _Fn, typename _I1, typename _I2>
+        -:  713:    concept indirect_binary_predicate
+        -:  714:      = indirectly_readable<_I1> && indirectly_readable<_I2>
+        -:  715:      && copy_constructible<_Fn>
+        -:  716:      && predicate<_Fn&, iter_value_t<_I1>&, iter_value_t<_I2>&>
+        -:  717:      && predicate<_Fn&, iter_value_t<_I1>&, iter_reference_t<_I2>>
+        -:  718:      && predicate<_Fn&, iter_reference_t<_I1>, iter_value_t<_I2>&>
+        -:  719:      && predicate<_Fn&, iter_reference_t<_I1>, iter_reference_t<_I2>>
+        -:  720:      && predicate<_Fn&, iter_common_reference_t<_I1>,
+        -:  721:		   iter_common_reference_t<_I2>>;
+        -:  722:
+        -:  723:  template<typename _Fn, typename _I1, typename _I2 = _I1>
+        -:  724:    concept indirect_equivalence_relation
+        -:  725:      = indirectly_readable<_I1> && indirectly_readable<_I2>
+        -:  726:      && copy_constructible<_Fn>
+        -:  727:      && equivalence_relation<_Fn&, iter_value_t<_I1>&, iter_value_t<_I2>&>
+        -:  728:      && equivalence_relation<_Fn&, iter_value_t<_I1>&, iter_reference_t<_I2>>
+        -:  729:      && equivalence_relation<_Fn&, iter_reference_t<_I1>, iter_value_t<_I2>&>
+        -:  730:      && equivalence_relation<_Fn&, iter_reference_t<_I1>,
+        -:  731:			      iter_reference_t<_I2>>
+        -:  732:      && equivalence_relation<_Fn&, iter_common_reference_t<_I1>,
+        -:  733:			      iter_common_reference_t<_I2>>;
+        -:  734:
+        -:  735:  template<typename _Fn, typename _I1, typename _I2 = _I1>
+        -:  736:    concept indirect_strict_weak_order
+        -:  737:      = indirectly_readable<_I1> && indirectly_readable<_I2>
+        -:  738:      && copy_constructible<_Fn>
+        -:  739:      && strict_weak_order<_Fn&, iter_value_t<_I1>&, iter_value_t<_I2>&>
+        -:  740:      && strict_weak_order<_Fn&, iter_value_t<_I1>&, iter_reference_t<_I2>>
+        -:  741:      && strict_weak_order<_Fn&, iter_reference_t<_I1>, iter_value_t<_I2>&>
+        -:  742:      && strict_weak_order<_Fn&, iter_reference_t<_I1>, iter_reference_t<_I2>>
+        -:  743:      && strict_weak_order<_Fn&, iter_common_reference_t<_I1>,
+        -:  744:			   iter_common_reference_t<_I2>>;
+        -:  745:
+        -:  746:  template<typename _Fn, typename... _Is>
+        -:  747:    requires (indirectly_readable<_Is> && ...)
+        -:  748:      && invocable<_Fn, iter_reference_t<_Is>...>
+        -:  749:    using indirect_result_t = invoke_result_t<_Fn, iter_reference_t<_Is>...>;
+        -:  750:
+        -:  751:  /// [projected], projected
+        -:  752:  template<indirectly_readable _Iter,
+        -:  753:	   indirectly_regular_unary_invocable<_Iter> _Proj>
+        -:  754:    struct projected
+        -:  755:    {
+        -:  756:      using value_type = remove_cvref_t<indirect_result_t<_Proj&, _Iter>>;
+        -:  757:
+        -:  758:      indirect_result_t<_Proj&, _Iter> operator*() const; // not defined
+        -:  759:    };
+        -:  760:
+        -:  761:  template<weakly_incrementable _Iter, typename _Proj>
+        -:  762:    struct incrementable_traits<projected<_Iter, _Proj>>
+        -:  763:    { using difference_type = iter_difference_t<_Iter>; };
+        -:  764:
+        -:  765:  // [alg.req], common algorithm requirements
+        -:  766:
+        -:  767:  /// [alg.req.ind.move], concept `indirectly_movable`
+        -:  768:
+        -:  769:  template<typename _In, typename _Out>
+        -:  770:    concept indirectly_movable = indirectly_readable<_In>
+        -:  771:      && indirectly_writable<_Out, iter_rvalue_reference_t<_In>>;
+        -:  772:
+        -:  773:  template<typename _In, typename _Out>
+        -:  774:    concept indirectly_movable_storable = indirectly_movable<_In, _Out>
+        -:  775:      && indirectly_writable<_Out, iter_value_t<_In>>
+        -:  776:      && movable<iter_value_t<_In>>
+        -:  777:      && constructible_from<iter_value_t<_In>, iter_rvalue_reference_t<_In>>
+        -:  778:      && assignable_from<iter_value_t<_In>&, iter_rvalue_reference_t<_In>>;
+        -:  779:
+        -:  780:  /// [alg.req.ind.copy], concept `indirectly_copyable`
+        -:  781:  template<typename _In, typename _Out>
+        -:  782:    concept indirectly_copyable = indirectly_readable<_In>
+        -:  783:      && indirectly_writable<_Out, iter_reference_t<_In>>;
+        -:  784:
+        -:  785:  template<typename _In, typename _Out>
+        -:  786:    concept indirectly_copyable_storable = indirectly_copyable<_In, _Out>
+        -:  787:      && indirectly_writable<_Out, iter_value_t<_In>&>
+        -:  788:      && indirectly_writable<_Out, const iter_value_t<_In>&>
+        -:  789:      && indirectly_writable<_Out, iter_value_t<_In>&&>
+        -:  790:      && indirectly_writable<_Out, const iter_value_t<_In>&&>
+        -:  791:      && copyable<iter_value_t<_In>>
+        -:  792:      && constructible_from<iter_value_t<_In>, iter_reference_t<_In>>
+        -:  793:      && assignable_from<iter_value_t<_In>&, iter_reference_t<_In>>;
+        -:  794:
+        -:  795:namespace ranges
+        -:  796:{
+        -:  797:  namespace __cust_iswap
+        -:  798:  {
+        -:  799:    template<typename _It1, typename _It2>
+        -:  800:      void iter_swap(_It1, _It2) = delete;
+        -:  801:
+        -:  802:    template<typename _Tp, typename _Up>
+        -:  803:      concept __adl_iswap
+        -:  804:	= (std::__detail::__class_or_enum<remove_reference_t<_Tp>>
+        -:  805:	  || std::__detail::__class_or_enum<remove_reference_t<_Up>>)
+        -:  806:	&& requires(_Tp&& __t, _Up&& __u) {
+        -:  807:	  iter_swap(static_cast<_Tp&&>(__t), static_cast<_Up&&>(__u));
+        -:  808:	};
+        -:  809:
+        -:  810:    template<typename _Xp, typename _Yp>
+        -:  811:      constexpr iter_value_t<_Xp>
+        -:  812:      __iter_exchange_move(_Xp&& __x, _Yp&& __y)
+        -:  813:      noexcept(noexcept(iter_value_t<_Xp>(iter_move(__x)))
+        -:  814:	       && noexcept(*__x = iter_move(__y)))
+        -:  815:      {
+        -:  816:	iter_value_t<_Xp> __old_value(iter_move(__x));
+        -:  817:	*__x = iter_move(__y);
+        -:  818:	return __old_value;
+        -:  819:      }
+        -:  820:
+        -:  821:    struct _IterSwap
+        -:  822:    {
+        -:  823:    private:
+        -:  824:      template<typename _Tp, typename _Up>
+        -:  825:	static constexpr bool
+        -:  826:	_S_noexcept()
+        -:  827:	{
+        -:  828:	  if constexpr (__adl_iswap<_Tp, _Up>)
+        -:  829:	    return noexcept(iter_swap(std::declval<_Tp>(),
+        -:  830:				      std::declval<_Up>()));
+        -:  831:	  else if constexpr (indirectly_readable<_Tp>
+        -:  832:	      && indirectly_readable<_Up>
+        -:  833:	      && swappable_with<iter_reference_t<_Tp>, iter_reference_t<_Up>>)
+        -:  834:	    return noexcept(ranges::swap(*std::declval<_Tp>(),
+        -:  835:					 *std::declval<_Up>()));
+        -:  836:	  else
+        -:  837:	    return noexcept(*std::declval<_Tp>()
+        -:  838:		= __iter_exchange_move(std::declval<_Up>(),
+        -:  839:				       std::declval<_Tp>()));
+        -:  840:	}
+        -:  841:
+        -:  842:    public:
+        -:  843:      template<typename _Tp, typename _Up>
+        -:  844:	requires __adl_iswap<_Tp, _Up>
+        -:  845:	|| (indirectly_readable<remove_reference_t<_Tp>>
+        -:  846:	    && indirectly_readable<remove_reference_t<_Up>>
+        -:  847:	    && swappable_with<iter_reference_t<_Tp>, iter_reference_t<_Up>>)
+        -:  848:	|| (indirectly_movable_storable<_Tp, _Up>
+        -:  849:	    && indirectly_movable_storable<_Up, _Tp>)
+        -:  850:	constexpr void
+        -:  851:	operator()(_Tp&& __e1, _Up&& __e2) const
+        -:  852:	noexcept(_S_noexcept<_Tp, _Up>())
+        -:  853:	{
+        -:  854:	  if constexpr (__adl_iswap<_Tp, _Up>)
+        -:  855:	    iter_swap(static_cast<_Tp&&>(__e1), static_cast<_Up&&>(__e2));
+        -:  856:	  else if constexpr (indirectly_readable<_Tp>
+        -:  857:	      && indirectly_readable<_Up>
+        -:  858:	      && swappable_with<iter_reference_t<_Tp>, iter_reference_t<_Up>>)
+        -:  859:	    ranges::swap(*__e1, *__e2);
+        -:  860:	  else
+        -:  861:	    *__e1 = __iter_exchange_move(__e2, __e1);
+        -:  862:	}
+        -:  863:    };
+        -:  864:  } // namespace __cust_iswap
+        -:  865:
+        -:  866:  inline namespace __cust
+        -:  867:  {
+        -:  868:    inline constexpr __cust_iswap::_IterSwap iter_swap{};
+        -:  869:  } // inline namespace __cust
+        -:  870:
+        -:  871:} // namespace ranges
+        -:  872:
+        -:  873:  /// [alg.req.ind.swap], concept `indirectly_swappable`
+        -:  874:  template<typename _I1, typename _I2 = _I1>
+        -:  875:    concept indirectly_swappable
+        -:  876:      = indirectly_readable<_I1> && indirectly_readable<_I2>
+        -:  877:      && requires(const _I1 __i1, const _I2 __i2)
+        -:  878:      {
+        -:  879:	ranges::iter_swap(__i1, __i1);
+        -:  880:	ranges::iter_swap(__i2, __i2);
+        -:  881:	ranges::iter_swap(__i1, __i2);
+        -:  882:	ranges::iter_swap(__i2, __i1);
+        -:  883:      };
+        -:  884:
+        -:  885:  /// [alg.req.ind.cmp], concept `indirectly_comparable`
+        -:  886:  template<typename _I1, typename _I2, typename _Rel, typename _P1 = identity,
+        -:  887:	   typename _P2 = identity>
+        -:  888:    concept indirectly_comparable
+        -:  889:      = indirect_binary_predicate<_Rel, projected<_I1, _P1>,
+        -:  890:				  projected<_I2, _P2>>;
+        -:  891:
+        -:  892:  /// [alg.req.permutable], concept `permutable`
+        -:  893:  template<typename _Iter>
+        -:  894:    concept permutable = forward_iterator<_Iter>
+        -:  895:      && indirectly_movable_storable<_Iter, _Iter>
+        -:  896:      && indirectly_swappable<_Iter, _Iter>;
+        -:  897:
+        -:  898:  /// [alg.req.mergeable], concept `mergeable`
+        -:  899:  template<typename _I1, typename _I2, typename _Out,
+        -:  900:	   typename _Rel = ranges::less, typename _P1 = identity,
+        -:  901:	   typename _P2 = identity>
+        -:  902:    concept mergeable = input_iterator<_I1> && input_iterator<_I2>
+        -:  903:      && weakly_incrementable<_Out> && indirectly_copyable<_I1, _Out>
+        -:  904:      && indirectly_copyable<_I2, _Out>
+        -:  905:      && indirect_strict_weak_order<_Rel, projected<_I1, _P1>,
+        -:  906:				    projected<_I2, _P2>>;
+        -:  907:
+        -:  908:  /// [alg.req.sortable], concept `sortable`
+        -:  909:  template<typename _Iter, typename _Rel = ranges::less,
+        -:  910:	   typename _Proj = identity>
+        -:  911:    concept sortable = permutable<_Iter>
+        -:  912:      && indirect_strict_weak_order<_Rel, projected<_Iter, _Proj>>;
+        -:  913:
+        -:  914:  struct unreachable_sentinel_t
+        -:  915:  {
+        -:  916:    template<weakly_incrementable _It>
+        -:  917:      friend constexpr bool
+        -:  918:      operator==(unreachable_sentinel_t, const _It&) noexcept
+        -:  919:      { return false; }
+        -:  920:  };
+        -:  921:
+        -:  922:  inline constexpr unreachable_sentinel_t unreachable_sentinel{};
+        -:  923:
+        -:  924:  struct default_sentinel_t { };
+        -:  925:  inline constexpr default_sentinel_t default_sentinel{};
+        -:  926:
+        -:  927:  // This is the namespace for [range.access] CPOs.
+        -:  928:  namespace ranges::__cust_access
+        -:  929:  {
+        -:  930:    using std::__detail::__class_or_enum;
+        -:  931:
+        -:  932:    struct _Decay_copy final
+        -:  933:    {
+        -:  934:      template<typename _Tp>
+        -:  935:	constexpr decay_t<_Tp>
+        -:  936:	operator()(_Tp&& __t) const
+        -:  937:	noexcept(is_nothrow_convertible_v<_Tp, decay_t<_Tp>>)
+        -:  938:	{ return std::forward<_Tp>(__t); }
+        -:  939:    } inline constexpr __decay_copy{};
+        -:  940:
+        -:  941:    template<typename _Tp>
+        -:  942:      concept __member_begin = requires(_Tp& __t)
+        -:  943:	{
+        -:  944:	  { __decay_copy(__t.begin()) } -> input_or_output_iterator;
+        -:  945:	};
+        -:  946:
+        -:  947:    // Poison pills so that unqualified lookup doesn't find std::begin.
+        -:  948:    void begin(auto&) = delete;
+        -:  949:    void begin(const auto&) = delete;
+        -:  950:
+        -:  951:    template<typename _Tp>
+        -:  952:      concept __adl_begin = __class_or_enum<remove_reference_t<_Tp>>
+        -:  953:	&& requires(_Tp& __t)
+        -:  954:	{
+        -:  955:	  { __decay_copy(begin(__t)) } -> input_or_output_iterator;
+        -:  956:	};
+        -:  957:
+        -:  958:    // Simplified version of std::ranges::begin that only supports lvalues,
+        -:  959:    // for use by __range_iter_t below.
+        -:  960:    template<typename _Tp>
+        -:  961:      requires is_array_v<_Tp> || __member_begin<_Tp&> || __adl_begin<_Tp&>
+        -:  962:      auto
+        -:  963:      __begin(_Tp& __t)
+        -:  964:      {
+        -:  965:	if constexpr (is_array_v<_Tp>)
+        -:  966:	  return __t + 0;
+        -:  967:	else if constexpr (__member_begin<_Tp&>)
+        -:  968:	  return __t.begin();
+        -:  969:	else
+        -:  970:	  return begin(__t);
+        -:  971:      }
+        -:  972:  } // namespace ranges::__cust_access
+        -:  973:
+        -:  974:  namespace __detail
+        -:  975:  {
+        -:  976:    // Implementation of std::ranges::iterator_t, without using ranges::begin.
+        -:  977:    template<typename _Tp>
+        -:  978:      using __range_iter_t
+        -:  979:	= decltype(ranges::__cust_access::__begin(std::declval<_Tp&>()));
+        -:  980:
+        -:  981:  } // namespace __detail
+        -:  982:
+        -:  983:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  984:} // namespace std
+        -:  985:#endif // C++20 library concepts
+        -:  986:#endif // _ITERATOR_CONCEPTS_H

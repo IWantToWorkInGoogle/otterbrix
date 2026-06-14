@@ -1,0 +1,15 @@
+name,runs,auto_status,columnar_status,auto_min_ms,auto_avg_ms,auto_median_ms,columnar_min_ms,columnar_avg_ms,columnar_median_ms,auto_vs_columnar_median_pct,winner_by_median,row_count,column_count,result_hash_match,status,result_hash
+ssb/checkpoint,30,OK,OK,148.977,201.299,201.518,193.607,245.935,246.888,-18.38,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q1-1,30,OK,OK,34.634,50.713,47.247,34.800,49.251,47.772,-1.10,auto,1,0,yes,OK,fnv64:6340b39b0995f64e
+ssb/q1-2,30,OK,OK,34.077,43.659,44.255,34.988,45.077,44.377,-0.27,tie,1,0,yes,OK,fnv64:6340b39b0995f64e
+ssb/q1-3,30,OK,OK,36.726,46.211,46.652,33.285,43.474,44.209,+5.53,columnar,1,0,yes,OK,fnv64:6340b39b0995f64e
+ssb/q2-1,30,OK,OK,73.014,118.002,119.842,76.615,109.456,114.343,+4.81,columnar,6,3,yes,OK,fnv64:7441fdc2a04b1d68
+ssb/q2-2,30,OK,OK,87.964,110.078,109.861,91.721,116.491,113.503,-3.21,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q2-3,30,OK,OK,86.205,124.354,122.073,100.462,125.977,123.509,-1.16,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q3-1,30,OK,OK,87.369,105.750,105.345,88.389,110.450,112.327,-6.22,auto,7,4,yes,OK,fnv64:5bc2f5d274eeb805
+ssb/q3-2,30,OK,OK,83.475,106.360,105.889,93.296,126.749,117.694,-10.03,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q3-3,30,OK,OK,83.791,101.582,99.452,98.929,117.193,116.984,-14.99,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q3-4,30,OK,OK,88.585,114.941,116.107,93.028,119.393,118.148,-1.73,auto,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q4-1,30,OK,OK,125.129,165.321,163.005,121.117,176.542,180.029,-9.46,auto,3,3,yes,OK,fnv64:fd5cc2e4f1588f4f
+ssb/q4-2,30,OK,OK,134.818,173.101,171.987,119.543,161.498,158.917,+8.22,columnar,0,0,yes,OK,fnv64:0cda5faad0fc7c7a
+ssb/q4-3,30,OK,OK,120.990,164.656,162.543,111.866,161.008,163.038,-0.30,tie,0,0,yes,OK,fnv64:0cda5faad0fc7c7a

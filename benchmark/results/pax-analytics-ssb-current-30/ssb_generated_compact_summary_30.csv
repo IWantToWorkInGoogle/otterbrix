@@ -1,0 +1,14 @@
+name,group,runs,pax_median_ms,columnar_median_ms,pax_vs_columnar_pct,speedup_columnar_over_pax,winner,pax_verified,columnar_verified,hash_match,pax_min_ms,columnar_min_ms,valid,pax_scan_regular,pax_scan_generic_projected
+ssb/q1-1,ssb/generated_compact,30,170.895,162.649,+5.07,0.952,columnar,OK,OK,yes,149.844,143.658,yes,0,180
+ssb/q1-2,ssb/generated_compact,30,178.787,156.174,+14.48,0.874,columnar,OK,OK,yes,146.151,146.287,yes,0,180
+ssb/q1-3,ssb/generated_compact,30,199.420,162.760,+22.52,0.816,columnar,OK,OK,yes,151.959,150.509,yes,0,180
+ssb/q2-1,ssb/generated_compact,30,826.764,781.469,+5.80,0.945,columnar,OK,OK,yes,656.619,647.664,yes,0,240
+ssb/q2-2,ssb/generated_compact,30,761.589,821.236,-7.26,1.078,pax,OK,OK,yes,698.773,707.213,yes,0,240
+ssb/q2-3,ssb/generated_compact,30,789.025,800.540,-1.44,1.015,pax,OK,OK,yes,716.505,689.232,yes,0,240
+ssb/q3-1,ssb/generated_compact,30,812.316,789.787,+2.85,0.972,columnar,OK,OK,yes,679.399,701.866,yes,0,240
+ssb/q3-2,ssb/generated_compact,30,800.596,799.906,+0.09,0.999,tie,OK,OK,yes,682.596,706.262,yes,0,240
+ssb/q3-3,ssb/generated_compact,30,832.399,826.708,+0.69,0.993,tie,OK,OK,yes,699.667,732.520,yes,0,240
+ssb/q3-4,ssb/generated_compact,30,782.045,808.099,-3.22,1.033,pax,OK,OK,yes,682.040,708.861,yes,0,240
+ssb/q4-1,ssb/generated_compact,30,1185.416,1229.365,-3.57,1.037,pax,OK,OK,yes,1057.833,1083.898,yes,0,270
+ssb/q4-2,ssb/generated_compact,30,1239.098,1355.245,-8.57,1.094,pax,OK,OK,yes,1125.325,1128.233,yes,0,270
+ssb/q4-3,ssb/generated_compact,30,1214.748,1313.775,-7.54,1.082,pax,OK,OK,yes,1068.856,1064.545,yes,0,270

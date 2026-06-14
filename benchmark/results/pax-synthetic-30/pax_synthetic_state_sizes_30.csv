@@ -1,0 +1,16 @@
+profile,group,phase,auto_state_bytes,columnar_state_bytes,auto_vs_columnar_state_pct,winner_by_size
+fixed_analytic,pax/fixed_analytic,query_loaded,21491824,21491824,+0.00,tie
+fixed_analytic,pax/fixed_analytic_checkpoint,checkpoint_after_run,135262320,140505200,-3.73,auto
+fixed_analytic,pax/fixed_analytic_checkpoint,checkpoint_loaded,17821808,17821808,+0.00,tie
+mixed_schema,pax/mixed_schema,query_loaded,22016112,22016112,+0.00,tie
+mixed_schema,pax/mixed_schema_checkpoint,checkpoint_after_run,135786608,141553776,-4.07,auto
+mixed_schema,pax/mixed_schema_checkpoint,checkpoint_loaded,18346096,18346096,+0.00,tie
+ssb_flat,ssb_flat,query_loaded,23056496,23056496,+0.00,tie
+ssb_flat,ssb_flat_checkpoint,checkpoint_after_run,145215600,144167024,+0.73,tie
+ssb_flat,ssb_flat_checkpoint,checkpoint_loaded,19386480,19386480,+0.00,tie
+string_heavy,pax/string_heavy,query_loaded,21229680,21229680,+0.00,tie
+string_heavy,pax/string_heavy_checkpoint,checkpoint_after_run,135000176,139980912,-3.56,auto
+string_heavy,pax/string_heavy_checkpoint,checkpoint_loaded,17559664,17559664,+0.00,tie
+tpch_pax,tpch_pax,query_loaded,23875712,23875712,+0.00,tie
+tpch_pax,tpch_pax_checkpoint,checkpoint_after_run,153899136,160977024,-4.40,auto
+tpch_pax,tpch_pax_checkpoint,checkpoint_loaded,19681408,19681408,+0.00,tie

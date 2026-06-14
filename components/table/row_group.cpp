@@ -15,6 +15,7 @@
 #include <components/table/storage/partial_block_manager.hpp>
 #include <components/types/type_spec.hpp>
 #include <core/operations_helper.hpp>
+#include <limits>
 #include <vector/data_chunk.hpp>
 
 #include "collection.hpp"
@@ -1684,7 +1685,7 @@ namespace {
                                                                 row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           aligned);
-                components::vector::validity_mask_t source_mask(aligned.data());
+                components::vector::validity_mask_t source_mask(result.resource(), aligned.data());
                 result.validity().slice_in_place(source_mask, result_offset, page_row_offset, copy_count);
                 return true;
             }
@@ -2807,7 +2808,7 @@ namespace {
                                                                 row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           aligned);
-                components::vector::validity_mask_t source_mask(aligned.data());
+                components::vector::validity_mask_t source_mask(result.resource(), aligned.data());
                 result.validity().slice_in_place(source_mask, result_offset, page_row_offset, copy_count);
                 return true;
             }
@@ -2977,7 +2978,7 @@ namespace {
                                                                 row_group.block_manager().block_size()),
                                           validity_pointer.segment_size,
                                           page_validity_aligned);
-                page_validity_mask.emplace(page_validity_aligned.data());
+                page_validity_mask.emplace(result.resource(), page_validity_aligned.data());
             }
 
             // The int32 offset array sits at a possibly-unaligned byte offset, so load each entry
@@ -3347,10 +3348,9 @@ namespace components::table {
             assert(is_loaded_[c]);
             return *columns_[c];
         }
-        if (column_pointers_.size() != columns_.size()) {
-            throw std::logic_error("Lazy loading a column but the pointer was not set");
-        }
-        throw std::runtime_error("row_group_t::get_column: unknown error");
+        assert(column_pointers_.size() == columns_.size() && "Lazy loading a column but the pointer was not set");
+        assert(false && "row_group_t::get_column: unknown error");
+        std::abort();
     }
 
     storage::block_manager_t& row_group_t::block_manager() { return collection_->block_manager(); }
@@ -3514,7 +3514,8 @@ namespace components::table {
                 return true;
             }
             case expressions::compare_type::invalid: {
-                throw std::logic_error("invalid type for filter selection");
+                assert(false && "invalid type for filter selection");
+                std::abort();
             }
             case expressions::compare_type::is_null:
             case expressions::compare_type::is_not_null: {
@@ -4562,8 +4563,7 @@ namespace components::table {
 
     template<table_scan_type TYPE>
     void row_group_t::templated_scan(collection_scan_state& state, vector::data_chunk_t& result) {
-        constexpr bool ALLOW_UPDATES = TYPE != table_scan_type::COMMITTED_ROWS_DISALLOW_UPDATES &&
-                                       TYPE != table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED;
+        constexpr bool ALLOW_UPDATES = TYPE != table_scan_type::COMMITTED_ROWS_DISALLOW_UPDATES;
         const auto& column_ids = state.column_ids();
         auto* filter = state.filter();
         // Sync result_offset with current chunk cardinality (handles chunk reset between calls)
@@ -4590,18 +4590,14 @@ namespace components::table {
             }
             const auto version_vector_idx = current_version_vector_index(*this, state);
             if (TYPE == table_scan_type::REGULAR) {
-                count = (state.txn.transaction_id != 0 || state.txn.start_time != 0)
-                            ? state.row_group->indexing_vector(state.txn,
-                                                               version_vector_idx,
-                                                               state.valid_indexing,
-                                                               max_count)
-                            : state.row_group->indexing_vector(version_vector_idx, state.valid_indexing, max_count);
-                if (count == 0) {
-                    next_vector(state);
-                    continue;
-                }
-            } else if (TYPE == table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED) {
-                count = state.row_group->committed_indexing_vector(version_vector_idx, state.valid_indexing, max_count);
+                // REGULAR scans have no see-all fallback: state.txn must be a real
+                // transaction_data, as its snapshot fields drive MVCC visibility.
+                // version_vector_idx maps state.vector_index to the row-group-relative
+                // (or absolute) version index expected by the version manager.
+                count = state.row_group->indexing_vector(state.txn,
+                                                         version_vector_idx,
+                                                         state.valid_indexing,
+                                                         max_count);
                 if (count == 0) {
                     next_vector(state);
                     continue;
@@ -4781,9 +4777,13 @@ namespace components::table {
             const auto prefix_count = offset_in_vector + chunk_count;
 
             vector::indexing_vector_t prefix_indexing(result_indexing.resource(), prefix_count);
+            // Non-transaction (committed) scans want every committed row: a
+            // default-constructed transaction_data is the see-all-committed
+            // snapshot (horizon = UINT64_MAX, empty in-flight set) under the
+            // snapshot-horizon visibility model.
             const auto prefix_visible_count =
                 transaction_scan ? indexing_vector(state.txn, vector_idx, prefix_indexing, prefix_count)
-                                 : indexing_vector(vector_idx, prefix_indexing, prefix_count);
+                                 : indexing_vector(transaction_data{}, vector_idx, prefix_indexing, prefix_count);
 
             if (prefix_visible_count == prefix_count) {
                 for (uint64_t i = 0; i < chunk_count; i++) {
@@ -4823,12 +4823,12 @@ namespace components::table {
             case table_scan_type::COMMITTED_ROWS_DISALLOW_UPDATES:
                 templated_scan<table_scan_type::COMMITTED_ROWS_DISALLOW_UPDATES>(state, result);
                 break;
-            case table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED:
             case table_scan_type::LATEST_COMMITTED_ROWS:
-                templated_scan<table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED>(state, result);
+                templated_scan<table_scan_type::COMMITTED_ROWS>(state, result);
                 break;
             default:
-                throw std::logic_error("Unrecognized table scan type");
+                assert(false && "Unrecognized table scan type");
+                std::abort();
         }
     }
 
@@ -4864,9 +4864,15 @@ namespace components::table {
         auto row_in_vector = static_cast<uint64_t>(row_id) % vector::DEFAULT_VECTOR_CAPACITY;
         vector::indexing_vector_t visible_rows(collection().resource(), row_in_vector + 1);
 
-        uint64_t visible_count = (txn.transaction_id == 0 && txn.start_time == 0)
-                                     ? committed_indexing_vector(vector_idx, visible_rows, row_in_vector + 1)
-                                     : indexing_vector(txn, vector_idx, visible_rows, row_in_vector + 1);
+        // A (0, 0) txn is the see-all-committed sentinel (no MVCC snapshot). Under
+        // the snapshot-horizon visibility model, a default-constructed transaction_data
+        // already means "see every committed row" (horizon = UINT64_MAX, empty
+        // in-flight set), so the committed path just uses that see-all snapshot.
+        transaction_data visibility_txn = txn;
+        if (txn.transaction_id == 0 && txn.start_time == 0) {
+            visibility_txn = transaction_data{};
+        }
+        uint64_t visible_count = indexing_vector(visibility_txn, vector_idx, visible_rows, row_in_vector + 1);
         if (visible_count == row_in_vector + 1) {
             return true;
         }
@@ -5024,6 +5030,15 @@ namespace components::table {
         return true;
     }
 
+    bool row_group_t::has_version_above(uint64_t watermark) {
+        auto* vi = version_info_.load();
+        if (!vi) {
+            // No version info — every row is plain committed, visible to all.
+            return false;
+        }
+        return vi->has_version_above(watermark, count);
+    }
+
     bool row_group_t::has_unloaded_deletes() const {
         if (deletes_pointers_.empty()) {
             return false;
@@ -5108,10 +5123,20 @@ namespace components::table {
             vinfo->commit_all_deletes(txn_id, commit_id);
         }
         // Advance current_version_ past commit_id so that committed deletes
-        // are visible to scans using committed_version_operator
+        // are reflected in see-all-committed scans
         if (commit_id >= current_version_) {
             current_version_ = commit_id + 1;
         }
+    }
+
+    void row_group_t::revert_all_deletes(uint64_t txn_id) {
+        auto vinfo = version_info();
+        if (vinfo) {
+            vinfo->revert_all_deletes(txn_id);
+        }
+        // No current_version_ advance: revert un-marks pending deletes back to
+        // NOT_DELETED_ID, restoring visibility. Unlike commit there is no new
+        // commit_id to publish, so the version watermark stays where it was.
     }
 
     row_version_manager_t& row_group_t::get_or_create_version_info() {
@@ -5132,16 +5157,11 @@ namespace components::table {
 
     uint64_t row_group_t::calculate_size() {
         vector::indexing_vector_t temp_indexing(collection().resource(), count);
-        return indexing_vector(index, temp_indexing, count);
-    }
-
-    uint64_t
-    row_group_t::indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count) {
-        auto vinfo = version_info();
-        if (!vinfo) {
-            return max_count;
-        }
-        return vinfo->indexing_vector({current_version_, current_version_}, vector_idx, indexing_vector, max_count);
+        // Metadata accounting, not a user scan: a UINT64_MAX horizon + empty
+        // in_flight set is a see-all snapshot covering every committed row.
+        transaction_data td(0, 0);
+        td.snapshot_horizon = std::numeric_limits<uint64_t>::max();
+        return indexing_vector(td, index, temp_indexing, count);
     }
 
     uint64_t row_group_t::indexing_vector(transaction_data txn,
@@ -5153,20 +5173,6 @@ namespace components::table {
             return max_count;
         }
         return vinfo->indexing_vector(txn, vector_idx, indexing_vector, max_count);
-    }
-
-    uint64_t row_group_t::committed_indexing_vector(uint64_t vector_idx,
-                                                    vector::indexing_vector_t& indexing_vector,
-                                                    uint64_t max_count) {
-        auto vinfo = version_info();
-        if (!vinfo) {
-            return max_count;
-        }
-        return vinfo->committed_indexing_vector(current_version_,
-                                                current_version_,
-                                                vector_idx,
-                                                indexing_vector,
-                                                max_count);
     }
 
     std::shared_ptr<row_version_manager_t> row_group_t::get_or_create_version_info_internal() {

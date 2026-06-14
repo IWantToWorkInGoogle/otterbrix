@@ -1,0 +1,9 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch/q1,tpch,columnar,disk,warm,true,false,Release,3,197.497,252.987,231.789,244.884,OK,4,10,fnv64:b03c69122b4c3b50,""
+tpch/q10,tpch,columnar,disk,warm,true,false,Release,3,16717.220,21050.736,19069.910,19441.774,OK,399,8,fnv64:a87ee88211a9feb0,""
+tpch/q12,tpch,columnar,disk,warm,true,false,Release,3,4495.214,4705.240,4581.950,4545.397,OK,2,3,fnv64:247c290efe34c550,""
+tpch/q14,tpch,columnar,disk,warm,true,false,Release,3,2258.449,4588.647,3126.473,2532.323,OK,1,1,fnv64:0e657dc79d653fa7,""
+tpch/q19,tpch,columnar,disk,warm,true,false,Release,3,3475.682,5682.650,4538.729,4457.854,OK,1,1,fnv64:d0c70b12760c64ba,""
+tpch/q3,tpch,columnar,disk,warm,true,false,Release,3,4946.890,8339.863,6924.431,7486.538,OK,138,4,fnv64:6162907ee2911f2e,""
+tpch/q5,tpch,columnar,disk,warm,true,false,Release,3,5829.140,8093.857,7200.695,7679.087,OK,5,2,fnv64:4865db191f8adc76,""
+tpch/q6,tpch,columnar,disk,warm,true,false,Release,3,104.393,109.766,107.758,109.116,OK,1,1,fnv64:36a3f675343b9d73,""

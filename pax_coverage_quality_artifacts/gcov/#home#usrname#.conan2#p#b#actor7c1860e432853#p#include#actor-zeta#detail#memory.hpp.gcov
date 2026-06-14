@@ -1,0 +1,80 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/memory.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cassert>
+        -:    4:#include <concepts>
+        -:    5:
+        -:    6:#include <memory_resource>
+        -:    7:
+        -:    8:namespace actor_zeta { namespace pmr {
+        -:    9:
+        -:   10:    template<typename T>
+        -:   11:    concept has_placement = requires {
+        -:   12:        { T::placement };
+        -:   13:    };
+        -:   14:
+        -:   15:    template<class Target, class... Args>
+        -:   16:        requires has_placement<Target>
+        -:   17:    Target* allocate_ptr(std::pmr::memory_resource* resource, Args&&... args) {
+        -:   18:        assert(resource);
+        -:   19:        auto* buffer = resource->allocate(sizeof(Target), alignof(Target));
+        -:   20:        auto* target_ptr = new (buffer, Target::placement) Target(std::forward<Args>(args)...);
+        -:   21:        return target_ptr;
+        -:   22:    }
+        -:   23:
+        -:   24:    template<class Target, class... Args>
+        -:   25:        requires(!has_placement<Target>)
+        -:   26:    Target* allocate_ptr(std::pmr::memory_resource* resource, Args&&... args) {
+        -:   27:        assert(resource);
+        -:   28:        auto* buffer = resource->allocate(sizeof(Target), alignof(Target));
+        -:   29:        auto* target_ptr = new (buffer) Target(std::forward<Args>(args)...);
+        -:   30:        return target_ptr;
+        -:   31:    }
+        -:   32:
+        -:   33:    template<class Target>
+function _ZN10actor_zeta3pmr14deallocate_ptrIN8services4disk12agent_disk_tEEEvPNSt3pmr15memory_resourceEPT_ called 226 returned 100% blocks executed 71%
+      226:   34:    void deallocate_ptr(std::pmr::memory_resource* resource, Target* target) {
+     226*:   35:        assert(resource);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 226
+call    2 never executed
+     226*:   36:        assert(target);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 226
+call    2 never executed
+      226:   37:        target->~Target();
+call    0 returned 226
+      226:   38:        resource->deallocate(target, sizeof(Target), alignof(Target));
+call    0 returned 226
+      226:   39:    }
+        -:   40:
+        -:   41:    class deleter_t final {
+        -:   42:    public:
+        -:   43:        explicit deleter_t(std::pmr::memory_resource* resource)
+        -:   44:            : resource_([](std::pmr::memory_resource* res) {
+        -:   45:                assert(res);
+        -:   46:                return res;
+        -:   47:            }(resource)) {}
+        -:   48:
+        -:   49:        template<typename Target>
+function _ZN10actor_zeta3pmr9deleter_tclIN8services4disk12agent_disk_tEEEvPT_ called 226 returned 100% blocks executed 67%
+      226:   50:        void operator()(Target* target) {
+     226*:   51:            assert(target);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 226
+call    2 never executed
+     226*:   52:            assert(resource_);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 226
+call    2 never executed
+      226:   53:            deallocate_ptr(resource_, target);
+call    0 returned 226
+      226:   54:        }
+        -:   55:
+        -:   56:    private:
+        -:   57:        std::pmr::memory_resource* resource_;
+        -:   58:    };
+        -:   59:}} // namespace actor_zeta::pmr

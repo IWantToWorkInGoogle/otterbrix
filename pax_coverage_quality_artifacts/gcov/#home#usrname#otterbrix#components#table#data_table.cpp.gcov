@@ -1,0 +1,1911 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/data_table.cpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#include "data_table.hpp"
+        -:    2:
+        -:    3:#include <algorithm>
+        -:    4:#include <components/table/storage/partial_block_manager.hpp>
+        -:    5:#include <components/types/type_spec.hpp>
+        -:    6:#include <components/vector/data_chunk.hpp>
+        -:    7:#include <components/vector/vector_operations.hpp>
+        -:    8:#include <thread>
+        -:    9:#include <unordered_set>
+        -:   10:
+        -:   11:#include "row_group.hpp"
+        -:   12:
+        -:   13:namespace {
+        -:   14:
+        -:   15:    constexpr uint32_t ROW_GROUP_LAYOUTS_MAGIC = 0x31584150U; // "PAX1"
+        -:   16:    constexpr uint32_t COLUMN_TYPES_METADATA_MAGIC = 0x31484353U; // "SCH1"
+        -:   17:    constexpr uint32_t TABLE_LAYOUT_POLICY_MAGIC = 0x3159504CU; // "LPY1"
+        -:   18:    constexpr uint32_t TABLE_COLUMN_TYPES_METADATA_FLAG = 1U << 31;
+        -:   19:    constexpr uint32_t TABLE_LAYOUT_METADATA_FLAG = 1U << 31;
+        -:   20:    constexpr uint32_t TABLE_LAYOUT_POLICY_METADATA_FLAG = 1U << 30;
+        -:   21:
+function _ZN12_GLOBAL__N_129requires_column_type_metadataERKN10components5types20complex_logical_typeE called 8448 returned 100% blocks executed 93%
+     8448:   22:    bool requires_column_type_metadata(const components::types::complex_logical_type& type) {
+     8662:   23:        if (type.extension() &&
+call    0 returned 8448
+branch  1 taken 214 (fallthrough)
+branch  2 taken 8234
+branch  3 taken 8 (fallthrough)
+branch  4 taken 206
+branch  5 taken 8 (fallthrough)
+branch  6 taken 8440
+      214:   24:            type.extension()->type() != components::types::logical_type_extension::extension_type::GENERIC) {
+call    0 returned 214
+call    1 returned 214
+        8:   25:            return true;
+        -:   26:        }
+        -:   27:
+     8440:   28:        switch (type.type()) {
+call    0 returned 8440
+branch  1 taken 0
+branch  2 taken 8440
+    #####:   29:            case components::types::logical_type::ARRAY:
+        -:   30:            case components::types::logical_type::STRUCT:
+        -:   31:            case components::types::logical_type::UNION:
+        -:   32:            case components::types::logical_type::VARIANT:
+        -:   33:            case components::types::logical_type::LIST:
+        -:   34:            case components::types::logical_type::MAP:
+        -:   35:            case components::types::logical_type::DECIMAL:
+        -:   36:            case components::types::logical_type::ENUM:
+        -:   37:            case components::types::logical_type::USER:
+        -:   38:            case components::types::logical_type::FUNCTION:
+        -:   39:            case components::types::logical_type::UNKNOWN:
+    #####:   40:                return true;
+     8440:   41:            default:
+     8440:   42:                return false;
+        -:   43:        }
+        -:   44:    }
+        -:   45:
+        -:   46:}
+        -:   47:
+        -:   48:namespace components::table {
+        -:   49:
+function _ZN10components5table12data_table_tC2EPNSt3pmr15memory_resourceERNS0_7storage15block_manager_tESt6vectorINS0_19column_definition_tESaIS9_EENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE called 2054 returned 100% blocks executed 61%
+     2054:   50:    data_table_t::data_table_t(std::pmr::memory_resource* resource,
+        -:   51:                               storage::block_manager_t& block_manager,
+        -:   52:                               std::vector<column_definition_t> column_definitions,
+     2054:   53:                               std::string name)
+     2054:   54:        : resource_(resource)
+     2054:   55:        , column_definitions_(std::move(column_definitions))
+call    0 returned 2054
+call    1 returned 2054
+     2054:   56:        , is_root_(true)
+call    0 returned 2054
+     4108:   57:        , name_(std::move(name)) {
+call    0 returned 2054
+call    1 returned 2054
+call    2 returned 2054
+call    3 returned 2054
+     2054:   58:        this->row_groups_ = std::make_shared<collection_t>(resource_, block_manager, copy_types(), 0);
+call    0 returned 2054
+branch  1 taken 2054 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 2054
+branch  4 taken 2054 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 2054
+call    7 returned 2054
+call    8 returned 2054
+call    9 never executed
+     2054:   59:    }
+call    0 never executed
+call    1 never executed
+call    2 never executed
+        -:   60:
+function _ZN10components5table12data_table_tC2ERS1_RNS0_19column_definition_tE called 3 returned 100% blocks executed 71%
+        3:   61:    data_table_t::data_table_t(data_table_t& parent, column_definition_t& new_column)
+        3:   62:        : resource_(parent.resource_)
+        3:   63:        , is_root_(true) {
+call    0 returned 3
+call    1 returned 3
+call    2 returned 3
+call    3 returned 3
+call    4 returned 3
+       14:   64:        for (auto& column_def : parent.column_definitions_) {
+call    0 returned 3
+call    1 returned 3
+call    2 returned 11
+call    3 returned 11
+call    4 returned 14
+branch  5 taken 11
+branch  6 taken 3 (fallthrough)
+       11:   65:            column_definitions_.emplace_back(column_def);
+call    0 returned 11
+branch  1 taken 11 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   66:        }
+        3:   67:        column_definitions_.emplace_back(new_column);
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   68:
+        3:   69:        std::lock_guard parent_lock(parent.append_lock_);
+call    0 returned 3
+branch  1 taken 3 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   70:
+        3:   71:        this->row_groups_ = parent.row_groups_->add_column(new_column);
+call    0 returned 3
+call    1 returned 3
+branch  2 taken 3 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 3
+call    5 returned 3
+        -:   72:
+        3:   73:        parent.is_root_ = false;
+call    0 returned 3
+        3:   74:    }
+call    0 returned 3
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+        -:   75:
+function _ZN10components5table12data_table_tC2ERS1_m called 5 returned 100% blocks executed 72%
+        5:   76:    data_table_t::data_table_t(data_table_t& parent, uint64_t removed_column)
+        5:   77:        : resource_(parent.resource_)
+        5:   78:        , is_root_(true) {
+call    0 returned 5
+call    1 returned 5
+call    2 returned 5
+call    3 returned 5
+call    4 returned 5
+        5:   79:        std::lock_guard parent_lock(parent.append_lock_);
+call    0 returned 5
+branch  1 taken 5 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   80:
+       23:   81:        for (auto& column_def : parent.column_definitions_) {
+call    0 returned 5
+call    1 returned 5
+call    2 returned 18
+call    3 returned 18
+call    4 returned 23
+branch  5 taken 18
+branch  6 taken 5 (fallthrough)
+       18:   82:            column_definitions_.emplace_back(column_def);
+call    0 returned 18
+branch  1 taken 18 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   83:        }
+        -:   84:
+       5*:   85:        assert(removed_column < column_definitions_.size());
+call    0 returned 5
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5
+call    3 never executed
+        5:   86:        column_definitions_.erase(column_definitions_.begin() + static_cast<int64_t>(removed_column));
+call    0 returned 5
+call    1 returned 5
+call    2 returned 5
+call    3 returned 5
+branch  4 taken 5 (fallthrough)
+branch  5 taken 0 (throw)
+        -:   87:
+        5:   88:        uint64_t storage_idx = 0;
+       18:   89:        for (uint64_t i = 0; i < column_definitions_.size(); i++) {
+call    0 returned 18
+branch  1 taken 13
+branch  2 taken 5 (fallthrough)
+       13:   90:            auto& col = column_definitions_[i];
+call    0 returned 13
+       13:   91:            col.set_oid(i);
+call    0 returned 13
+branch  1 taken 13 (fallthrough)
+branch  2 taken 0 (throw)
+       13:   92:            col.set_storage_oid(storage_idx++);
+call    0 returned 13
+branch  1 taken 13 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   93:        }
+        -:   94:
+        5:   95:        this->row_groups_ = parent.row_groups_->remove_column(removed_column);
+call    0 returned 5
+call    1 returned 5
+branch  2 taken 5 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 5
+call    5 returned 5
+        -:   96:
+        5:   97:        parent.is_root_ = false;
+call    0 returned 5
+        5:   98:    }
+call    0 returned 5
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+        -:   99:
+function _ZN10components5table12data_table_tC2ERS1_mRKNS_5types20complex_logical_typeERKSt6vectorINS0_15storage_index_tESaIS8_EE called 0 returned 0% blocks executed 0%
+    #####:  100:    data_table_t::data_table_t(data_table_t& parent,
+        -:  101:                               uint64_t changed_idx,
+        -:  102:                               const types::complex_logical_type& target_type,
+    #####:  103:                               const std::vector<storage_index_t>&)
+    #####:  104:        : resource_(parent.resource_)
+    #####:  105:        , is_root_(true) {
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+    #####:  106:        std::lock_guard lock(append_lock_);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  107:        for (auto& column_def : parent.column_definitions_) {
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+branch  5 never executed
+branch  6 never executed
+    #####:  108:            column_definitions_.emplace_back(column_def);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  109:        }
+        -:  110:
+    #####:  111:        column_definitions_[changed_idx].type() = target_type;
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+branch  5 never executed
+branch  6 never executed
+        -:  112:
+    #####:  113:        parent.is_root_ = false;
+call    0 never executed
+    #####:  114:    }
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+        -:  115:
+function _ZNK10components5table12data_table_t10copy_typesEv called 3120 returned 100% blocks executed 100%
+     3120:  116:    [[nodiscard]] std::pmr::vector<types::complex_logical_type> data_table_t::copy_types() const {
+     3120:  117:        return copy_types(resource_);
+call    0 returned 3120
+        -:  118:    }
+        -:  119:
+        -:  120:    [[nodiscard]] std::pmr::vector<types::complex_logical_type>
+function _ZNK10components5table12data_table_t10copy_typesEPNSt3pmr15memory_resourceE called 3146 returned 100% blocks executed 88%
+     3146:  121:    data_table_t::copy_types(std::pmr::memory_resource* resource) const {
+     3146:  122:        std::pmr::vector<types::complex_logical_type> types(resource);
+call    0 returned 3146
+call    1 returned 3146
+     3146:  123:        types.reserve(column_definitions_.size());
+call    0 returned 3146
+call    1 returned 3146
+branch  2 taken 3146 (fallthrough)
+branch  3 taken 0 (throw)
+    16801:  124:        for (auto& it : column_definitions_) {
+call    0 returned 3146
+call    1 returned 3146
+call    2 returned 13655
+call    3 returned 13655
+call    4 returned 16800
+branch  5 taken 13654
+branch  6 taken 3146 (fallthrough)
+    13655:  125:            types.push_back(it.type());
+call    0 returned 13655
+branch  1 taken 13655 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 13655
+branch  4 taken 13655 (fallthrough)
+branch  5 taken 0 (throw)
+        -:  126:        }
+     3146:  127:        return types;
+    =====:  128:    }
+call    0 never executed
+        -:  129:
+function _ZNK10components5table12data_table_t7columnsEv called 15690 returned 100% blocks executed 100%
+    15690:  130:    const std::vector<column_definition_t>& data_table_t::columns() const { return column_definitions_; }
+        -:  131:
+function _ZN10components5table12data_table_t12adopt_schemaERKSt6vectorINS_5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS4_EEE called 2 returned 100% blocks executed 80%
+        2:  132:    void data_table_t::adopt_schema(const std::pmr::vector<types::complex_logical_type>& types) {
+       2*:  133:        assert(column_definitions_.empty() && "adopt_schema can only be called on schema-less table");
+call    0 returned 2
+branch  1 taken 2 (fallthrough)
+branch  2 taken 0
+call    3 never executed
+        2:  134:        column_definitions_.reserve(types.size());
+call    0 returned 2
+call    1 returned 2
+        6:  135:        for (const auto& type : types) {
+call    0 returned 2
+call    1 returned 2
+call    2 returned 4
+call    3 returned 4
+call    4 returned 6
+branch  5 taken 4
+branch  6 taken 2 (fallthrough)
+        4:  136:            column_definitions_.emplace_back(type.alias(), type);
+call    0 returned 4
+branch  1 taken 4 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 4
+branch  4 taken 4 (fallthrough)
+branch  5 taken 0 (throw)
+        -:  137:        }
+        2:  138:        row_groups_->adopt_types(std::pmr::vector<types::complex_logical_type>(types, resource_));
+call    0 returned 2
+call    1 returned 2
+call    2 returned 2
+branch  3 taken 2 (fallthrough)
+branch  4 taken 0 (throw)
+call    5 returned 2
+branch  6 taken 2 (fallthrough)
+branch  7 taken 0 (throw)
+call    8 returned 2
+call    9 never executed
+        2:  139:    }
+        -:  140:
+function _ZN10components5table12data_table_t16overlay_not_nullERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE called 0 returned 0% blocks executed 0%
+    #####:  141:    void data_table_t::overlay_not_null(const std::string& col_name) {
+    #####:  142:        for (auto& col : column_definitions_) {
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+branch  5 never executed
+branch  6 never executed
+    #####:  143:            if (col.name() == col_name) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+    #####:  144:                col.set_not_null(true);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  145:                return;
+        -:  146:            }
+        -:  147:        }
+        -:  148:    }
+        -:  149:
+function _ZN10components5table12data_table_t15initialize_scanERNS0_16table_scan_stateERKSt6vectorINS0_15storage_index_tESaIS5_EEPKNS0_14table_filter_tE called 905 returned 100% blocks executed 78%
+      905:  150:    void data_table_t::initialize_scan(table_scan_state& state,
+        -:  151:                                       const std::vector<storage_index_t>& column_ids,
+        -:  152:                                       const table_filter_t* filter) {
+      905:  153:        state.initialize(column_ids, filter);
+call    0 returned 905
+call    1 returned 905
+branch  2 taken 905 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 905
+call    5 never executed
+      905:  154:        row_groups_->initialize_scan(state.table_state, column_ids);
+call    0 returned 905
+call    1 returned 905
+      905:  155:    }
+        -:  156:
+function _ZN10components5table12data_table_t27initialize_scan_with_offsetERNS0_16table_scan_stateERKSt6vectorINS0_15storage_index_tESaIS5_EEll called 37 returned 100% blocks executed 78%
+       37:  157:    void data_table_t::initialize_scan_with_offset(table_scan_state& state,
+        -:  158:                                                   const std::vector<storage_index_t>& column_ids,
+        -:  159:                                                   int64_t start_row,
+        -:  160:                                                   int64_t end_row) {
+       37:  161:        state.initialize(column_ids);
+call    0 returned 37
+call    1 returned 37
+branch  2 taken 37 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 37
+call    5 never executed
+       37:  162:        row_groups_->initialize_scan_with_offset(state.table_state, column_ids, start_row, end_row);
+call    0 returned 37
+call    1 returned 37
+       37:  163:    }
+        -:  164:
+function _ZNK10components5table12data_table_t14row_group_sizeEv called 0 returned 0% blocks executed 0%
+    #####:  165:    uint64_t data_table_t::row_group_size() const { return row_groups_->row_group_size(); }
+call    0 never executed
+call    1 never executed
+        -:  166:
+function _ZNK10components5table12data_table_t9row_groupEv called 70 returned 100% blocks executed 100%
+       70:  167:    std::shared_ptr<collection_t> data_table_t::row_group() const { return row_groups_; }
+call    0 returned 70
+        -:  168:
+function _ZN10components5table12data_table_t14calculate_sizeEv called 378 returned 100% blocks executed 100%
+      378:  169:    uint64_t data_table_t::calculate_size() { return row_groups_->calculate_size(); }
+call    0 returned 378
+call    1 returned 378
+        -:  170:
+function _ZN10components5table12data_table_t16cleanup_versionsEm called 3 returned 100% blocks executed 100%
+        3:  171:    void data_table_t::cleanup_versions(uint64_t lowest_active_start_time) {
+        3:  172:        row_groups_->cleanup_versions(lowest_active_start_time);
+call    0 returned 3
+call    1 returned 3
+        3:  173:    }
+        -:  174:
+function _ZNK10components5table12data_table_t24has_persisted_pax_layoutEv called 0 returned 0% blocks executed 0%
+    #####:  175:    bool data_table_t::has_persisted_pax_layout() const { return row_groups_->has_persisted_pax_layout(); }
+call    0 never executed
+call    1 never executed
+        -:  176:
+function _ZN10components5table12data_table_t7compactEv called 200 returned 100% blocks executed 71%
+      200:  177:    void data_table_t::compact() {
+      200:  178:        auto total = row_groups_->total_rows();
+call    0 returned 200
+call    1 returned 200
+branch  2 taken 200 (fallthrough)
+branch  3 taken 0 (throw)
+      200:  179:        if (total == 0) {
+branch  0 taken 76 (fallthrough)
+branch  1 taken 124
+      189:  180:            return;
+        -:  181:        }
+      124:  182:        if (row_groups_->committed_row_count() == total) {
+call    0 returned 124
+call    1 returned 124
+branch  2 taken 124 (fallthrough)
+branch  3 taken 0 (throw)
+branch  4 taken 113 (fallthrough)
+branch  5 taken 11
+      113:  183:            return;
+        -:  184:        }
+        -:  185:
+       11:  186:        auto types = row_groups_->types();
+call    0 returned 11
+call    1 returned 11
+branch  2 taken 11 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 11
+branch  5 taken 11 (fallthrough)
+branch  6 taken 0 (throw)
+        -:  187:        auto new_collection = std::make_shared<collection_t>(
+       11:  188:            resource_,
+       11:  189:            row_groups_->block_manager(),
+       11:  190:            std::pmr::vector<types::complex_logical_type>(types.begin(), types.end(), resource_),
+call    0 returned 11
+call    1 returned 11
+call    2 returned 11
+branch  3 taken 11 (fallthrough)
+branch  4 taken 0 (throw)
+       22:  191:            0);
+call    0 returned 11
+call    1 returned 11
+call    2 returned 11
+call    3 returned 11
+branch  4 taken 11 (fallthrough)
+branch  5 taken 0 (throw)
+        -:  192:
+        -:  193:        {
+       11:  194:            table_append_state append_state(resource_);
+call    0 returned 11
+branch  1 taken 11 (fallthrough)
+branch  2 taken 0 (throw)
+       11:  195:            new_collection->initialize_append(append_state);
+call    0 returned 11
+call    1 returned 11
+branch  2 taken 11 (fallthrough)
+branch  3 taken 0 (throw)
+        -:  196:
+        -:  197:            // Scan committed non-deleted rows from old collection
+       11:  198:            std::vector<storage_index_t> column_ids;
+call    0 returned 11
+       71:  199:            for (uint64_t i = 0; i < column_definitions_.size(); i++) {
+call    0 returned 71
+branch  1 taken 60
+branch  2 taken 11 (fallthrough)
+       60:  200:                column_ids.emplace_back(i);
+call    0 returned 60
+branch  1 taken 60 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  201:            }
+        -:  202:
+       11:  203:            table_scan_state state(resource_);
+call    0 returned 11
+branch  1 taken 11 (fallthrough)
+branch  2 taken 0 (throw)
+       11:  204:            initialize_scan_with_offset(state, column_ids, 0, static_cast<int64_t>(total));
+call    0 returned 11
+branch  1 taken 11 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  205:
+        -:  206:            while (true) {
+       22:  207:                auto scan_types = copy_types();
+call    0 returned 22
+branch  1 taken 22 (fallthrough)
+branch  2 taken 0 (throw)
+       22:  208:                vector::data_chunk_t chunk(resource_, scan_types, vector::DEFAULT_VECTOR_CAPACITY);
+call    0 returned 22
+branch  1 taken 22 (fallthrough)
+branch  2 taken 0 (throw)
+       22:  209:                state.table_state.scan_committed(chunk, table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
+call    0 returned 22
+branch  1 taken 22 (fallthrough)
+branch  2 taken 0 (throw)
+       22:  210:                if (chunk.size() == 0) {
+call    0 returned 22
+branch  1 taken 11 (fallthrough)
+branch  2 taken 11
+       11:  211:                    break;
+        -:  212:                }
+       11:  213:                chunk.flatten();
+call    0 returned 11
+branch  1 taken 11 (fallthrough)
+branch  2 taken 0 (throw)
+       11:  214:                new_collection->append(chunk, append_state);
+call    0 returned 11
+call    1 returned 11
+branch  2 taken 11 (fallthrough)
+branch  3 taken 0 (throw)
+       44:  215:            }
+call    0 returned 22
+branch  1 taken 11 (fallthrough)
+branch  2 taken 11
+call    3 returned 22
+branch  4 taken 11 (fallthrough)
+branch  5 taken 11
+call    6 never executed
+call    7 never executed
+        -:  216:
+       11:  217:            new_collection->finalize_append(append_state, transaction_data{0, 0});
+call    0 returned 11
+call    1 returned 11
+call    2 returned 11
+branch  3 taken 11 (fallthrough)
+branch  4 taken 0 (throw)
+       11:  218:        }
+call    0 returned 11
+call    1 returned 11
+call    2 returned 11
+call    3 never executed
+call    4 never executed
+call    5 never executed
+        -:  219:        // scan state and buffer handles destroyed before swapping collection
+        -:  220:
+        -:  221:        // Swap old collection with compacted one
+       11:  222:        row_groups_ = std::move(new_collection);
+call    0 returned 11
+call    1 returned 11
+       11:  223:    }
+call    0 returned 11
+call    1 returned 11
+call    2 never executed
+call    3 never executed
+        -:  224:
+function _ZN10components5table12data_table_t4scanERNS_6vector12data_chunk_tERNS0_16table_scan_stateE called 1147 returned 100% blocks executed 100%
+     1147:  225:    void data_table_t::scan(vector::data_chunk_t& result, table_scan_state& state) { state.table_state.scan(result); }
+call    0 returned 1146
+        -:  226:
+function _ZN10components5table12data_table_t14scan_committedERNS_6vector12data_chunk_tERNS0_16table_scan_stateE called 381 returned 100% blocks executed 100%
+      381:  227:    void data_table_t::scan_committed(vector::data_chunk_t& result, table_scan_state& state) {
+        -:  228:        // Route through committed_version_operator (COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED)
+        -:  229:        // so resolve_* paths drop tombstoned rows. COMMITTED_ROWS skips the visibility filter
+        -:  230:        // entirely and would still see deleted entries.
+      381:  231:        state.table_state.scan_committed(result, table_scan_type::COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
+call    0 returned 381
+      381:  232:    }
+        -:  233:
+function _ZN10components5table12data_table_t12scan_batchedERKSt6vectorINS_5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS4_EEEPKS2_ImSaImEERS2_INS_6vector12data_chunk_tENS6_ISG_EEERNS0_16table_scan_stateEPNS5_15memory_resourceE called 16 returned 100% blocks executed 100%
+       16:  234:    void data_table_t::scan_batched(const std::pmr::vector<types::complex_logical_type>& types,
+        -:  235:                                    const std::vector<size_t>* projected_cols,
+        -:  236:                                    std::pmr::vector<vector::data_chunk_t>& batches,
+        -:  237:                                    table_scan_state& state,
+        -:  238:                                    std::pmr::memory_resource* resource) {
+       16:  239:        state.table_state.scan_batched(types, projected_cols, batches, resource);
+call    0 returned 16
+       16:  240:    }
+        -:  241:
+function _ZN10components5table12data_table_t22scan_row_group_batchedEmRKSt6vectorINS0_15storage_index_tESaIS3_EEPKNS0_14table_filter_tERKS2_INS_5types20complex_logical_typeENSt3pmr21polymorphic_allocatorISC_EEEPKS2_ImSaImEERS2_INS_6vector12data_chunk_tENSE_ISO_EEENS0_16transaction_dataEPNSD_15memory_resourceE called 26 returned 100% blocks executed 73%
+       26:  242:    bool data_table_t::scan_row_group_batched(uint64_t row_group_idx,
+        -:  243:                                              const std::vector<storage_index_t>& column_ids,
+        -:  244:                                              const table_filter_t* filter,
+        -:  245:                                              const std::pmr::vector<types::complex_logical_type>& types,
+        -:  246:                                              const std::vector<size_t>* projected_cols,
+        -:  247:                                              std::pmr::vector<vector::data_chunk_t>& batches,
+        -:  248:                                              transaction_data txn,
+        -:  249:                                              std::pmr::memory_resource* resource) {
+       26:  250:        auto* rg = row_groups_->row_group_tree()->segment_at(static_cast<int64_t>(row_group_idx));
+call    0 returned 26
+call    1 returned 26
+call    2 returned 26
+branch  3 taken 26 (fallthrough)
+branch  4 taken 0 (throw)
+       26:  251:        if (!rg) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 26
+    #####:  252:            return false;
+        -:  253:        }
+        -:  254:
+       26:  255:        table_scan_state state(resource);
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+       26:  256:        state.initialize(column_ids, filter);
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 26
+branch  4 taken 26 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 26
+call    7 never executed
+       26:  257:        state.table_state.txn = txn;
+       26:  258:        state.local_state.txn = txn;
+        -:  259:
+       26:  260:        const int64_t max_row = rg->start + static_cast<int64_t>(rg->count);
+call    0 returned 26
+       26:  261:        row_groups_->initialize_scan_with_offset(state.table_state, column_ids, rg->start, max_row);
+call    0 returned 26
+call    1 returned 26
+branch  2 taken 26 (fallthrough)
+branch  3 taken 0 (throw)
+       26:  262:        state.table_state.scan_batched(types, projected_cols, batches, resource);
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+       26:  263:        return true;
+       26:  264:    }
+call    0 returned 26
+call    1 never executed
+        -:  265:
+function _ZNK10components5table12data_table_t11max_threadsEv called 10 returned 100% blocks executed 92%
+       10:  266:    uint64_t data_table_t::max_threads() const {
+       10:  267:        const auto total_row_groups = row_groups_->row_group_tree()->segment_count();
+call    0 returned 10
+call    1 returned 10
+call    2 returned 10
+branch  3 taken 10 (fallthrough)
+branch  4 taken 0 (throw)
+       10:  268:        const auto hardware_threads = std::thread::hardware_concurrency();
+call    0 returned 10
+      10*:  269:        const uint64_t concurrency = hardware_threads == 0 ? 1 : static_cast<uint64_t>(hardware_threads);
+branch  0 taken 10 (fallthrough)
+branch  1 taken 0
+       10:  270:        return std::max<uint64_t>(1, std::min<uint64_t>(total_row_groups, concurrency));
+call    0 returned 10
+call    1 returned 10
+        -:  271:    }
+        -:  272:
+function _ZNK10components5table12data_table_t22supports_threaded_scanEv called 11 returned 100% blocks executed 100%
+       11:  273:    bool data_table_t::supports_threaded_scan() const {
+       39:  274:        for (auto* row_group = row_groups_->row_group_tree()->root_segment(); row_group;
+call    0 returned 11
+call    1 returned 11
+call    2 returned 11
+branch  3 taken 29
+branch  4 taken 10 (fallthrough)
+       28:  275:             row_group = row_groups_->row_group_tree()->next_segment(row_group)) {
+call    0 returned 28
+call    1 returned 28
+call    2 returned 28
+       29:  276:            if (!row_group->supports_threaded_scan()) {
+call    0 returned 29
+branch  1 taken 1 (fallthrough)
+branch  2 taken 28
+        1:  277:                return false;
+        -:  278:            }
+        -:  279:        }
+       10:  280:        return true;
+        -:  281:    }
+        -:  282:
+function _ZN10components5table12data_table_t17create_index_scanERNS0_16table_scan_stateERNS_6vector12data_chunk_tENS0_15table_scan_typeE called 0 returned 0% blocks executed 0%
+    #####:  283:    bool data_table_t::create_index_scan(table_scan_state& state, vector::data_chunk_t& result, table_scan_type type) {
+    #####:  284:        return state.table_state.scan_committed(result, type);
+call    0 never executed
+        -:  285:    }
+        -:  286:
+function _ZNK10components5table12data_table_t10table_nameB5cxx11Ev called 6 returned 100% blocks executed 100%
+        6:  287:    std::string data_table_t::table_name() const { return name_; }
+call    0 returned 6
+        -:  288:
+function _ZN10components5table12data_table_t14set_table_nameENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE called 0 returned 0% blocks executed 0%
+    #####:  289:    void data_table_t::set_table_name(std::string new_name) { name_ = std::move(new_name); }
+call    0 never executed
+call    1 never executed
+        -:  290:
+function _ZN10components5table12data_table_t5fetchERNS_6vector12data_chunk_tERKSt6vectorINS0_15storage_index_tESaIS6_EERKNS2_8vector_tEmRNS0_18column_fetch_stateE called 3 returned 100% blocks executed 100%
+        3:  291:    void data_table_t::fetch(vector::data_chunk_t& result,
+        -:  292:                             const std::vector<storage_index_t>& column_ids,
+        -:  293:                             const vector::vector_t& row_identifiers,
+        -:  294:                             uint64_t fetch_count,
+        -:  295:                             column_fetch_state& state) {
+        3:  296:        row_groups_->fetch(result, column_ids, row_identifiers, fetch_count, state);
+call    0 returned 3
+call    1 returned 3
+        3:  297:    }
+        -:  298:
+function _ZN10components5table12data_table_t5fetchERNS_6vector12data_chunk_tERKSt6vectorINS0_15storage_index_tESaIS6_EERKNS2_8vector_tEmNS0_16transaction_dataERNS0_18column_fetch_stateE called 0 returned 0% blocks executed 0%
+    #####:  299:    void data_table_t::fetch(vector::data_chunk_t& result,
+        -:  300:                             const std::vector<storage_index_t>& column_ids,
+        -:  301:                             const vector::vector_t& row_identifiers,
+        -:  302:                             uint64_t fetch_count,
+        -:  303:                             transaction_data txn,
+        -:  304:                             column_fetch_state& state) {
+    #####:  305:        row_groups_->fetch(result, column_ids, row_identifiers, fetch_count, txn, state);
+call    0 never executed
+call    1 never executed
+    #####:  306:    }
+        -:  307:
+function _ZN10components5table12data_table_t27initialize_constraint_stateERKSt6vectorISt10unique_ptrINS0_18bound_constraint_tESt14default_deleteIS4_EESaIS7_EE called 1 returned 100% blocks executed 100%
+        1:  308:    std::unique_ptr<constraint_state> data_table_t::initialize_constraint_state(
+        -:  309:        const std::vector<std::unique_ptr<bound_constraint_t>>& bound_constraints) {
+        1:  310:        return std::make_unique<constraint_state>(bound_constraints);
+call    0 returned 1
+        -:  311:    }
+        -:  312:
+function _ZN10components5table12data_table_t11append_lockERNS0_18table_append_stateE called 5882 returned 100% blocks executed 69%
+     5882:  313:    void data_table_t::append_lock(table_append_state& state) {
+     5882:  314:        state.append_lock = std::unique_lock(append_lock_);
+call    0 returned 5882
+call    1 returned 5882
+call    2 returned 5882
+     5882:  315:        if (!is_root_) {
+call    0 returned 5882
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5882
+    #####:  316:            throw std::logic_error("Transaction conflict: adding entries to a table that has been altered!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  317:        }
+     5882:  318:        state.row_start = static_cast<int64_t>(row_groups_->total_rows());
+call    0 returned 5882
+call    1 returned 5882
+     5882:  319:        state.current_row = state.row_start;
+     5882:  320:    }
+        -:  321:
+function _ZN10components5table12data_table_t17initialize_appendERNS0_18table_append_stateE called 5882 returned 100% blocks executed 60%
+     5882:  322:    void data_table_t::initialize_append(table_append_state& state) {
+     5882:  323:        if (!state.append_lock) {
+call    0 returned 5882
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5882
+    #####:  324:            throw std::logic_error("data_table_t::append_lock should be called before data_table_t::initialize_append");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  325:        }
+     5882:  326:        row_groups_->initialize_append(state);
+call    0 returned 5882
+call    1 returned 5882
+     5882:  327:    }
+        -:  328:
+function _ZN10components5table12data_table_t6appendERNS_6vector12data_chunk_tERNS0_18table_append_stateE called 5882 returned 100% blocks executed 83%
+     5882:  329:    void data_table_t::append(vector::data_chunk_t& chunk, table_append_state& state) {
+    5882*:  330:        assert(is_root_);
+call    0 returned 5882
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5882
+call    3 never executed
+     5882:  331:        row_groups_->append(chunk, state);
+call    0 returned 5882
+call    1 returned 5882
+     5882:  332:    }
+        -:  333:
+function _ZN10components5table12data_table_t15finalize_appendERNS0_18table_append_stateENS0_16transaction_dataE called 5882 returned 100% blocks executed 100%
+     5882:  334:    void data_table_t::finalize_append(table_append_state& state, transaction_data txn) {
+     5882:  335:        row_groups_->finalize_append(state, txn);
+call    0 returned 5882
+call    1 returned 5882
+     5882:  336:    }
+        -:  337:
+function _ZN10components5table12data_table_t13commit_appendEmlm called 11 returned 100% blocks executed 100%
+       11:  338:    void data_table_t::commit_append(uint64_t commit_id, int64_t row_start, uint64_t count) {
+       11:  339:        row_groups_->commit_append(commit_id, row_start, count);
+call    0 returned 11
+call    1 returned 11
+       11:  340:    }
+        -:  341:
+function _ZN10components5table12data_table_t13revert_appendElm called 6 returned 100% blocks executed 100%
+        6:  342:    void data_table_t::revert_append(int64_t row_start, uint64_t count) {
+        6:  343:        row_groups_->revert_append(row_start, count);
+call    0 returned 6
+call    1 returned 6
+        6:  344:    }
+        -:  345:
+function _ZN10components5table12data_table_t18commit_all_deletesEmm called 141 returned 100% blocks executed 100%
+      141:  346:    void data_table_t::commit_all_deletes(uint64_t txn_id, uint64_t commit_id) {
+      141:  347:        row_groups_->commit_all_deletes(txn_id, commit_id);
+call    0 returned 141
+call    1 returned 141
+      141:  348:    }
+        -:  349:
+function _ZN10components5table12data_table_t18scan_table_segmentElmRKSt8functionIFvRNS_6vector12data_chunk_tEEE called 26 returned 100% blocks executed 58%
+       26:  350:    void data_table_t::scan_table_segment(int64_t row_start,
+        -:  351:                                          uint64_t count,
+        -:  352:                                          const std::function<void(vector::data_chunk_t& chunk)>& function) {
+       26:  353:        if (count == 0) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 26
+    #####:  354:            return;
+        -:  355:        }
+       26:  356:        int64_t end = row_start + static_cast<int64_t>(count);
+        -:  357:
+       26:  358:        std::vector<storage_index_t> column_ids;
+call    0 returned 26
+       26:  359:        std::pmr::vector<types::complex_logical_type> types(resource_);
+call    0 returned 26
+call    1 returned 26
+       73:  360:        for (uint64_t i = 0; i < this->column_definitions_.size(); i++) {
+call    0 returned 73
+branch  1 taken 47
+branch  2 taken 26 (fallthrough)
+       47:  361:            auto& col = this->column_definitions_[i];
+call    0 returned 47
+       47:  362:            column_ids.emplace_back(i);
+call    0 returned 47
+branch  1 taken 47 (fallthrough)
+branch  2 taken 0 (throw)
+       47:  363:            types.push_back(col.type());
+call    0 returned 47
+branch  1 taken 47 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 47
+branch  4 taken 47 (fallthrough)
+branch  5 taken 0 (throw)
+        -:  364:        }
+       26:  365:        vector::data_chunk_t chunk(resource_, types);
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  366:
+       26:  367:        create_index_scan_state state(resource_);
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  368:
+       26:  369:        initialize_scan_with_offset(state, column_ids, row_start, row_start + static_cast<int64_t>(count));
+call    0 returned 26
+branch  1 taken 26 (fallthrough)
+branch  2 taken 0 (throw)
+       26:  370:        auto row_start_aligned = state.table_state.row_group->start +
+       26:  371:                                 static_cast<int64_t>(state.table_state.vector_index * vector::DEFAULT_VECTOR_CAPACITY);
+        -:  372:
+       26:  373:        int64_t current_row = row_start_aligned;
+       95:  374:        while (current_row < end) {
+branch  0 taken 69
+branch  1 taken 26 (fallthrough)
+       69:  375:            state.table_state.scan_committed(chunk, table_scan_type::COMMITTED_ROWS);
+call    0 returned 69
+branch  1 taken 69 (fallthrough)
+branch  2 taken 0 (throw)
+       69:  376:            if (chunk.size() == 0) {
+call    0 returned 69
+branch  1 taken 0 (fallthrough)
+branch  2 taken 69
+    #####:  377:                break;
+        -:  378:            }
+       69:  379:            int64_t end_row = current_row + static_cast<int64_t>(chunk.size());
+call    0 returned 69
+       69:  380:            int64_t chunk_start = std::max(current_row, row_start);
+call    0 returned 69
+       69:  381:            int64_t chunk_end = std::min(end_row, end);
+call    0 returned 69
+      69*:  382:            assert(chunk_start < chunk_end);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 69
+call    2 never executed
+       69:  383:            uint64_t chunk_count = static_cast<uint64_t>(chunk_end - chunk_start);
+       69:  384:            if (chunk_count != chunk.size()) {
+call    0 returned 69
+branch  1 taken 0 (fallthrough)
+branch  2 taken 69
+    #####:  385:                assert(chunk_count <= chunk.size());
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+        -:  386:                uint64_t start_in_chunk;
+    #####:  387:                if (current_row >= row_start) {
+branch  0 never executed
+branch  1 never executed
+    #####:  388:                    start_in_chunk = 0;
+        -:  389:                } else {
+    #####:  390:                    start_in_chunk = static_cast<uint64_t>(row_start - current_row);
+        -:  391:                }
+    #####:  392:                auto sliced = chunk.partial_copy(resource_, start_in_chunk, chunk_count);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  393:                function(sliced);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  394:            } else {
+call    0 never executed
+call    1 never executed
+       69:  395:                function(chunk);
+call    0 returned 69
+branch  1 taken 69 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  396:            }
+       69:  397:            chunk.reset();
+call    0 returned 69
+branch  1 taken 69 (fallthrough)
+branch  2 taken 0 (throw)
+       69:  398:            current_row = end_row;
+        -:  399:        }
+       26:  400:    }
+call    0 returned 26
+call    1 returned 26
+call    2 returned 26
+call    3 returned 26
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+        -:  401:
+        -:  402:    std::shared_ptr<parallel_table_scan_state_t>
+function _ZN10components5table12data_table_t26create_parallel_scan_stateERKSt6vectorINS0_15storage_index_tESaIS3_EEPKNS0_14table_filter_tE called 8 returned 100% blocks executed 100%
+        8:  403:    data_table_t::create_parallel_scan_state(const std::vector<storage_index_t>& column_ids,
+        -:  404:                                             const table_filter_t* filter) {
+        8:  405:        auto total_rg = row_groups_->row_group_tree()->segment_count();
+call    0 returned 8
+call    1 returned 8
+call    2 returned 8
+branch  3 taken 8 (fallthrough)
+branch  4 taken 0 (throw)
+       16:  406:        return std::make_shared<parallel_table_scan_state_t>(column_ids, filter, total_rg);
+call    0 returned 8
+branch  1 taken 8 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  407:    }
+        -:  408:
+function _ZN10components5table12data_table_t19next_parallel_chunkERNS0_27parallel_table_scan_state_tERNS0_16table_scan_stateERNS_6vector12data_chunk_tE called 133 returned 100% blocks executed 84%
+      133:  409:    bool data_table_t::next_parallel_chunk(parallel_table_scan_state_t& parallel_state,
+        -:  410:                                           table_scan_state& local_state,
+        -:  411:                                           vector::data_chunk_t& result) {
+        -:  412:        while (true) {
+      133:  413:            auto rg_idx = parallel_state.next_row_group_idx.fetch_add(1);
+      133:  414:            if (rg_idx >= parallel_state.total_row_groups) {
+branch  0 taken 19 (fallthrough)
+branch  1 taken 114
+       19:  415:                return false;
+        -:  416:            }
+        -:  417:
+      114:  418:            auto* rg = row_groups_->row_group_tree()->segment_at(static_cast<int64_t>(rg_idx));
+call    0 returned 114
+call    1 returned 114
+call    2 returned 114
+      114:  419:            if (!rg) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 114
+    #####:  420:                return false;
+        -:  421:            }
+        -:  422:
+      114:  423:            local_state.initialize(parallel_state.column_ids, parallel_state.filter);
+call    0 returned 114
+call    1 returned 114
+branch  2 taken 114 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 114
+call    5 never executed
+      114:  424:            int64_t max_row = rg->start + static_cast<int64_t>(rg->count);
+call    0 returned 114
+      114:  425:            collection_t::initialize_scan_in_row_group(local_state.local_state, *row_groups_, *rg, 0, max_row);
+call    0 returned 114
+call    1 returned 114
+        -:  426:
+      114:  427:            result.reset();
+call    0 returned 114
+      114:  428:            local_state.local_state.scan_committed(result, table_scan_type::COMMITTED_ROWS);
+call    0 returned 114
+      114:  429:            if (result.size() > 0) {
+call    0 returned 114
+branch  1 taken 114 (fallthrough)
+branch  2 taken 0
+      114:  430:                return true;
+        -:  431:            }
+        -:  432:            // Empty row group (all deleted) — skip and try next
+    #####:  433:        }
+        -:  434:    }
+        -:  435:
+function _ZN10components5table12data_table_t13merge_storageERNS0_12collection_tE called 0 returned 0% blocks executed 0%
+    #####:  436:    void data_table_t::merge_storage(collection_t& data) { row_groups_->merge_storage(data); }
+call    0 never executed
+call    1 never executed
+        -:  437:
+        -:  438:    std::unique_ptr<table_delete_state>
+function _ZN10components5table12data_table_t17initialize_deleteERKSt6vectorISt10unique_ptrINS0_18bound_constraint_tESt14default_deleteIS4_EESaIS7_EE called 178 returned 100% blocks executed 32%
+      178:  439:    data_table_t::initialize_delete(const std::vector<std::unique_ptr<bound_constraint_t>>& bound_constraints) {
+      178:  440:        std::pmr::vector<types::complex_logical_type> types(resource_);
+call    0 returned 178
+call    1 returned 178
+      178:  441:        auto result = std::make_unique<table_delete_state>(resource_);
+call    0 returned 178
+branch  1 taken 178 (fallthrough)
+branch  2 taken 0 (throw)
+      178:  442:        if (result->has_delete_constraints) {
+call    0 returned 178
+branch  1 taken 0 (fallthrough)
+branch  2 taken 178
+    #####:  443:            for (uint64_t i = 0; i < column_definitions_.size(); i++) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  444:                result->col_ids.emplace_back(column_definitions_[i].storage_oid());
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+branch  6 never executed
+branch  7 never executed
+    #####:  445:                types.emplace_back(column_definitions_[i].type());
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+branch  5 never executed
+branch  6 never executed
+        -:  446:            }
+    #####:  447:            result->constraint = std::make_unique<constraint_state>(bound_constraints);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+        -:  448:        }
+      356:  449:        return result;
+      178:  450:    }
+call    0 returned 178
+call    1 never executed
+call    2 never executed
+        -:  451:
+function _ZN10components5table12data_table_t11delete_rowsERNS0_18table_delete_stateERNS_6vector8vector_tEmm called 185 returned 100% blocks executed 80%
+      185:  452:    uint64_t data_table_t::delete_rows(table_delete_state&,
+        -:  453:                                       vector::vector_t& row_identifiers,
+        -:  454:                                       uint64_t count,
+        -:  455:                                       uint64_t transaction_id) {
+     185*:  456:        assert(row_identifiers.type().type() == types::logical_type::BIGINT);
+call    0 returned 185
+call    1 returned 185
+branch  2 taken 0 (fallthrough)
+branch  3 taken 185
+call    4 never executed
+      185:  457:        if (count == 0) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 185
+    #####:  458:            return 0;
+        -:  459:        }
+        -:  460:
+      185:  461:        row_identifiers.flatten(count);
+call    0 returned 185
+      185:  462:        auto ids = row_identifiers.data<int64_t>();
+call    0 returned 185
+        -:  463:
+      185:  464:        uint64_t pos = 0;
+      185:  465:        uint64_t delete_count = 0;
+      370:  466:        while (pos < count) {
+branch  0 taken 185
+branch  1 taken 185 (fallthrough)
+      185:  467:            uint64_t start = pos;
+      185:  468:            bool is_transaction_delete = static_cast<uint64_t>(ids[pos]) >= MAX_ROW_ID;
+     2525:  469:            for (pos++; pos < count; pos++) {
+branch  0 taken 2340
+branch  1 taken 185 (fallthrough)
+     2340:  470:                bool row_is_transaction_delete = static_cast<uint64_t>(ids[pos]) >= MAX_ROW_ID;
+     2340:  471:                if (row_is_transaction_delete != is_transaction_delete) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 2340
+    #####:  472:                    break;
+        -:  473:                }
+        -:  474:            }
+      185:  475:            uint64_t current_offset = start;
+      185:  476:            uint64_t current_count = pos - start;
+        -:  477:
+      185:  478:            vector::vector_t offset_ids(row_identifiers, current_offset, pos);
+call    0 returned 185
+branch  1 taken 185 (fallthrough)
+branch  2 taken 0 (throw)
+      185:  479:            delete_count += row_groups_->delete_rows(*this, ids + current_offset, current_count, transaction_id);
+call    0 returned 185
+call    1 returned 185
+branch  2 taken 185 (fallthrough)
+branch  3 taken 0 (throw)
+      185:  480:        }
+call    0 returned 185
+call    1 never executed
+      185:  481:        return delete_count;
+        -:  482:    }
+        -:  483:
+        -:  484:    std::unique_ptr<table_update_state>
+function _ZN10components5table12data_table_t17initialize_updateERKSt6vectorISt10unique_ptrINS0_18bound_constraint_tESt14default_deleteIS4_EESaIS7_EE called 1 returned 100% blocks executed 89%
+        1:  485:    data_table_t::initialize_update(const std::vector<std::unique_ptr<bound_constraint_t>>& bound_constraints) {
+        1:  486:        auto result = std::make_unique<table_update_state>();
+call    0 returned 1
+        1:  487:        result->constraint = initialize_constraint_state(bound_constraints);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+call    4 returned 1
+call    5 returned 1
+        1:  488:        return result;
+    =====:  489:    }
+call    0 never executed
+        -:  490:
+function _ZN10components5table12data_table_t6updateERNS0_18table_update_stateERNS_6vector8vector_tERNS4_12data_chunk_tE called 1 returned 100% blocks executed 60%
+        1:  491:    void data_table_t::update(table_update_state&,
+        -:  492:                              vector::vector_t& row_ids,
+        -:  493:                              // const std::vector<uint64_t>& column_ids,
+        -:  494:                              vector::data_chunk_t& data) {
+       1*:  495:        assert(row_ids.type().to_physical_type() == types::physical_type::INT64);
+call    0 returned 1
+call    1 returned 1
+branch  2 taken 1 (fallthrough)
+branch  3 taken 0 (throw)
+branch  4 taken 0 (fallthrough)
+branch  5 taken 1
+call    6 never executed
+        -:  496:
+        1:  497:        uint64_t count = data.size();
+call    0 returned 1
+        1:  498:        if (count == 0) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 1
+    #####:  499:            return;
+        -:  500:        }
+        -:  501:        vector::vector_t max_row_id_vec(resource_,
+        1:  502:                                        types::logical_value_t(resource_, static_cast<int64_t>(MAX_ROW_ID)),
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  503:                                        count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        2:  504:        vector::vector_t row_ids_slice(resource_, types::logical_type::BIGINT, count);
+call    0 returned 1
+call    1 returned 1
+branch  2 taken 1 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 1
+branch  5 taken 1 (fallthrough)
+branch  6 taken 0 (throw)
+call    7 returned 1
+branch  8 taken 1 (fallthrough)
+branch  9 taken 0 (throw)
+call   10 returned 1
+call   11 returned 1
+        1:  505:        vector::data_chunk_t updates_slice(resource_, data.types(), count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+        1:  506:        vector::indexing_vector_t sel_local_update(resource_, count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  507:        vector::indexing_vector_t sel_global_update(resource_, count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  508:
+        1:  509:        auto update_count = count - vector::vector_ops::compare<std::greater_equal<>>(row_ids,
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  510:                                                                                      max_row_id_vec,
+        -:  511:                                                                                      count,
+        -:  512:                                                                                      &sel_local_update,
+        1:  513:                                                                                      &sel_global_update);
+        1:  514:        if (update_count > 0) {
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        1:  515:            updates_slice.slice(data, sel_global_update, update_count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  516:            updates_slice.flatten();
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  517:            row_ids_slice.slice(row_ids, sel_global_update, update_count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  518:            row_ids_slice.flatten(update_count);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  519:
+        -:  520:            // For now ids are fixed
+        1:  521:            std::vector<uint64_t> column_ids;
+call    0 returned 1
+        1:  522:            column_ids.reserve(column_count());
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+        2:  523:            for (size_t i = 0; i < column_count(); i++) {
+call    0 returned 2
+branch  1 taken 2 (fallthrough)
+branch  2 taken 0 (throw)
+branch  3 taken 1
+branch  4 taken 1 (fallthrough)
+        1:  524:                column_ids.emplace_back(i);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  525:            }
+        1:  526:            row_groups_->update(row_ids_slice.data<int64_t>(), column_ids, updates_slice);
+call    0 returned 1
+call    1 returned 1
+call    2 returned 1
+branch  3 taken 1 (fallthrough)
+branch  4 taken 0 (throw)
+        1:  527:        }
+call    0 returned 1
+call    1 never executed
+        1:  528:    }
+call    0 returned 1
+call    1 returned 1
+call    2 returned 1
+call    3 returned 1
+call    4 returned 1
+call    5 never executed
+call    6 never executed
+call    7 never executed
+call    8 never executed
+call    9 never executed
+        -:  529:
+function _ZN10components5table12data_table_t13update_columnERNS_6vector8vector_tERKSt6vectorImSaImEERNS2_12data_chunk_tE called 107 returned 100% blocks executed 70%
+      107:  530:    void data_table_t::update_column(vector::vector_t& row_ids,
+        -:  531:                                     const std::vector<uint64_t>& column_path,
+        -:  532:                                     vector::data_chunk_t& updates) {
+     107*:  533:        assert(row_ids.type().type() == types::logical_type::BIGINT);
+call    0 returned 107
+call    1 returned 107
+branch  2 taken 0 (fallthrough)
+branch  3 taken 107
+call    4 never executed
+     107*:  534:        assert(updates.column_count() == 1);
+call    0 returned 107
+branch  1 taken 0 (fallthrough)
+branch  2 taken 107
+call    3 never executed
+      107:  535:        if (updates.size() == 0) {
+call    0 returned 107
+branch  1 taken 0 (fallthrough)
+branch  2 taken 107
+    #####:  536:            return;
+        -:  537:        }
+        -:  538:
+      107:  539:        if (!is_root_) {
+call    0 returned 107
+branch  1 taken 0 (fallthrough)
+branch  2 taken 107
+    #####:  540:            throw std::logic_error("Transaction conflict: cannot update a table that has been altered!");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  541:        }
+        -:  542:
+      107:  543:        updates.flatten();
+call    0 returned 107
+      107:  544:        row_ids.flatten(updates.size());
+call    0 returned 107
+call    1 returned 107
+      107:  545:        row_groups_->update_column(row_ids, column_path, updates);
+call    0 returned 107
+call    1 returned 107
+        -:  546:    }
+        -:  547:
+function _ZNK10components5table12data_table_t12column_countEv called 950 returned 100% blocks executed 100%
+      950:  548:    uint64_t data_table_t::column_count() const { return column_definitions_.size(); }
+call    0 returned 950
+        -:  549:
+function _ZN10components5table12data_table_t23get_column_segment_infoEv called 0 returned 0% blocks executed 0%
+    #####:  550:    std::vector<column_segment_info> data_table_t::get_column_segment_info() {
+    #####:  551:        return row_groups_->get_column_segment_info();
+call    0 never executed
+call    1 never executed
+        -:  552:    }
+        -:  553:
+function _ZN10components5table12data_table_t10checkpointERNS0_7storage17metadata_writer_tE called 1709 returned 100% blocks executed 81%
+     1709:  554:    void data_table_t::checkpoint(storage::metadata_writer_t& writer) {
+     1709:  555:        storage::partial_block_manager_t partial_block_manager(row_groups_->block_manager());
+call    0 returned 1709
+call    1 returned 1709
+call    2 returned 1709
+branch  3 taken 1709 (fallthrough)
+branch  4 taken 0 (throw)
+        -:  556:
+     1709:  557:        auto row_group_pointers = row_groups_->checkpoint(partial_block_manager);
+call    0 returned 1709
+call    1 returned 1709
+branch  2 taken 1707 (fallthrough)
+branch  3 taken 2 (throw)
+     1707:  558:        bool has_column_type_metadata = false;
+    10147:  559:        for (const auto& column_def : column_definitions_) {
+call    0 returned 1707
+call    1 returned 1707
+call    2 returned 8448
+call    3 returned 8440
+call    4 returned 10147
+branch  5 taken 8448
+branch  6 taken 1699 (fallthrough)
+     8448:  560:            if (requires_column_type_metadata(column_def.type())) {
+call    0 returned 8448
+branch  1 taken 8448 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 8448
+branch  4 taken 8448 (fallthrough)
+branch  5 taken 0 (throw)
+branch  6 taken 8 (fallthrough)
+branch  7 taken 8440
+        8:  561:                has_column_type_metadata = true;
+        8:  562:                break;
+        -:  563:            }
+        -:  564:        }
+     1707:  565:        bool has_layout_metadata = false;
+     1849:  566:        for (const auto& pointer : row_group_pointers) {
+call    0 returned 1707
+call    1 returned 1707
+call    2 returned 969
+call    3 returned 142
+call    4 returned 1849
+branch  5 taken 969
+branch  6 taken 880 (fallthrough)
+      969:  567:            if (pointer.layout_kind != storage::row_group_layout_kind::COLUMNAR) {
+branch  0 taken 827 (fallthrough)
+branch  1 taken 142
+      827:  568:                has_layout_metadata = true;
+      827:  569:                break;
+        -:  570:            }
+        -:  571:        }
+     1707:  572:        const bool has_layout_policy_metadata = row_groups_->block_manager().layout_policy() != storage::row_group_layout_policy::AUTO;
+call    0 returned 1707
+call    1 returned 1707
+call    2 returned 1707
+        -:  573:
+        -:  574:        // write table metadata
+     1707:  575:        writer.write_string(name_);
+call    0 returned 1707
+branch  1 taken 1707 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  576:
+        -:  577:        // write column definitions
+     1707:  578:        auto column_count = static_cast<uint32_t>(column_definitions_.size());
+call    0 returned 1707
+     1707:  579:        if (has_column_type_metadata) {
+branch  0 taken 8 (fallthrough)
+branch  1 taken 1699
+        8:  580:            column_count |= TABLE_COLUMN_TYPES_METADATA_FLAG;
+        -:  581:        }
+     1707:  582:        writer.write<uint32_t>(column_count);
+call    0 returned 1707
+branch  1 taken 1707 (fallthrough)
+branch  2 taken 0 (throw)
+    10164:  583:        for (const auto& col : column_definitions_) {
+call    0 returned 1707
+call    1 returned 1707
+call    2 returned 8457
+call    3 returned 10164
+branch  4 taken 8457
+branch  5 taken 1707 (fallthrough)
+     8457:  584:            writer.write_string(col.name());
+call    0 returned 8457
+branch  1 taken 8457 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 8457
+branch  4 taken 8457 (fallthrough)
+branch  5 taken 0 (throw)
+     8457:  585:            writer.write<uint8_t>(static_cast<uint8_t>(col.type().type()));
+call    0 returned 8457
+branch  1 taken 8457 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 8457
+call    4 returned 8457
+branch  5 taken 8457 (fallthrough)
+branch  6 taken 0 (throw)
+     8457:  586:            writer.write<uint8_t>(col.is_not_null() ? 1 : 0);
+call    0 returned 8457
+branch  1 taken 8457 (fallthrough)
+branch  2 taken 0 (throw)
+branch  3 taken 6099 (fallthrough)
+branch  4 taken 2358
+call    5 returned 8457
+branch  6 taken 8457 (fallthrough)
+branch  7 taken 0 (throw)
+call    8 returned 8457
+        -:  587:        }
+        -:  588:
+     1707:  589:        if (has_column_type_metadata) {
+branch  0 taken 8 (fallthrough)
+branch  1 taken 1699
+        8:  590:            writer.write<uint32_t>(COLUMN_TYPES_METADATA_MAGIC);
+call    0 returned 8
+branch  1 taken 8 (fallthrough)
+branch  2 taken 0 (throw)
+        8:  591:            writer.write<uint32_t>(static_cast<uint32_t>(column_definitions_.size()));
+call    0 returned 8
+call    1 returned 8
+branch  2 taken 8 (fallthrough)
+branch  3 taken 0 (throw)
+       47:  592:            for (const auto& col : column_definitions_) {
+call    0 returned 8
+call    1 returned 8
+call    2 returned 39
+call    3 returned 47
+branch  4 taken 39
+branch  5 taken 8 (fallthrough)
+       39:  593:                writer.write_string(components::types::encode_type_spec(col.type()));
+call    0 returned 39
+branch  1 taken 39 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 39
+branch  4 taken 39 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 39
+branch  7 taken 39 (fallthrough)
+branch  8 taken 0 (throw)
+call    9 returned 39
+call   10 returned 39
+call   11 never executed
+        -:  594:            }
+        -:  595:        }
+        -:  596:
+        -:  597:        // write row group count and pointers
+     1707:  598:        auto row_group_count = static_cast<uint32_t>(row_group_pointers.size());
+call    0 returned 1707
+     1707:  599:        if (has_layout_metadata) {
+branch  0 taken 827 (fallthrough)
+branch  1 taken 880
+      827:  600:            row_group_count |= TABLE_LAYOUT_METADATA_FLAG;
+        -:  601:        }
+     1707:  602:        if (has_layout_policy_metadata) {
+branch  0 taken 241 (fallthrough)
+branch  1 taken 1466
+      241:  603:            row_group_count |= TABLE_LAYOUT_POLICY_METADATA_FLAG;
+        -:  604:        }
+     1707:  605:        writer.write<uint32_t>(row_group_count);
+call    0 returned 1707
+branch  1 taken 1707 (fallthrough)
+branch  2 taken 0 (throw)
+     2960:  606:        for (const auto& rgp : row_group_pointers) {
+call    0 returned 1707
+call    1 returned 1707
+call    2 returned 1253
+call    3 returned 1253
+call    4 returned 2960
+branch  5 taken 1253
+branch  6 taken 1707 (fallthrough)
+     1253:  607:            rgp.serialize(writer);
+call    0 returned 1253
+branch  1 taken 1253 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  608:        }
+        -:  609:
+     1707:  610:        if (has_layout_metadata) {
+branch  0 taken 827 (fallthrough)
+branch  1 taken 880
+      827:  611:            writer.write<uint32_t>(ROW_GROUP_LAYOUTS_MAGIC);
+call    0 returned 827
+branch  1 taken 827 (fallthrough)
+branch  2 taken 0 (throw)
+      827:  612:            writer.write<uint32_t>(static_cast<uint32_t>(row_group_pointers.size()));
+call    0 returned 827
+call    1 returned 827
+branch  2 taken 827 (fallthrough)
+branch  3 taken 0 (throw)
+     1938:  613:            for (const auto& rgp : row_group_pointers) {
+call    0 returned 827
+call    1 returned 827
+call    2 returned 1111
+call    3 returned 1111
+call    4 returned 1938
+branch  5 taken 1111
+branch  6 taken 827 (fallthrough)
+     1111:  614:                writer.write<uint8_t>(static_cast<uint8_t>(rgp.layout_kind));
+call    0 returned 1111
+branch  1 taken 1111 (fallthrough)
+branch  2 taken 0 (throw)
+     1111:  615:                if (rgp.layout_kind == storage::row_group_layout_kind::PAX_FIXED) {
+branch  0 taken 443 (fallthrough)
+branch  1 taken 668
+      443:  616:                    if (!rgp.pax_fixed_layout.has_value()) {
+call    0 returned 443
+branch  1 taken 0 (fallthrough)
+branch  2 taken 443
+    #####:  617:                        throw std::logic_error("missing pax_fixed layout metadata for PAX row group");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  618:                    }
+      443:  619:                    rgp.pax_fixed_layout->serialize(writer);
+call    0 returned 443
+call    1 returned 443
+branch  2 taken 443 (fallthrough)
+branch  3 taken 0 (throw)
+      668:  620:                } else if (rgp.layout_kind == storage::row_group_layout_kind::PAX_GENERIC) {
+branch  0 taken 668 (fallthrough)
+branch  1 taken 0
+      668:  621:                    if (!rgp.pax_generic_layout.has_value()) {
+call    0 returned 668
+branch  1 taken 0 (fallthrough)
+branch  2 taken 668
+    #####:  622:                        throw std::logic_error("missing pax_generic layout metadata for PAX row group");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  623:                    }
+      668:  624:                    rgp.pax_generic_layout->serialize(writer);
+call    0 returned 668
+call    1 returned 668
+branch  2 taken 668 (fallthrough)
+branch  3 taken 0 (throw)
+        -:  625:                }
+        -:  626:            }
+        -:  627:        }
+        -:  628:
+     1707:  629:        if (has_layout_policy_metadata) {
+branch  0 taken 241 (fallthrough)
+branch  1 taken 1466
+      241:  630:            writer.write<uint32_t>(TABLE_LAYOUT_POLICY_MAGIC);
+call    0 returned 241
+branch  1 taken 241 (fallthrough)
+branch  2 taken 0 (throw)
+      241:  631:            writer.write<uint8_t>(static_cast<uint8_t>(row_groups_->block_manager().layout_policy()));
+call    0 returned 241
+call    1 returned 241
+call    2 returned 241
+call    3 returned 241
+branch  4 taken 241 (fallthrough)
+branch  5 taken 0 (throw)
+        -:  632:        }
+        -:  633:
+     1707:  634:        writer.flush();
+call    0 returned 1707
+branch  1 taken 1707 (fallthrough)
+branch  2 taken 0 (throw)
+     1709:  635:    }
+call    0 returned 1707
+call    1 returned 1707
+call    2 never executed
+call    3 returned 2
+        -:  636:
+function _ZN10components5table12data_table_t14load_from_diskEPNSt3pmr15memory_resourceERNS0_7storage15block_manager_tERNS5_17metadata_reader_tE called 557 returned 100% blocks executed 66%
+      557:  637:    std::unique_ptr<data_table_t> data_table_t::load_from_disk(std::pmr::memory_resource* resource,
+        -:  638:                                                               storage::block_manager_t& block_manager,
+        -:  639:                                                               storage::metadata_reader_t& reader) {
+      557:  640:        auto name = reader.read_string();
+call    0 returned 557
+branch  1 taken 557 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  641:
+      557:  642:        auto col_count_value = reader.read<uint32_t>();
+call    0 returned 557
+branch  1 taken 557 (fallthrough)
+branch  2 taken 0 (throw)
+      557:  643:        bool has_column_type_metadata = (col_count_value & TABLE_COLUMN_TYPES_METADATA_FLAG) != 0;
+      557:  644:        auto col_count = col_count_value & ~TABLE_COLUMN_TYPES_METADATA_FLAG;
+      557:  645:        std::vector<column_definition_t> columns;
+call    0 returned 557
+      557:  646:        columns.reserve(col_count);
+call    0 returned 557
+branch  1 taken 557 (fallthrough)
+branch  2 taken 0 (throw)
+     2673:  647:        for (uint32_t i = 0; i < col_count; i++) {
+branch  0 taken 2116
+branch  1 taken 557 (fallthrough)
+     2116:  648:            auto col_name = reader.read_string();
+call    0 returned 2116
+branch  1 taken 2116 (fallthrough)
+branch  2 taken 0 (throw)
+     2116:  649:            auto logical_type = static_cast<types::logical_type>(reader.read<uint8_t>());
+call    0 returned 2116
+branch  1 taken 2116 (fallthrough)
+branch  2 taken 0 (throw)
+     2116:  650:            auto not_null = reader.read<uint8_t>() != 0;
+call    0 returned 2116
+branch  1 taken 2116 (fallthrough)
+branch  2 taken 0 (throw)
+     4232:  651:            types::complex_logical_type col_type(logical_type);
+call    0 returned 2116
+call    1 returned 2116
+branch  2 taken 2116 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 2116
+branch  5 taken 2116 (fallthrough)
+branch  6 taken 0 (throw)
+call    7 returned 2116
+     2116:  652:            col_type.set_alias(col_name);
+call    0 returned 2116
+branch  1 taken 2116 (fallthrough)
+branch  2 taken 0 (throw)
+     2116:  653:            columns.emplace_back(col_name, std::move(col_type), not_null);
+call    0 returned 2116
+call    1 returned 2116
+branch  2 taken 2116 (fallthrough)
+branch  3 taken 0 (throw)
+     2116:  654:        }
+call    0 returned 2116
+call    1 returned 2116
+call    2 never executed
+call    3 never executed
+        -:  655:
+      557:  656:        if (has_column_type_metadata) {
+branch  0 taken 8 (fallthrough)
+branch  1 taken 549
+        8:  657:            auto magic = reader.read<uint32_t>();
+call    0 returned 8
+branch  1 taken 8 (fallthrough)
+branch  2 taken 0 (throw)
+        8:  658:            if (magic != COLUMN_TYPES_METADATA_MAGIC) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 8
+    #####:  659:                throw std::logic_error("unknown table column types metadata extension section");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  660:            }
+        8:  661:            auto type_count = reader.read<uint32_t>();
+call    0 returned 8
+branch  1 taken 8 (fallthrough)
+branch  2 taken 0 (throw)
+        8:  662:            if (type_count != columns.size()) {
+call    0 returned 8
+branch  1 taken 0 (fallthrough)
+branch  2 taken 8
+    #####:  663:                throw std::logic_error("table column types metadata count mismatch");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  664:            }
+       47:  665:            for (uint32_t i = 0; i < type_count; i++) {
+branch  0 taken 39
+branch  1 taken 8 (fallthrough)
+       39:  666:                auto type_spec = reader.read_string();
+call    0 returned 39
+branch  1 taken 39 (fallthrough)
+branch  2 taken 0 (throw)
+       39:  667:                if (type_spec.empty()) {
+call    0 returned 39
+branch  1 taken 21 (fallthrough)
+branch  2 taken 18
+       21:  668:                    continue;
+        -:  669:                }
+       18:  670:                auto full_type = components::types::decode_type_spec(resource, type_spec);
+call    0 returned 18
+call    1 returned 18
+branch  2 taken 18 (fallthrough)
+branch  3 taken 0 (throw)
+       18:  671:                full_type.set_alias(columns[i].name());
+call    0 returned 18
+call    1 returned 18
+branch  2 taken 18 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 18
+branch  5 taken 18 (fallthrough)
+branch  6 taken 0 (throw)
+       18:  672:                columns[i].type() = std::move(full_type);
+call    0 returned 18
+call    1 returned 18
+call    2 returned 18
+branch  3 taken 18 (fallthrough)
+branch  4 taken 0 (throw)
+call    5 returned 18
+       39:  673:            }
+call    0 returned 18
+call    1 returned 39
+branch  2 taken 18 (fallthrough)
+branch  3 taken 21
+call    4 never executed
+call    5 never executed
+        -:  674:        }
+        -:  675:
+      557:  676:        auto table = std::make_unique<data_table_t>(resource, block_manager, std::move(columns), std::move(name));
+call    0 returned 557
+call    1 returned 557
+call    2 returned 557
+branch  3 taken 557 (fallthrough)
+branch  4 taken 0 (throw)
+        -:  677:
+      557:  678:        auto row_group_count = reader.read<uint32_t>();
+call    0 returned 557
+branch  1 taken 557 (fallthrough)
+branch  2 taken 0 (throw)
+      557:  679:        bool has_layout_metadata = (row_group_count & TABLE_LAYOUT_METADATA_FLAG) != 0;
+      557:  680:        bool has_layout_policy_metadata = (row_group_count & TABLE_LAYOUT_POLICY_METADATA_FLAG) != 0;
+      557:  681:        auto rg_count = row_group_count & ~(TABLE_LAYOUT_METADATA_FLAG | TABLE_LAYOUT_POLICY_METADATA_FLAG);
+      557:  682:        std::vector<storage::row_group_pointer_t> row_group_pointers;
+call    0 returned 557
+      557:  683:        row_group_pointers.reserve(rg_count);
+call    0 returned 557
+branch  1 taken 557 (fallthrough)
+branch  2 taken 0 (throw)
+     1364:  684:        for (uint32_t i = 0; i < rg_count; i++) {
+branch  0 taken 807
+branch  1 taken 557 (fallthrough)
+      807:  685:            row_group_pointers.push_back(storage::row_group_pointer_t::deserialize(reader));
+call    0 returned 807
+branch  1 taken 807 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 807
+branch  4 taken 807 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 807
+call    7 never executed
+        -:  686:        }
+        -:  687:
+      557:  688:        if (has_layout_metadata) {
+branch  0 taken 383 (fallthrough)
+branch  1 taken 174
+      383:  689:            auto magic = reader.read<uint32_t>();
+call    0 returned 383
+branch  1 taken 383 (fallthrough)
+branch  2 taken 0 (throw)
+      383:  690:            if (magic != ROW_GROUP_LAYOUTS_MAGIC) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 383
+    #####:  691:                throw std::logic_error("unknown table metadata extension section");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  692:            }
+      383:  693:            auto layout_count = reader.read<uint32_t>();
+call    0 returned 383
+branch  1 taken 383 (fallthrough)
+branch  2 taken 0 (throw)
+      383:  694:            if (layout_count != row_group_pointers.size()) {
+call    0 returned 383
+branch  1 taken 0 (fallthrough)
+branch  2 taken 383
+    #####:  695:                throw std::logic_error("row group layout metadata count mismatch");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  696:            }
+     1050:  697:            for (uint32_t i = 0; i < layout_count; i++) {
+branch  0 taken 667
+branch  1 taken 383 (fallthrough)
+      667:  698:                auto layout_kind = static_cast<storage::row_group_layout_kind>(reader.read<uint8_t>());
+call    0 returned 667
+branch  1 taken 667 (fallthrough)
+branch  2 taken 0 (throw)
+      667:  699:                row_group_pointers[i].layout_kind = layout_kind;
+call    0 returned 667
+      667:  700:                if (layout_kind == storage::row_group_layout_kind::PAX_FIXED) {
+branch  0 taken 440 (fallthrough)
+branch  1 taken 227
+      440:  701:                    row_group_pointers[i].pax_fixed_layout = storage::pax_fixed_row_group_layout_t::deserialize(reader);
+call    0 returned 440
+branch  1 taken 440 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 440
+call    4 returned 440
+call    5 returned 440
+      440:  702:                    row_group_pointers[i].pax_generic_layout.reset();
+call    0 returned 440
+call    1 returned 440
+      227:  703:                } else if (layout_kind == storage::row_group_layout_kind::PAX_GENERIC) {
+branch  0 taken 227 (fallthrough)
+branch  1 taken 0
+      227:  704:                    row_group_pointers[i].pax_generic_layout =
+call    0 returned 227
+      454:  705:                        storage::pax_generic_row_group_layout_t::deserialize(reader);
+call    0 returned 227
+branch  1 taken 227 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 227
+call    4 returned 227
+      227:  706:                    row_group_pointers[i].pax_fixed_layout.reset();
+call    0 returned 227
+call    1 returned 227
+        -:  707:                } else {
+    #####:  708:                    row_group_pointers[i].pax_fixed_layout.reset();
+call    0 never executed
+call    1 never executed
+    #####:  709:                    row_group_pointers[i].pax_generic_layout.reset();
+call    0 never executed
+call    1 never executed
+        -:  710:                }
+        -:  711:            }
+        -:  712:        }
+        -:  713:
+      557:  714:        if (has_layout_policy_metadata) {
+branch  0 taken 240 (fallthrough)
+branch  1 taken 317
+      240:  715:            auto magic = reader.read<uint32_t>();
+call    0 returned 240
+branch  1 taken 240 (fallthrough)
+branch  2 taken 0 (throw)
+      240:  716:            if (magic != TABLE_LAYOUT_POLICY_MAGIC) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 240
+    #####:  717:                throw std::logic_error("unknown table layout policy metadata extension section");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  718:            }
+      240:  719:            auto layout_policy = static_cast<storage::row_group_layout_policy>(reader.read<uint8_t>());
+call    0 returned 240
+branch  1 taken 240 (fallthrough)
+branch  2 taken 0 (throw)
+      240:  720:            block_manager.set_layout_policy(layout_policy);
+call    0 returned 240
+        -:  721:        }
+        -:  722:
+      557:  723:        uint64_t total_loaded_rows = 0;
+     1364:  724:        for (const auto& pointer : row_group_pointers) {
+call    0 returned 557
+call    1 returned 557
+call    2 returned 807
+call    3 returned 807
+call    4 returned 1364
+branch  5 taken 807
+branch  6 taken 557 (fallthrough)
+      807:  725:            auto* rg = table->row_groups_->append_row_group(static_cast<int64_t>(pointer.row_start));
+call    0 returned 807
+call    1 returned 807
+call    2 returned 807
+branch  3 taken 807 (fallthrough)
+branch  4 taken 0 (throw)
+      807:  726:            if (rg) {
+branch  0 taken 807 (fallthrough)
+branch  1 taken 0
+      807:  727:                rg->create_from_pointer(pointer);
+call    0 returned 807
+branch  1 taken 807 (fallthrough)
+branch  2 taken 0 (throw)
+      807:  728:                total_loaded_rows += pointer.tuple_count;
+        -:  729:            }
+        -:  730:        }
+      557:  731:        table->row_groups_->set_total_rows(total_loaded_rows);
+call    0 returned 557
+call    1 returned 557
+call    2 returned 557
+        -:  732:
+     1114:  733:        return table;
+      557:  734:    }
+call    0 returned 557
+call    1 returned 557
+call    2 returned 557
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+        -:  735:
+        -:  736:} // namespace components::table

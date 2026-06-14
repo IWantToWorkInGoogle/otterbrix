@@ -1,0 +1,32 @@
+name pax/dml/fixed_update/update_toggle
+group pax/dml/fixed_update
+description Fixed-width DML benchmark: update a hot range and restore it every run.
+runs 30
+timeout 120
+
+load
+CREATE DATABASE IF NOT EXISTS pax_dml_fixed_update;
+CREATE TABLE pax_dml_fixed_update.rows (
+    id integer,
+    group_id integer,
+    flag integer,
+    amount integer,
+    version integer,
+    filler01 integer,
+    filler02 integer,
+    filler03 integer,
+    filler04 integer,
+    filler05 integer,
+    filler06 integer
+) WITH (storage = 'disk');
+
+load_csv ../data/dml_fixed.tbl pax_dml_fixed_update.rows |
+
+run
+UPDATE pax_dml_fixed_update.rows SET flag = 1, version = 2 WHERE id >= 10000 AND id < 15000;
+UPDATE pax_dml_fixed_update.rows SET flag = 0, version = 1 WHERE id >= 10000 AND id < 15000;
+
+verify
+SELECT id FROM pax_dml_fixed_update.rows WHERE id >= 10000 AND id < 15000 AND (flag != 0 OR version != 1);
+
+result 0

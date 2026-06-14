@@ -1,0 +1,5 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch_pax/q1,tpch_pax,columnar,disk,warm,true,false,Release,30,79.133,104.728,84.184,82.333,OK,4,10,fnv64:10b3e462a375c64f,""
+tpch_pax/q12,tpch_pax,columnar,disk,warm,true,false,Release,30,83.296,92.393,85.914,85.877,OK,2,3,fnv64:88a5788705a0cefc,""
+tpch_pax/q14,tpch_pax,columnar,disk,warm,true,false,Release,30,54.114,118.156,60.472,57.466,OK,1,1,fnv64:b59dc67a2dae651d,""
+tpch_pax/q6,tpch_pax,columnar,disk,warm,true,false,Release,30,59.800,85.621,64.625,62.050,OK,1,1,fnv64:e01c092c19d7903a,""

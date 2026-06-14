@@ -1,0 +1,4 @@
+scenario,mutable_best_page_rows,mutable_median_ms,pax_baseline_median_ms,columnar_baseline_median_ms,mutable_vs_pax_speedup_pct,mutable_vs_columnar_speedup_pct,mutable_counters,mutable_scan_regular
+fixed_update,128,196.015,295.383,294.527,50.69,50.26,"u/d/i=60/0/0, fb=0/0/0",0
+fixed_delete_insert,128,36.465,41.312,49.137,13.29,34.75,"u/d/i=0/30/30, fb=0/0/0",0
+string_update,128,79.113,98.576,107.538,24.60,35.93,"u/d/i=60/0/0, fb=0/0/0",0

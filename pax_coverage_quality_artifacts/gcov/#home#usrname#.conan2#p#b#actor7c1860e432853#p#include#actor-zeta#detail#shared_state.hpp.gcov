@@ -1,0 +1,2760 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/shared_state.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <atomic>
+        -:    4:#include <cassert>
+        -:    5:#include <cstdint>
+        -:    6:#include <memory_resource>
+        -:    7:#include <system_error>
+        -:    8:
+        -:    9:#include <actor-zeta/detail/coroutine.hpp>
+        -:   10:#include <actor-zeta/detail/future_state.hpp>  // for result_storage<T>
+        -:   11:#include <actor-zeta/detail/state_flags.hpp>
+        -:   12:
+        -:   13:namespace actor_zeta::detail {
+        -:   14:
+        -:   15:    // Forward declaration
+        -:   16:    template<typename T>
+        -:   17:    struct shared_state;
+        -:   18:
+        -:   19:    // Allocator helper
+        -:   20:    template<typename T>
+    #####:   21:    shared_state<T>* allocate_shared_state(std::pmr::memory_resource* resource) {
+    #####:   22:        assert(resource && "allocate_shared_state: resource must not be null");
+    #####:   23:        void* mem = resource->allocate(sizeof(shared_state<T>), alignof(shared_state<T>));
+    #####:   24:        return new (mem) shared_state<T>(resource);
+        -:   25:    }
+------------------
+_ZN10actor_zeta6detail21allocate_shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEEEPNS0_12shared_stateIT_EEPNS6_15memory_resourceE:
+function _ZN10actor_zeta6detail21allocate_shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEEEPNS0_12shared_stateIT_EEPNS6_15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:   21:    shared_state<T>* allocate_shared_state(std::pmr::memory_resource* resource) {
+    #####:   22:        assert(resource && "allocate_shared_state: resource must not be null");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:   23:        void* mem = resource->allocate(sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:   24:        return new (mem) shared_state<T>(resource);
+call    0 never executed
+call    1 never executed
+        -:   25:    }
+------------------
+_ZN10actor_zeta6detail21allocate_shared_stateIvEEPNS0_12shared_stateIT_EEPNSt3pmr15memory_resourceE:
+function _ZN10actor_zeta6detail21allocate_shared_stateIvEEPNS0_12shared_stateIT_EEPNSt3pmr15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:   21:    shared_state<T>* allocate_shared_state(std::pmr::memory_resource* resource) {
+    #####:   22:        assert(resource && "allocate_shared_state: resource must not be null");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:   23:        void* mem = resource->allocate(sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:   24:        return new (mem) shared_state<T>(resource);
+call    0 never executed
+call    1 never executed
+        -:   25:    }
+------------------
+        -:   26:
+        -:   27:    // Static asserts for lock-free requirements
+        -:   28:    static_assert(std::atomic<std::uint8_t>::is_always_lock_free,
+        -:   29:                  "uint8_t must be lock-free for state flags");
+        -:   30:
+        -:   31:    // Primary template: shared_state<T> for non-void types
+        -:   32:    template<typename T>
+        -:   33:    struct shared_state {
+        -:   34:        // Memory resource for deallocation (first for initialization order)
+        -:   35:        std::pmr::memory_resource* resource_;
+        -:   36:
+        -:   37:        // Flags (Last-One-Out)
+        -:   38:        std::atomic<std::uint8_t> flags_{state_flags::empty};
+        -:   39:
+        -:   40:        // Value storage
+        -:   41:        result_storage<T> value_;
+        -:   42:
+        -:   43:        // Continuation (who is waiting) - NOT owning!
+        -:   44:        std::atomic<std::coroutine_handle<>> continuation_{nullptr};
+        -:   45:
+        -:   46:        // Error
+        -:   47:        std::error_code error_{};
+        -:   48:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEEC2EPNS6_15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:   49:        explicit shared_state(std::pmr::memory_resource* r) noexcept
+    #####:   50:            : resource_(r)
+    #####:   51:            , value_(r) {}
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+        -:   52:
+        -:   53:        // Non-copyable, non-movable
+        -:   54:        shared_state(const shared_state&) = delete;
+        -:   55:        shared_state& operator=(const shared_state&) = delete;
+        -:   56:        shared_state(shared_state&&) = delete;
+        -:   57:        shared_state& operator=(shared_state&&) = delete;
+        -:   58:
+    #####:   59:        ~shared_state() noexcept = default;
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateImED2Ev:
+function _ZN10actor_zeta6detail12shared_stateImED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEED2Ev:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEED2Ev called 0 returned 0% blocks executed 0%
+    #####:   59:        ~shared_state() noexcept = default;
+call    0 never executed
+------------------
+        -:   60:
+        -:   61:        // === Write API (from coroutine) ===
+        -:   62:        // IMPORTANT: NO resume here! Resume only in final_suspend (Variant B+)
+        -:   63:
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9set_valueEOS4_:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9set_valueEOS4_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE9set_valueEOm:
+function _ZN10actor_zeta6detail12shared_stateImE9set_valueEOm called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9set_valueEOS8_:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9set_valueEOS8_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9set_valueEOSD_:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9set_valueEOSD_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE9set_valueEOS3_:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE9set_valueEOS3_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE9set_valueEOS3_:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE9set_valueEOS3_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9set_valueEOS4_:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9set_valueEOS4_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9set_valueEOSB_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9set_valueEOSB_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9set_valueEOS4_:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9set_valueEOS4_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9set_valueEOS4_:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9set_valueEOS4_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_valueEOS9_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9set_valueEOSC_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9set_valueEOSC_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9set_valueEOS4_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9set_valueEOS4_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9set_valueEOS3_:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9set_valueEOS3_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9set_valueEOS6_:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9set_valueEOS6_ called 0 returned 0% blocks executed 0%
+    #####:   64:        void set_value(T&& v) noexcept {
+    #####:   65:            value_.emplace(std::move(v));
+call    0 never executed
+call    1 never executed
+    #####:   66:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   67:            // NO resume - continuation is taken in final_suspend
+    #####:   68:        }
+------------------
+        -:   69:
+        -:   70:        void set_value(const T& v) noexcept {
+        -:   71:            value_.emplace(v);
+        -:   72:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+        -:   73:        }
+        -:   74:
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateImE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9set_errorESt10error_code:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:   75:        void set_error(std::error_code ec) noexcept {
+    #####:   76:            error_ = ec;
+    #####:   77:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+        -:   78:            // NO resume - continuation is taken in final_suspend
+    #####:   79:        }
+------------------
+        -:   80:
+        -:   81:        // === Read API (from future) ===
+        -:   82:
+        -:   83:        [[nodiscard]] bool is_ready() const noexcept {
+        -:   84:            // Variant B: check promise_released, not value_set
+        -:   85:            return flags_.load(std::memory_order_acquire) & state_flags::promise_released;
+        -:   86:        }
+        -:   87:
+    1954*:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+    3908*:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10has_resultEv called 128 returned 100% blocks executed 100%
+      128:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+      256:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 128
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv called 0 returned 0% blocks executed 0%
+    #####:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+    #####:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 never executed
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateImE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateImE10has_resultEv called 558 returned 100% blocks executed 100%
+      558:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+     1116:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 558
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv called 10 returned 100% blocks executed 100%
+       10:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       20:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 10
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10has_resultEv called 4 returned 100% blocks executed 100%
+        4:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+        8:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 4
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10has_resultEv called 4 returned 100% blocks executed 100%
+        4:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+        8:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 4
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt4pairImmEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt4pairImmEE10has_resultEv called 8 returned 100% blocks executed 100%
+        8:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       16:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 8
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt4pairIlmEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt4pairIlmEE10has_resultEv called 0 returned 0% blocks executed 0%
+    #####:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+    #####:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 never executed
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10has_resultEv called 24 returned 100% blocks executed 100%
+       24:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       48:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 24
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10has_resultEv called 66 returned 100% blocks executed 100%
+       66:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+      132:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 66
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10has_resultEv called 10 returned 100% blocks executed 100%
+       10:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       20:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 10
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10has_resultEv called 6 returned 100% blocks executed 100%
+        6:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       12:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 6
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10has_resultEv called 0 returned 0% blocks executed 0%
+    #####:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+    #####:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 never executed
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10has_resultEv called 0 returned 0% blocks executed 0%
+    #####:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+    #####:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 never executed
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10has_resultEv called 392 returned 100% blocks executed 100%
+      392:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+      784:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 392
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10has_resultEv called 726 returned 100% blocks executed 100%
+      726:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+     1452:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 726
+        -:   91:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10has_resultEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10has_resultEv called 18 returned 100% blocks executed 100%
+       18:   88:        [[nodiscard]] bool has_result() const noexcept {
+        -:   89:            // Internal method for await_suspend
+       36:   90:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 returned 18
+        -:   91:        }
+------------------
+        -:   92:
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateImE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateImE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt4pairImmEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt4pairImmEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt4pairIlmEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt4pairIlmEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+_ZNK10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9has_errorEv:
+function _ZNK10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:   93:        [[nodiscard]] bool has_error() const noexcept {
+    #####:   94:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:   95:        }
+------------------
+        -:   96:
+        -:   97:        [[nodiscard]] std::error_code get_error() const noexcept {
+        -:   98:            return error_;
+        -:   99:        }
+        -:  100:
+        -:  101:        [[nodiscard]] T& get_value() noexcept {
+        -:  102:            return value_.get();
+        -:  103:        }
+        -:  104:
+        -:  105:        [[nodiscard]] const T& get_value() const noexcept {
+        -:  106:            return value_.get();
+        -:  107:        }
+        -:  108:
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateImE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10take_valueEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  109:        [[nodiscard]] T take_value() noexcept {
+    #####:  110:            return value_.take();
+call    0 never executed
+        -:  111:        }
+------------------
+        -:  112:
+        -:  113:        // === Continuation API ===
+        -:  114:
+        -:  115:        /// @brief Atomically take the continuation handle
+        -:  116:        /// @return The continuation handle, or null handle if none was set
+        -:  117:        [[nodiscard]] std::coroutine_handle<> take_continuation() noexcept {
+        -:  118:            return continuation_.exchange(nullptr, std::memory_order_acq_rel);
+        -:  119:        }
+        -:  120:
+        -:  121:        // === Lifetime API (Last-One-Out) ===
+        -:  122:
+        -:  123:        /// @brief Release the promise side.
+        -:  124:        /// @return true if this call deallocated the state (future was already released),
+        -:  125:        ///         meaning the continuation should NOT be resumed (cancelled).
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+    #####:  134:                deallocate();  // Last one out
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateImE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE15release_promiseEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  126:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  127:            auto old = flags_.fetch_or(state_flags::promise_released,std::memory_order_acq_rel);
+        -:  128:
+        -:  129:#if HAVE_ATOMIC_WAIT
+    #####:  130:            flags_.notify_all();  // Wake up backport wait() if any
+call    0 never executed
+        -:  131:#endif
+        -:  132:
+    #####:  133:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  134:                deallocate();  // Last one out
+call    0 never executed
+    #####:  135:                return true;   // Cancelled - don't resume continuation
+        -:  136:            }
+    #####:  137:            return false;  // Future still alive - safe to resume continuation
+        -:  138:        }
+------------------
+        -:  139:
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateImE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE14release_futureEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  140:        void release_future() noexcept {
+    #####:  141:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  142:            // Deallocate only if:
+        -:  143:            // - Promise was already released (promise_released set)
+        -:  144:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  145:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  146:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  147:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  148:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  149:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  150:            }
+        -:  151:            // If producer is finalizing, it will see our future_released flag
+        -:  152:            // in its double-check and handle deallocation.
+    #####:  153:        }
+------------------
+        -:  154:
+        -:  155:        /// @brief Check if future was released (for cancellation detection)
+        -:  156:        [[nodiscard]] bool is_future_released() const noexcept {
+        -:  157:            return flags_.load(std::memory_order_acquire) & state_flags::future_released;
+        -:  158:        }
+        -:  159:
+        -:  160:        /// @brief Deallocate from finalizer (called after double-check in final_suspend)
+        -:  161:        void deallocate_from_finalizer() noexcept {
+        -:  162:            deallocate();
+        -:  163:        }
+        -:  164:
+        -:  165:        /// @brief Try to complete the finalize phase by clearing the finalizing flag.
+        -:  166:        /// Uses CAS to atomically check if future was released concurrently.
+        -:  167:        /// @return true if finalizing was cleared (consumer will deallocate later)
+        -:  168:        /// @return false if future_released was set (producer should deallocate)
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateImE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE21try_complete_finalizeEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  169:        [[nodiscard]] bool try_complete_finalize() noexcept {
+        -:  170:            // Expected: finalizing + released (no future_released)
+    #####:  171:            std::uint8_t expected = state_flags::promise_finalizing | state_flags::promise_released;
+        -:  172:            // Also allow value_set or error_set flags
+    #####:  173:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  174:            expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);  // Current minus future_released
+        -:  175:
+        -:  176:            // Try to clear finalizing flag
+    #####:  177:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  178:
+    #####:  179:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  180:                                               std::memory_order_acq_rel,
+        -:  181:                                               std::memory_order_acquire)) {
+        -:  182:                // CAS succeeded: finalizing cleared, future will deallocate later
+    #####:  183:                return true;
+        -:  184:            }
+        -:  185:
+        -:  186:            // CAS failed: check if future_released was set
+    #####:  187:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+        -:  188:                // Future was released concurrently - we should deallocate
+    #####:  189:                deallocate();
+call    0 never executed
+    #####:  190:                return false;
+        -:  191:            }
+        -:  192:
+        -:  193:            // Something else changed (shouldn't happen normally)
+        -:  194:            // Try clearing finalizing anyway for safety
+    #####:  195:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  196:            return true;
+        -:  197:        }
+------------------
+        -:  198:
+        -:  199:    private:
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk22resolve_table_result_tEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateImE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateImE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN10components5types20complex_logical_typeENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS5_EEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt10unique_ptrISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEESt14default_deleteISA_EEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairImmEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairImmEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt4pairIlmEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt4pairIlmEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk26resolve_namespace_result_tEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIS2_IN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS5_EEENS7_IS9_EEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk21resolve_type_result_tEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateIN8services4disk25resolve_function_result_tEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIN8services4disk25resolve_function_result_tENSt3pmr21polymorphic_allocatorIS5_EEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS8_EEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIjSaIjEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateIN10components25pg_catalog_append_range_tEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+_ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10deallocateEv:
+function _ZN10actor_zeta6detail12shared_stateISt6vectorIlNSt3pmr21polymorphic_allocatorIlEEEE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  200:        void deallocate() noexcept {
+    #####:  201:            auto* res = resource_;
+    #####:  202:            this->~shared_state();
+call    0 never executed
+    #####:  203:            res->deallocate(this, sizeof(shared_state<T>), alignof(shared_state<T>));
+call    0 never executed
+    #####:  204:        }
+------------------
+        -:  205:    };
+        -:  206:
+        -:  207:    // Explicit specialization for void
+        -:  208:    template<>
+        -:  209:    struct shared_state<void> {
+        -:  210:        // Memory resource for deallocation (first for initialization order)
+        -:  211:        std::pmr::memory_resource* resource_;
+        -:  212:
+        -:  213:        std::atomic<std::uint8_t> flags_{state_flags::empty};
+        -:  214:        std::atomic<std::coroutine_handle<>> continuation_{nullptr};
+        -:  215:        std::error_code error_{};
+        -:  216:
+        -:  217:        // NO value_ - void doesn't store a value
+        -:  218:
+function _ZN10actor_zeta6detail12shared_stateIvEC2EPNSt3pmr15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:  219:        explicit shared_state(std::pmr::memory_resource* r) noexcept
+    #####:  220:            : resource_(r) {}
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+        -:  221:
+        -:  222:        // Non-copyable, non-movable
+        -:  223:        shared_state(const shared_state&) = delete;
+        -:  224:        shared_state& operator=(const shared_state&) = delete;
+        -:  225:        shared_state(shared_state&&) = delete;
+        -:  226:        shared_state& operator=(shared_state&&) = delete;
+        -:  227:
+        -:  228:        ~shared_state() noexcept = default;
+        -:  229:
+        -:  230:        // === Write API ===
+        -:  231:
+function _ZN10actor_zeta6detail12shared_stateIvE9set_valueEv called 0 returned 0% blocks executed 0%
+    #####:  232:        void set_value() noexcept {
+    #####:  233:            flags_.fetch_or(state_flags::value_set, std::memory_order_release);
+    #####:  234:        }
+        -:  235:
+function _ZN10actor_zeta6detail12shared_stateIvE9set_errorESt10error_code called 0 returned 0% blocks executed 0%
+    #####:  236:        void set_error(std::error_code ec) noexcept {
+    #####:  237:            error_ = ec;
+    #####:  238:            flags_.fetch_or(state_flags::error_set, std::memory_order_release);
+    #####:  239:        }
+        -:  240:
+        -:  241:        // === Read API ===
+        -:  242:
+        -:  243:        [[nodiscard]] bool is_ready() const noexcept {
+        -:  244:            return flags_.load(std::memory_order_acquire) & state_flags::promise_released;
+        -:  245:        }
+        -:  246:
+function _ZNK10actor_zeta6detail12shared_stateIvE10has_resultEv called 0 returned 0% blocks executed 0%
+    #####:  247:        [[nodiscard]] bool has_result() const noexcept {
+    #####:  248:            return flags_.load(std::memory_order_acquire) & state_flags::result_set;
+call    0 never executed
+        -:  249:        }
+        -:  250:
+function _ZNK10actor_zeta6detail12shared_stateIvE9has_errorEv called 0 returned 0% blocks executed 0%
+    #####:  251:        [[nodiscard]] bool has_error() const noexcept {
+    #####:  252:            return flags_.load(std::memory_order_acquire) & state_flags::error_set;
+call    0 never executed
+        -:  253:        }
+        -:  254:
+        -:  255:        [[nodiscard]] std::error_code get_error() const noexcept {
+        -:  256:            return error_;
+        -:  257:        }
+        -:  258:
+        -:  259:        void get_value() noexcept {
+        -:  260:            // void - nothing to return
+        -:  261:        }
+        -:  262:
+function _ZN10actor_zeta6detail12shared_stateIvE10take_valueEv called 0 returned 0% blocks executed 0%
+    #####:  263:        void take_value() noexcept {
+        -:  264:            // void - nothing to return (analog of get_value for move semantics)
+    #####:  265:        }
+        -:  266:
+        -:  267:        // === Continuation API ===
+        -:  268:
+        -:  269:        [[nodiscard]] std::coroutine_handle<> take_continuation() noexcept {
+        -:  270:            return continuation_.exchange(nullptr, std::memory_order_acq_rel);
+        -:  271:        }
+        -:  272:
+        -:  273:        // === Lifetime API (Last-One-Out) ===
+        -:  274:
+        -:  275:        /// @brief Release the promise side.
+        -:  276:        /// @return true if this call deallocated the state (future was already released),
+        -:  277:        ///         meaning the continuation should NOT be resumed (cancelled).
+function _ZN10actor_zeta6detail12shared_stateIvE15release_promiseEv called 0 returned 0% blocks executed 0%
+    #####:  278:        [[nodiscard]] bool release_promise() noexcept {
+    #####:  279:            auto old = flags_.fetch_or(state_flags::promise_released,
+        -:  280:                                       std::memory_order_acq_rel);
+        -:  281:#if HAVE_ATOMIC_WAIT
+    #####:  282:            flags_.notify_all();
+call    0 never executed
+        -:  283:#endif
+    #####:  284:            if (old & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  285:                deallocate();
+call    0 never executed
+    #####:  286:                return true;   // Cancelled - don't resume continuation
+        -:  287:            }
+    #####:  288:            return false;  // Future still alive - safe to resume continuation
+        -:  289:        }
+        -:  290:
+function _ZN10actor_zeta6detail12shared_stateIvE14release_futureEv called 0 returned 0% blocks executed 0%
+    #####:  291:        void release_future() noexcept {
+    #####:  292:            auto old = flags_.fetch_or(state_flags::future_released, std::memory_order_acq_rel);
+        -:  293:            // Deallocate only if:
+        -:  294:            // - Promise was already released (promise_released set)
+        -:  295:            // - AND producer is NOT in final_suspend path (promise_finalizing not set)
+        -:  296:            // If producer is finalizing, it will handle deallocation after its double-check.
+    #####:  297:            bool promise_was_released = old & state_flags::promise_released;
+    #####:  298:            bool producer_is_finalizing = old & state_flags::promise_finalizing;
+    #####:  299:            if (promise_was_released && !producer_is_finalizing) {
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  300:                deallocate();  // Last one out, and producer is completely done
+call    0 never executed
+        -:  301:            }
+        -:  302:            // If producer is finalizing, it will see our future_released flag
+        -:  303:            // in its double-check and handle deallocation.
+    #####:  304:        }
+        -:  305:
+        -:  306:        /// @brief Check if future was released (for cancellation detection)
+        -:  307:        [[nodiscard]] bool is_future_released() const noexcept {
+        -:  308:            return flags_.load(std::memory_order_acquire) & state_flags::future_released;
+        -:  309:        }
+        -:  310:
+        -:  311:        /// @brief Deallocate from finalizer (called after double-check in final_suspend)
+        -:  312:        void deallocate_from_finalizer() noexcept {
+        -:  313:            deallocate();
+        -:  314:        }
+        -:  315:
+        -:  316:        /// @brief Try to complete the finalize phase by clearing the finalizing flag.
+        -:  317:        /// Uses CAS to atomically check if future was released concurrently.
+        -:  318:        /// @return true if finalizing was cleared (consumer will deallocate later)
+        -:  319:        /// @return false if future_released was set (producer should deallocate)
+function _ZN10actor_zeta6detail12shared_stateIvE21try_complete_finalizeEv called 0 returned 0% blocks executed 0%
+    #####:  320:        [[nodiscard]] bool try_complete_finalize() noexcept {
+    #####:  321:            std::uint8_t current = flags_.load(std::memory_order_acquire);
+call    0 never executed
+    #####:  322:            std::uint8_t expected = static_cast<std::uint8_t>(current & ~state_flags::future_released);
+    #####:  323:            std::uint8_t desired = static_cast<std::uint8_t>(expected & ~state_flags::promise_finalizing);
+        -:  324:
+    #####:  325:            if (flags_.compare_exchange_strong(expected, desired,
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -:  326:                                               std::memory_order_acq_rel,
+        -:  327:                                               std::memory_order_acquire)) {
+    #####:  328:                return true;
+        -:  329:            }
+        -:  330:
+    #####:  331:            if (expected & state_flags::future_released) {
+branch  0 never executed
+branch  1 never executed
+    #####:  332:                deallocate();
+call    0 never executed
+    #####:  333:                return false;
+        -:  334:            }
+        -:  335:
+    #####:  336:            flags_.fetch_and(static_cast<std::uint8_t>(~state_flags::promise_finalizing), std::memory_order_release);
+    #####:  337:            return true;
+        -:  338:        }
+        -:  339:
+        -:  340:    private:
+function _ZN10actor_zeta6detail12shared_stateIvE10deallocateEv called 0 returned 0% blocks executed 0%
+    #####:  341:        void deallocate() noexcept {
+    #####:  342:            auto* res = resource_;
+    #####:  343:            this->~shared_state();
+    #####:  344:            res->deallocate(this, sizeof(shared_state<void>), alignof(shared_state<void>));
+call    0 never executed
+    #####:  345:        }
+        -:  346:    };
+        -:  347:
+        -:  348:} // namespace actor_zeta::detail

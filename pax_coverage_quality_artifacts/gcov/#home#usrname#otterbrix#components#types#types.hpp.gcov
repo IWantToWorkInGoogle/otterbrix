@@ -1,0 +1,666 @@
+        -:    0:Source:/home/usrname/otterbrix/components/types/types.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:#include "core/date/date_types.hpp"
+        -:    3:#include "types.hpp"
+        -:    4:#include <core/arithmetic_op.hpp>
+        -:    5:
+        -:    6:#include <absl/numeric/int128.h>
+        -:    7:#include <array>
+        -:    8:#include <chrono>
+        -:    9:#include <memory>
+        -:   10:#include <memory_resource>
+        -:   11:#include <string>
+        -:   12:#include <vector>
+        -:   13:
+        -:   14:namespace components::types {
+        -:   15:
+        -:   16:    using int128_t = absl::int128;
+        -:   17:    using uint128_t = absl::uint128;
+        -:   18:
+        -:   19:    class logical_value_t;
+        -:   20:    class logical_type_extension;
+        -:   21:
+        -:   22:    enum class compare_t
+        -:   23:    {
+        -:   24:        less = -1,
+        -:   25:        equals = 0,
+        -:   26:        more = 1
+        -:   27:    };
+        -:   28:
+        -:   29:    // order change may break physical_value comparators
+        -:   30:    enum class physical_type : uint8_t
+        -:   31:    {
+        -:   32:        BOOL = 1,
+        -:   33:        UINT8 = 2,
+        -:   34:        INT8 = 3,
+        -:   35:        UINT16 = 4,
+        -:   36:        INT16 = 5,
+        -:   37:        UINT32 = 6,
+        -:   38:        INT32 = 7,
+        -:   39:        UINT64 = 8,
+        -:   40:        INT64 = 9,
+        -:   41:        UINT128 = 10,
+        -:   42:        INT128 = 11,
+        -:   43:        // HALF_FLOAT = 12,
+        -:   44:        FLOAT = 13,
+        -:   45:        DOUBLE = 14,
+        -:   46:        STRING = 15,
+        -:   47:        // BINARY = 16,                // Variable-length bytes (no guarantee of UTF8-ness)
+        -:   48:        // FIXED_SIZE_BINARY = 17,     // Fixed-size binary. Each value occupies the same number of bytes
+        -:   49:        LIST = 25,   // A list of some logical data type
+        -:   50:        STRUCT = 26, // Struct of logical types
+        -:   51:        UNION = 27,  // Unions of logical types
+        -:   52:
+        -:   53:        // Dictionary-encoded type, also called "categorical" or "factor"
+        -:   54:        // in other programming languages. Holds the dictionary value
+        -:   55:        // type but not the dictionary itself, which is part of the
+        -:   56:        // ArrayData struct
+        -:   57:        // DICTIONARY = 28,
+        -:   58:
+        -:   59:        // EXTENSION = 29,             // Custom data type, implemented by user
+        -:   60:        ARRAY = 30, // Array with fixed length of some logical type (a fixed-size list)
+        -:   61:        // DURATION = 31,              // Measure of elapsed time in either seconds, ms, us or ns.
+        -:   62:        // LARGE_STRING = 32,          // Like STRING, but with 64-bit offsets
+        -:   63:        // LARGE_BINARY = 33,          // Like BINARY, but with 64-bit offsets
+        -:   64:        // LARGE_LIST = 34,            // Like LIST, but with 64-bit offsets
+        -:   65:
+        -:   66:        NA = 127,      // NULL value
+        -:   67:        UNKNOWN = 128, // Unknown physical type of user defined types
+        -:   68:        BIT = 192,     // bitmap
+        -:   69:        INVALID = 255
+        -:   70:    };
+        -:   71:
+        -:   72:    // order change may break logical_value comparators
+        -:   73:    enum class logical_type : uint8_t
+        -:   74:    {
+        -:   75:        NA = 0,   // NULL type, used for constant NULL
+        -:   76:        ANY = 1,  // ANY type, used for functions that accept any type as parameter
+        -:   77:        USER = 2, // A User Defined type (e.g., ENUMs before the binder)
+        -:   78:        BOOLEAN = 10,
+        -:   79:        TINYINT = 11,
+        -:   80:        SMALLINT = 12,
+        -:   81:        INTEGER = 13,
+        -:   82:        BIGINT = 14,
+        -:   83:        HUGEINT = 15,
+        -:   84:        DATE = 16,
+        -:   85:        TIME = 17,
+        -:   86:        TIME_TZ = 18,
+        -:   87:        TIMESTAMP = 19,
+        -:   88:        TIMESTAMP_TZ = 20,
+        -:   89:        INTERVAL = 21,
+        -:   90:        DECIMAL = 22,
+        -:   91:        FLOAT = 23,
+        -:   92:        DOUBLE = 24,
+        -:   93:        BLOB = 25,
+        -:   94:        UTINYINT = 27,
+        -:   95:        USMALLINT = 28,
+        -:   96:        UINTEGER = 29,
+        -:   97:        UBIGINT = 30,
+        -:   98:        UHUGEINT = 31,
+        -:   99:        BIT = 34,
+        -:  100:        STRING_LITERAL = 35,  // String literals, used for constant strings
+        -:  101:        INTEGER_LITERAL = 36, // Integer literals, used for constant integers
+        -:  102:
+        -:  103:        POINTER = 51,
+        -:  104:        VALIDITY = 53,
+        -:  105:        UUID = 54,
+        -:  106:
+        -:  107:        STRUCT = 100,
+        -:  108:        LIST = 101,
+        -:  109:        MAP = 102,
+        -:  110:        TABLE = 103,
+        -:  111:        ENUM = 104,
+        -:  112:        FUNCTION = 105,
+        -:  113:        LAMBDA = 106,
+        -:  114:        UNION = 107,
+        -:  115:        VARIANT = 108,
+        -:  116:        ARRAY = 109,
+        -:  117:
+        -:  118:        UNKNOWN = 127, // Unknown type, used for parameter expressions
+        -:  119:        INVALID = 255
+        -:  120:    };
+        -:  121:
+        -:  122:    // collection of default types; could be useful for iteration or other stuff
+        -:  123:    [[maybe_unused]] static constexpr std::array<physical_type, 16> DEFAULT_PHYSICAL_TYPES{physical_type::BOOL,
+        -:  124:                                                                                           physical_type::UINT8,
+        -:  125:                                                                                           physical_type::INT8,
+        -:  126:                                                                                           physical_type::UINT16,
+        -:  127:                                                                                           physical_type::INT16,
+        -:  128:                                                                                           physical_type::UINT32,
+        -:  129:                                                                                           physical_type::INT32,
+        -:  130:                                                                                           physical_type::UINT64,
+        -:  131:                                                                                           physical_type::INT64,
+        -:  132:                                                                                           physical_type::UINT128,
+        -:  133:                                                                                           physical_type::INT128,
+        -:  134:                                                                                           physical_type::FLOAT,
+        -:  135:                                                                                           physical_type::DOUBLE,
+        -:  136:                                                                                           physical_type::STRING,
+        -:  137:                                                                                           physical_type::LIST,
+        -:  138:                                                                                           physical_type::ARRAY};
+        -:  139:
+        -:  140:    [[maybe_unused]] static constexpr std::array<logical_type, 20> DEFAULT_LOGICAL_TYPES{
+        -:  141:        logical_type::BOOLEAN,   logical_type::UTINYINT,       logical_type::TINYINT, logical_type::USMALLINT,
+        -:  142:        logical_type::SMALLINT,  logical_type::UINTEGER,       logical_type::INTEGER, logical_type::UBIGINT,
+        -:  143:        logical_type::BIGINT,    logical_type::UHUGEINT,       logical_type::HUGEINT, logical_type::FLOAT,
+        -:  144:        logical_type::DOUBLE,    logical_type::STRING_LITERAL, logical_type::DATE,    logical_type::TIME,
+        -:  145:        logical_type::TIMESTAMP, logical_type::DECIMAL,        logical_type::LIST,    logical_type::ARRAY};
+        -:  146:
+        -:  147:    constexpr logical_type to_logical(physical_type type) {
+        -:  148:        switch (type) {
+        -:  149:            case physical_type::BOOL:
+        -:  150:                return logical_type::BOOLEAN;
+        -:  151:            case physical_type::UINT8:
+        -:  152:                return logical_type::UTINYINT;
+        -:  153:            case physical_type::INT8:
+        -:  154:                return logical_type::TINYINT;
+        -:  155:            case physical_type::UINT16:
+        -:  156:                return logical_type::USMALLINT;
+        -:  157:            case physical_type::INT16:
+        -:  158:                return logical_type::SMALLINT;
+        -:  159:            case physical_type::UINT32:
+        -:  160:                return logical_type::UINTEGER;
+        -:  161:            case physical_type::INT32:
+        -:  162:                return logical_type::INTEGER;
+        -:  163:            case physical_type::UINT64:
+        -:  164:                return logical_type::UBIGINT;
+        -:  165:            case physical_type::INT64:
+        -:  166:                return logical_type::BIGINT;
+        -:  167:            case physical_type::UINT128:
+        -:  168:                return logical_type::UHUGEINT;
+        -:  169:            case physical_type::INT128:
+        -:  170:                return logical_type::HUGEINT;
+        -:  171:            case physical_type::FLOAT:
+        -:  172:                return logical_type::FLOAT;
+        -:  173:            case physical_type::DOUBLE:
+        -:  174:                return logical_type::DOUBLE;
+        -:  175:            case physical_type::STRING:
+        -:  176:                return logical_type::STRING_LITERAL;
+        -:  177:            case physical_type::NA:
+        -:  178:                return logical_type::NA;
+        -:  179:            case physical_type::UNKNOWN:
+        -:  180:                return logical_type::UNKNOWN;
+        -:  181:            default:
+        -:  182:                return logical_type::UNKNOWN;
+        -:  183:        }
+        -:  184:    }
+        -:  185:
+        -:  186:    constexpr bool is_numeric(logical_type type) {
+        -:  187:        switch (type) {
+        -:  188:            case logical_type::BOOLEAN:
+        -:  189:            case logical_type::UTINYINT:
+        -:  190:            case logical_type::TINYINT:
+        -:  191:            case logical_type::USMALLINT:
+        -:  192:            case logical_type::SMALLINT:
+        -:  193:            case logical_type::UINTEGER:
+        -:  194:            case logical_type::INTEGER:
+        -:  195:            case logical_type::UBIGINT:
+        -:  196:            case logical_type::BIGINT:
+        -:  197:            case logical_type::UHUGEINT:
+        -:  198:            case logical_type::HUGEINT:
+        -:  199:            case logical_type::FLOAT:
+        -:  200:            case logical_type::DOUBLE:
+        -:  201:                return true;
+        -:  202:            default:
+        -:  203:                return false;
+        -:  204:        }
+        -:  205:    }
+        -:  206:
+        -:  207:    constexpr bool is_string(logical_type type) {
+        -:  208:        switch (type) {
+        -:  209:            case logical_type::STRING_LITERAL:
+        -:  210:            case logical_type::BLOB:
+        -:  211:                return true;
+        -:  212:            default:
+        -:  213:                return false;
+        -:  214:        }
+        -:  215:    }
+        -:  216:
+        -:  217:    constexpr bool is_signed(logical_type type) {
+        -:  218:        switch (type) {
+        -:  219:            case logical_type::TINYINT:
+        -:  220:            case logical_type::SMALLINT:
+        -:  221:            case logical_type::INTEGER:
+        -:  222:            case logical_type::BIGINT:
+        -:  223:            case logical_type::HUGEINT:
+        -:  224:            case logical_type::FLOAT:
+        -:  225:            case logical_type::DOUBLE:
+        -:  226:                return true;
+        -:  227:            default:
+        -:  228:                return false;
+        -:  229:        }
+        -:  230:    }
+        -:  231:
+        -:  232:    constexpr bool is_unsigned(logical_type type) {
+        -:  233:        switch (type) {
+        -:  234:            case logical_type::BOOLEAN:
+        -:  235:            case logical_type::UTINYINT:
+        -:  236:            case logical_type::USMALLINT:
+        -:  237:            case logical_type::UINTEGER:
+        -:  238:            case logical_type::UBIGINT:
+        -:  239:            case logical_type::UHUGEINT:
+        -:  240:                return true;
+        -:  241:            default:
+        -:  242:                return false;
+        -:  243:        }
+        -:  244:    }
+        -:  245:
+        -:  246:    constexpr bool is_duration(logical_type type) {
+        -:  247:        switch (type) {
+        -:  248:            case logical_type::DATE:
+        -:  249:            case logical_type::TIME:
+        -:  250:            case logical_type::TIME_TZ:
+        -:  251:            case logical_type::TIMESTAMP:
+        -:  252:            case logical_type::TIMESTAMP_TZ:
+        -:  253:            case logical_type::INTERVAL:
+        -:  254:                return true;
+        -:  255:            default:
+        -:  256:                return false;
+        -:  257:        }
+        -:  258:    }
+        -:  259:
+        -:  260:    template<typename T>
+        -:  261:    constexpr logical_type to_logical_type() {
+        -:  262:        if constexpr (std::is_same<T, std::nullptr_t>::value) {
+        -:  263:            return logical_type::NA;
+        -:  264:        } else if constexpr (std::is_pointer<T>::value) {
+        -:  265:            return logical_type::POINTER;
+        -:  266:        } else if constexpr (std::is_same<T, core::date::date_t>::value) {
+        -:  267:            return logical_type::DATE;
+        -:  268:        } else if constexpr (std::is_same<T, core::date::time_t>::value) {
+        -:  269:            return logical_type::TIME;
+        -:  270:        } else if constexpr (std::is_same<T, core::date::timetz_t>::value) {
+        -:  271:            return logical_type::TIME_TZ;
+        -:  272:        } else if constexpr (std::is_same<T, core::date::timestamp_t>::value) {
+        -:  273:            return logical_type::TIMESTAMP;
+        -:  274:        } else if constexpr (std::is_same<T, core::date::timestamptz_t>::value) {
+        -:  275:            return logical_type::TIMESTAMP_TZ;
+        -:  276:        } else if constexpr (std::is_same<T, core::date::interval_t>::value) {
+        -:  277:            return logical_type::INTERVAL;
+        -:  278:        } else if constexpr (std::is_same<T, bool>::value) {
+        -:  279:            return logical_type::BOOLEAN;
+        -:  280:        } else if constexpr (std::is_same<T, int128_t>::value) {
+        -:  281:            return logical_type::HUGEINT;
+        -:  282:        } else if constexpr (std::is_same<T, uint128_t>::value) {
+        -:  283:            return logical_type::UHUGEINT;
+        -:  284:        } else if constexpr (std::is_integral<T>::value) {
+        -:  285:            if constexpr (std::is_signed<T>::value) {
+        -:  286:                if constexpr (sizeof(T) == 1) {
+        -:  287:                    return logical_type::TINYINT;
+        -:  288:                } else if constexpr (sizeof(T) == 2) {
+        -:  289:                    return logical_type::SMALLINT;
+        -:  290:                } else if constexpr (sizeof(T) == 4) {
+        -:  291:                    return logical_type::INTEGER;
+        -:  292:                } else if constexpr (sizeof(T) == 8) {
+        -:  293:                    return logical_type::BIGINT;
+        -:  294:                }
+        -:  295:            } else {
+        -:  296:                if constexpr (sizeof(T) == 1) {
+        -:  297:                    return logical_type::UTINYINT;
+        -:  298:                } else if constexpr (sizeof(T) == 2) {
+        -:  299:                    return logical_type::USMALLINT;
+        -:  300:                } else if constexpr (sizeof(T) == 4) {
+        -:  301:                    return logical_type::UINTEGER;
+        -:  302:                } else if constexpr (sizeof(T) == 8) {
+        -:  303:                    return logical_type::UBIGINT;
+        -:  304:                }
+        -:  305:            }
+        -:  306:        } else if constexpr (std::is_same<T, float>::value) {
+        -:  307:            return logical_type::FLOAT;
+        -:  308:        } else if constexpr (std::is_same<T, double>::value) {
+        -:  309:            return logical_type::DOUBLE;
+        -:  310:        } else if constexpr (std::is_same<T, std::string>::value || std::is_same<T, std::pmr::string>::value ||
+        -:  311:                             std::is_same<T, std::string_view>::value) {
+        -:  312:            return logical_type::STRING_LITERAL;
+        -:  313:        } else {
+        -:  314:            return logical_type::INVALID;
+        -:  315:        }
+        -:  316:    }
+        -:  317:
+        -:  318:    physical_type to_physical_type(logical_type type);
+        -:  319:
+        -:  320:    constexpr logical_type promote_type(logical_type type1, logical_type type2) {
+        -:  321:        using namespace std::chrono;
+        -:  322:        if (type1 == type2) {
+        -:  323:            return type1;
+        -:  324:        }
+        -:  325:        if (!(is_numeric(type1) && is_numeric(type2)) && !(is_duration(type1) && is_duration(type2))) {
+        -:  326:            return logical_type::NA;
+        -:  327:        }
+        -:  328:
+        -:  329:        constexpr uint8_t signage_difference =
+        -:  330:            static_cast<uint8_t>(logical_type::UTINYINT) - static_cast<uint8_t>(logical_type::TINYINT);
+        -:  331:
+        -:  332:        // TODO: duration promotion
+        -:  333:
+        -:  334:        // This is dependent on enum encoding values
+        -:  335:        if (is_signed(type1) == is_signed(type2) || is_unsigned(type1) == is_unsigned(type2)) {
+        -:  336:            return static_cast<logical_type>(std::max(static_cast<uint8_t>(type1), static_cast<uint8_t>(type2)));
+        -:  337:        } else if (is_signed(type1)) {
+        -:  338:            return static_cast<logical_type>(
+        -:  339:                std::max<uint8_t>(static_cast<uint8_t>(type1),
+        -:  340:                                  static_cast<uint8_t>(static_cast<uint8_t>(type2) - signage_difference)));
+        -:  341:        } else {
+        -:  342:            return static_cast<logical_type>(
+        -:  343:                std::max<uint8_t>(static_cast<uint8_t>(static_cast<uint8_t>(type1) - signage_difference),
+        -:  344:                                  static_cast<uint8_t>(type2)));
+        -:  345:        }
+        -:  346:    }
+        -:  347:
+        -:  348:    // Returns the output logical_type for an arithmetic operation on two operand types.
+        -:  349:    // Handles numeric promotion and temporal arithmetic rules (date/time ± interval, etc.).
+        -:  350:    // Returns logical_type::NA for unsupported combinations.
+        -:  351:    constexpr logical_type arithmetic_result_type(logical_type lhs, logical_type rhs, vector::arithmetic_op op) {
+        -:  352:        if (is_numeric(lhs) && is_numeric(rhs)) {
+        -:  353:            return promote_type(lhs, rhs);
+        -:  354:        }
+        -:  355:        auto is_temporal = [](logical_type t) constexpr {
+        -:  356:            return t == logical_type::DATE || t == logical_type::TIME || t == logical_type::TIME_TZ ||
+        -:  357:                   t == logical_type::TIMESTAMP || t == logical_type::TIMESTAMP_TZ;
+        -:  358:        };
+        -:  359:        if (op == vector::arithmetic_op::add || op == vector::arithmetic_op::subtract) {
+        -:  360:            if (is_temporal(lhs) && rhs == logical_type::INTERVAL) {
+        -:  361:                return lhs;
+        -:  362:            }
+        -:  363:            if (op == vector::arithmetic_op::add && lhs == logical_type::INTERVAL && is_temporal(rhs)) {
+        -:  364:                return rhs;
+        -:  365:            }
+        -:  366:            if (lhs == logical_type::INTERVAL && rhs == logical_type::INTERVAL) {
+        -:  367:                return logical_type::INTERVAL;
+        -:  368:            }
+        -:  369:            if (op == vector::arithmetic_op::subtract && is_temporal(lhs) && is_temporal(rhs)) {
+        -:  370:                return logical_type::INTERVAL;
+        -:  371:            }
+        -:  372:        }
+        -:  373:        if (op == vector::arithmetic_op::multiply || op == vector::arithmetic_op::divide) {
+        -:  374:            if (lhs == logical_type::INTERVAL && is_numeric(rhs)) {
+        -:  375:                return logical_type::INTERVAL;
+        -:  376:            }
+        -:  377:            if (op == vector::arithmetic_op::multiply && is_numeric(lhs) && rhs == logical_type::INTERVAL) {
+        -:  378:                return logical_type::INTERVAL;
+        -:  379:            }
+        -:  380:        }
+        -:  381:        return logical_type::NA;
+        -:  382:    }
+        -:  383:
+        -:  384:    class complex_logical_type {
+        -:  385:    public:
+        -:  386:        complex_logical_type(logical_type type = logical_type::NA, std::string alias = "");
+        -:  387:        complex_logical_type(logical_type type,
+        -:  388:                             std::unique_ptr<logical_type_extension> extension,
+        -:  389:                             std::string alias = "");
+        -:  390:        complex_logical_type(const complex_logical_type& other);
+        -:  391:        complex_logical_type(complex_logical_type&& other) noexcept = default;
+        -:  392:        complex_logical_type& operator=(const complex_logical_type& other);
+        -:  393:        complex_logical_type& operator=(complex_logical_type&& other) = default;
+function _ZN10components5types20complex_logical_typeD2Ev called 0 returned 0% blocks executed 0%
+    #####:  394:        ~complex_logical_type() = default;
+call    0 never executed
+        -:  395:
+        -:  396:        bool operator==(const complex_logical_type& rhs) const;
+        -:  397:        bool operator!=(const complex_logical_type& rhs) const;
+        -:  398:
+        -:  399:        logical_type type() const noexcept { return type_; }
+        -:  400:        size_t size() const noexcept;
+        -:  401:        size_t align() const noexcept;
+        -:  402:        physical_type to_physical_type() const;
+        -:  403:        void set_alias(const std::string& alias);
+        -:  404:        bool has_alias() const;
+        -:  405:        const std::string& alias() const;
+        -:  406:        const std::string& type_name() const;
+        -:  407:        const std::string& child_name(uint64_t index) const;
+        -:  408:        bool is_unnamed() const;
+        -:  409:        bool is_nested() const;
+        -:  410:
+        -:  411:        const complex_logical_type& child_type(const std::pmr::vector<size_t>& path) const;
+        -:  412:        static const complex_logical_type& type_from_path(const std::pmr::vector<complex_logical_type>& types,
+        -:  413:                                                          const std::pmr::vector<size_t>& path);
+        -:  414:        const complex_logical_type& child_type() const;
+        -:  415:        std::pmr::vector<complex_logical_type>& child_types();
+        -:  416:        const std::pmr::vector<complex_logical_type>& child_types() const;
+        -:  417:        logical_type_extension* extension() const;
+        -:  418:
+        -:  419:        bool is_convertable_to(const complex_logical_type& other) const;
+        -:  420:
+        -:  421:        template<typename T>
+        -:  422:        static bool contains(const complex_logical_type& type, T&& predicate);
+        -:  423:
+        -:  424:        static bool contains(const complex_logical_type& type, logical_type type_id) {
+        -:  425:            return contains(type, [&](const complex_logical_type& t) { return t.type() == type_id; });
+        -:  426:        }
+        -:  427:
+        -:  428:        static bool type_is_constant_size(logical_type type);
+        -:  429:
+        -:  430:        static complex_logical_type create_decimal(uint8_t width, uint8_t scale, std::string alias = "");
+        -:  431:        static complex_logical_type
+        -:  432:        create_enum(std::string name, std::vector<logical_value_t> entries, std::string alias = "");
+        -:  433:        static complex_logical_type create_list(const complex_logical_type& internal_type, std::string alias = "");
+        -:  434:        static complex_logical_type
+        -:  435:        create_array(const complex_logical_type& internal_type, size_t array_size, std::string alias = "");
+        -:  436:        static complex_logical_type create_map(const complex_logical_type& key_type,
+        -:  437:                                               const complex_logical_type& value_type,
+        -:  438:                                               std::string alias = "");
+        -:  439:        static complex_logical_type
+        -:  440:        create_struct(std::string name, const std::pmr::vector<complex_logical_type>& fields, std::string alias = "");
+        -:  441:        static complex_logical_type create_union(std::pmr::vector<complex_logical_type> fields, std::string alias = "");
+        -:  442:        static complex_logical_type create_variant(std::pmr::memory_resource* resource, std::string alias = "");
+        -:  443:        static complex_logical_type create_unknown(std::string type_name, std::string alias = "");
+        -:  444:
+        -:  445:    private:
+        -:  446:        logical_type type_ = logical_type::NA;
+        -:  447:        std::unique_ptr<logical_type_extension> extension_ = nullptr; // for complex types
+        -:  448:
+        -:  449:        // helper method, so we won't have to copy vector each type, while providing somewhat friendly interface
+        -:  450:        const complex_logical_type& child_type(const size_t* path_data, size_t remaining) const;
+        -:  451:    };
+        -:  452:
+        -:  453:    struct list_entry_t {
+        -:  454:        list_entry_t() = default;
+        -:  455:        list_entry_t(uint64_t offset, uint64_t length)
+        -:  456:            : offset(offset)
+        -:  457:            , length(length) {}
+        -:  458:        constexpr bool operator!=(const list_entry_t& other) const { return !(*this == other); }
+        -:  459:        constexpr bool operator==(const list_entry_t& other) const {
+        -:  460:            return offset == other.offset && length == other.length;
+        -:  461:        }
+        -:  462:
+        -:  463:        uint64_t offset;
+        -:  464:        uint64_t length;
+        -:  465:    };
+        -:  466:
+        -:  467:    struct field_description {
+        -:  468:        field_description() = default;
+        -:  469:
+        -:  470:        field_description(uint64_t field_id, bool required = true, std::string doc = "")
+        -:  471:            : field_id(field_id)
+        -:  472:            , required(required)
+        -:  473:            , doc(std::move(doc)) {}
+        -:  474:
+        -:  475:        uint64_t field_id;
+        -:  476:        bool required;
+        -:  477:        std::string doc;
+        -:  478:    };
+        -:  479:
+        -:  480:    class logical_type_extension {
+        -:  481:    public:
+        -:  482:        // duplicates from logical_type, but declared separately for clarity
+        -:  483:        enum class extension_type : uint8_t
+        -:  484:        {
+        -:  485:            GENERIC = 0,
+        -:  486:            ARRAY = 1,
+        -:  487:            MAP = 2,
+        -:  488:            LIST = 3,
+        -:  489:            STRUCT = 4,
+        -:  490:            DECIMAL = 5,
+        -:  491:            ENUM = 6,
+        -:  492:            USER = 7,
+        -:  493:            FUNCTION = 8,
+        -:  494:            UNKNOWN = 9 // extension fo an unknown type
+        -:  495:        };
+        -:  496:
+        -:  497:        logical_type_extension() = default;
+        -:  498:        explicit logical_type_extension(extension_type t, std::string alias = "");
+        -:  499:        virtual ~logical_type_extension() = default;
+        -:  500:
+        -:  501:        extension_type type() const noexcept { return type_; }
+        -:  502:        const std::string& alias() const noexcept { return alias_; }
+        -:  503:        void set_alias(const std::string& alias);
+        -:  504:
+        -:  505:    protected:
+        -:  506:        extension_type type_ = extension_type::GENERIC;
+        -:  507:        std::string alias_;
+        -:  508:    };
+        -:  509:
+        -:  510:    class array_logical_type_extension : public logical_type_extension {
+        -:  511:    public:
+        -:  512:        explicit array_logical_type_extension(const complex_logical_type& type, uint64_t size);
+        -:  513:
+        -:  514:        const complex_logical_type& internal_type() const noexcept { return items_type_; }
+        -:  515:        size_t size() const noexcept { return size_; }
+        -:  516:
+        -:  517:        bool operator==(const array_logical_type_extension& rhs) const;
+        -:  518:
+        -:  519:    private:
+        -:  520:        complex_logical_type items_type_;
+        -:  521:        uint64_t size_;
+        -:  522:    };
+        -:  523:
+        -:  524:    class map_logical_type_extension : public logical_type_extension {
+        -:  525:    public:
+        -:  526:        map_logical_type_extension(const complex_logical_type& key, const complex_logical_type& value);
+        -:  527:        map_logical_type_extension(uint64_t key_id,
+        -:  528:                                   const types::complex_logical_type& key,
+        -:  529:                                   uint64_t value_id,
+        -:  530:                                   const types::complex_logical_type& value,
+        -:  531:                                   bool value_required);
+        -:  532:
+        -:  533:        const complex_logical_type& key() const noexcept { return key_; }
+        -:  534:        const complex_logical_type& value() const noexcept { return value_; }
+        -:  535:        uint64_t key_id() const { return key_id_; }
+        -:  536:        uint64_t value_id() const { return value_id_; }
+        -:  537:        bool value_required() const { return value_required_; }
+        -:  538:
+        -:  539:        bool operator==(const map_logical_type_extension& rhs) const;
+        -:  540:
+        -:  541:    private:
+        -:  542:        complex_logical_type key_;
+        -:  543:        complex_logical_type value_;
+        -:  544:        uint64_t key_id_;
+        -:  545:        uint64_t value_id_;
+        -:  546:        bool value_required_;
+        -:  547:    };
+        -:  548:
+        -:  549:    class list_logical_type_extension : public logical_type_extension {
+        -:  550:    public:
+        -:  551:        explicit list_logical_type_extension(complex_logical_type type);
+        -:  552:        list_logical_type_extension(uint64_t field_id, complex_logical_type type, bool required);
+        -:  553:
+        -:  554:        const complex_logical_type& node() const noexcept { return items_type_; }
+        -:  555:        uint64_t field_id() const noexcept { return field_id_; }
+        -:  556:        bool required() const noexcept { return required_; }
+        -:  557:
+        -:  558:        bool operator==(const list_logical_type_extension& rhs) const;
+        -:  559:
+        -:  560:    private:
+        -:  561:        complex_logical_type items_type_;
+        -:  562:        uint64_t field_id_;
+        -:  563:        bool required_;
+        -:  564:    };
+        -:  565:
+        -:  566:    class struct_logical_type_extension : public logical_type_extension {
+        -:  567:    public:
+        -:  568:        explicit struct_logical_type_extension(std::string name, const std::pmr::vector<complex_logical_type>& fields);
+        -:  569:
+        -:  570:        // fields must be aliased
+        -:  571:        struct_logical_type_extension(std::string name,
+        -:  572:                                      const std::pmr::vector<types::complex_logical_type>& columns,
+        -:  573:                                      std::pmr::vector<field_description> descriptions);
+        -:  574:
+        -:  575:        const std::string& type_name() const { return type_name_; }
+        -:  576:        std::pmr::vector<complex_logical_type>& child_types() { return fields_; }
+        -:  577:        const std::pmr::vector<complex_logical_type>& child_types() const { return fields_; }
+        -:  578:        const std::pmr::vector<field_description>& descriptions() const { return descriptions_; }
+        -:  579:
+        -:  580:        bool operator==(const struct_logical_type_extension& rhs) const;
+        -:  581:
+        -:  582:    private:
+        -:  583:        std::string type_name_;
+        -:  584:        std::pmr::vector<complex_logical_type> fields_;
+        -:  585:        std::pmr::vector<field_description> descriptions_;
+        -:  586:    };
+        -:  587:
+        -:  588:    class decimal_logical_type_extension : public logical_type_extension {
+        -:  589:    public:
+        -:  590:        explicit decimal_logical_type_extension(uint8_t width, uint8_t scale);
+        -:  591:
+        -:  592:        uint8_t width() const noexcept { return width_; }
+        -:  593:        uint8_t scale() const noexcept { return scale_; }
+        -:  594:        physical_type stored_as() const noexcept { return stored_as_; }
+        -:  595:
+        -:  596:        bool operator==(const decimal_logical_type_extension& rhs) const;
+        -:  597:
+        -:  598:    private:
+        -:  599:        physical_type stored_as_;
+        -:  600:        uint8_t width_;
+        -:  601:        uint8_t scale_;
+        -:  602:    };
+        -:  603:
+        -:  604:    class function_logical_type_extension : public logical_type_extension {
+        -:  605:    public:
+        -:  606:        explicit function_logical_type_extension(complex_logical_type return_type,
+        -:  607:                                                 std::pmr::vector<complex_logical_type> arguments);
+        -:  608:
+        -:  609:        const complex_logical_type& return_type() const noexcept { return return_type_; }
+        -:  610:        const std::pmr::vector<complex_logical_type>& argument_types() const noexcept { return argument_types_; }
+        -:  611:
+        -:  612:        bool operator==(const function_logical_type_extension& rhs) const;
+        -:  613:
+        -:  614:    private:
+        -:  615:        complex_logical_type return_type_;
+        -:  616:        std::pmr::vector<complex_logical_type> argument_types_;
+        -:  617:    };
+        -:  618:
+        -:  619:    class unknown_logical_type_extension : public logical_type_extension {
+        -:  620:    public:
+        -:  621:        explicit unknown_logical_type_extension(std::string type_name);
+        -:  622:
+        -:  623:        const std::string& type_name() const;
+        -:  624:
+        -:  625:        bool operator==(const unknown_logical_type_extension& rhs) const;
+        -:  626:
+        -:  627:    private:
+        -:  628:        std::string type_name_;
+        -:  629:    };
+        -:  630:
+        -:  631:    template<typename T>
+        -:  632:    bool complex_logical_type::contains(const complex_logical_type& type, T&& predicate) {
+        -:  633:        if (predicate(type)) {
+        -:  634:            return true;
+        -:  635:        }
+        -:  636:        switch (type.type_) {
+        -:  637:            case logical_type::STRUCT:
+        -:  638:            case logical_type::UNION: {
+        -:  639:                for (const auto& child : type.child_types()) {
+        -:  640:                    if (contains(child, predicate)) {
+        -:  641:                        return true;
+        -:  642:                    }
+        -:  643:                }
+        -:  644:                return false;
+        -:  645:            }
+        -:  646:            case logical_type::LIST:
+        -:  647:                return contains(type.child_type(), predicate);
+        -:  648:            case logical_type::ARRAY:
+        -:  649:                return contains(type.child_type(), predicate);
+        -:  650:            case logical_type::MAP:
+        -:  651:                return contains(static_cast<map_logical_type_extension*>(type.extension_.get())->key(), predicate) ||
+        -:  652:                       contains(static_cast<map_logical_type_extension*>(type.extension_.get())->value(), predicate);
+        -:  653:            default:
+        -:  654:                return false;
+        -:  655:        }
+        -:  656:    }
+        -:  657:
+        -:  658:    bool operator==(const logical_type_extension& lhs, const logical_type_extension& rhs);
+        -:  659:
+        -:  660:} // namespace components::types

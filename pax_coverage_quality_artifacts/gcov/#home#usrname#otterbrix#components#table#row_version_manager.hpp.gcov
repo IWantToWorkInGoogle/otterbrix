@@ -1,0 +1,225 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/row_version_manager.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <components/vector/indexing_vector.hpp>
+        -:    4:#include <cstddef>
+        -:    5:#include <stdexcept>
+        -:    6:#include <vector>
+        -:    7:
+        -:    8:namespace components::table {
+        -:    9:    namespace storage {
+        -:   10:        struct meta_block_pointer_t;
+        -:   11:    } // namespace storage
+        -:   12:    class data_table_t;
+        -:   13:    class row_version_manager_t;
+        -:   14:
+        -:   15:    struct delete_info;
+        -:   16:
+        -:   17:    static constexpr uint64_t TRANSACTION_ID_START = uint64_t(4611686018427388000);      // 2^62
+        -:   18:    static constexpr uint64_t NOT_DELETED_ID = std::numeric_limits<uint64_t>::max() - 1; // 2^64 - 1
+        -:   19:
+        -:   20:    struct transaction_data {
+        -:   21:        transaction_data() = default;
+function _ZN10components5table16transaction_dataC2Emm called 0 returned 0% blocks executed 0%
+    #####:   22:        transaction_data(uint64_t id, uint64_t time)
+    #####:   23:            : transaction_id(id)
+    #####:   24:            , start_time(time) {}
+        -:   25:
+        -:   26:        uint64_t transaction_id{0};
+        -:   27:        uint64_t start_time{0};
+        -:   28:    };
+        -:   29:    enum class chunk_info_type : uint8_t
+        -:   30:    {
+        -:   31:        CONSTANT_INFO,
+        -:   32:        VECTOR_INFO,
+        -:   33:        EMPTY_INFO
+        -:   34:    };
+        -:   35:
+        -:   36:    class chunk_info {
+        -:   37:    public:
+        -:   38:        chunk_info(int64_t start, chunk_info_type type)
+        -:   39:            : start(start)
+        -:   40:            , type(type) {}
+        -:   41:        virtual ~chunk_info() = default;
+        -:   42:
+        -:   43:        int64_t start;
+        -:   44:        chunk_info_type type;
+        -:   45:
+        -:   46:        virtual uint64_t indexing_vector(transaction_data transaction,
+        -:   47:                                         vector::indexing_vector_t& indexing_vector,
+        -:   48:                                         uint64_t max_count) = 0;
+        -:   49:        virtual uint64_t committed_indexing_vector(uint64_t min_start_id,
+        -:   50:                                                   uint64_t min_transaction_id,
+        -:   51:                                                   vector::indexing_vector_t& indexing_vector,
+        -:   52:                                                   uint64_t max_count) = 0;
+        -:   53:        virtual bool fetch(transaction_data transaction, int64_t row) = 0;
+        -:   54:        virtual void commit_append(uint64_t commit_id, uint64_t start, uint64_t end) = 0;
+        -:   55:        virtual uint64_t committed_deleted_count(uint64_t max_count) = 0;
+        -:   56:        virtual bool cleanup(uint64_t lowest_transaction, std::unique_ptr<chunk_info>& result) const;
+        -:   57:
+        -:   58:        virtual bool has_deletes() const = 0;
+        -:   59:
+        -:   60:        template<class TARGET>
+        -:   61:        TARGET& cast() {
+        -:   62:            return reinterpret_cast<TARGET&>(*this);
+        -:   63:        }
+        -:   64:
+        -:   65:        template<class TARGET>
+        -:   66:        const TARGET& cast() const {
+        -:   67:            return reinterpret_cast<const TARGET&>(*this);
+        -:   68:        }
+        -:   69:    };
+        -:   70:
+        -:   71:    class chunk_constant_info : public chunk_info {
+        -:   72:    public:
+        -:   73:        static constexpr chunk_info_type TYPE = chunk_info_type::CONSTANT_INFO;
+        -:   74:
+        -:   75:        explicit chunk_constant_info(int64_t start);
+        -:   76:
+        -:   77:        uint64_t insert_id;
+        -:   78:        uint64_t delete_id;
+        -:   79:
+        -:   80:        uint64_t indexing_vector(transaction_data transaction,
+        -:   81:                                 vector::indexing_vector_t& indexing_vector,
+        -:   82:                                 uint64_t max_count) override;
+        -:   83:        uint64_t committed_indexing_vector(uint64_t min_start_id,
+        -:   84:                                           uint64_t min_transaction_id,
+        -:   85:                                           vector::indexing_vector_t& indexing_vector,
+        -:   86:                                           uint64_t max_count) override;
+        -:   87:        bool fetch(transaction_data transaction, int64_t row) override;
+        -:   88:        void commit_append(uint64_t commit_id, uint64_t start, uint64_t end) override;
+        -:   89:        uint64_t committed_deleted_count(uint64_t max_count) override;
+        -:   90:        bool cleanup(uint64_t lowest_transaction, std::unique_ptr<chunk_info>& result) const override;
+        -:   91:
+        -:   92:        bool has_deletes() const override;
+        -:   93:
+        -:   94:    private:
+        -:   95:        template<class OP>
+        -:   96:        uint64_t templated_indexing_vector(uint64_t start_time,
+        -:   97:                                           uint64_t transaction_id,
+        -:   98:                                           vector::indexing_vector_t& indexing_vector,
+        -:   99:                                           uint64_t max_count) const;
+        -:  100:    };
+        -:  101:
+        -:  102:    class chunk_vector_info : public chunk_info {
+        -:  103:    public:
+        -:  104:        static constexpr chunk_info_type TYPE = chunk_info_type::VECTOR_INFO;
+        -:  105:
+        -:  106:        explicit chunk_vector_info(int64_t start);
+        -:  107:
+        -:  108:        uint64_t inserted[vector::DEFAULT_VECTOR_CAPACITY];
+        -:  109:        uint64_t insert_id;
+        -:  110:        bool same_inserted_id;
+        -:  111:        uint64_t deleted[vector::DEFAULT_VECTOR_CAPACITY];
+        -:  112:        bool any_deleted;
+        -:  113:
+        -:  114:        uint64_t indexing_vector(uint64_t start_time,
+        -:  115:                                 uint64_t transaction_id,
+        -:  116:                                 vector::indexing_vector_t& indexing_vector,
+        -:  117:                                 uint64_t max_count) const;
+        -:  118:        uint64_t indexing_vector(transaction_data transaction,
+        -:  119:                                 vector::indexing_vector_t& indexing_vector,
+        -:  120:                                 uint64_t max_count) override;
+        -:  121:        uint64_t committed_indexing_vector(uint64_t min_start_id,
+        -:  122:                                           uint64_t min_transaction_id,
+        -:  123:                                           vector::indexing_vector_t& indexing_vector,
+        -:  124:                                           uint64_t max_count) override;
+        -:  125:        bool fetch(transaction_data transaction, int64_t row) override;
+        -:  126:        void commit_append(uint64_t commit_id, uint64_t start, uint64_t end) override;
+        -:  127:        bool cleanup(uint64_t lowest_transaction, std::unique_ptr<chunk_info>& result) const override;
+        -:  128:        uint64_t committed_deleted_count(uint64_t max_count) override;
+        -:  129:
+        -:  130:        void append(uint64_t start, uint64_t end, uint64_t commit_id);
+        -:  131:
+        -:  132:        uint64_t delete_rows(uint64_t transaction_id, int64_t rows[], uint64_t count);
+        -:  133:        void commit_delete(uint64_t commit_id, const delete_info& info);
+        -:  134:        void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
+        -:  135:
+        -:  136:        bool has_deletes() const override;
+        -:  137:
+        -:  138:    private:
+        -:  139:        template<class OP>
+        -:  140:        uint64_t templated_indexing_vector(uint64_t start_time,
+        -:  141:                                           uint64_t transaction_id,
+        -:  142:                                           vector::indexing_vector_t& indexing_vector,
+        -:  143:                                           uint64_t max_count) const;
+        -:  144:    };
+        -:  145:
+        -:  146:    struct delete_info {
+        -:  147:        data_table_t* table;
+        -:  148:        row_version_manager_t* version_info;
+        -:  149:        uint64_t vector_idx;
+        -:  150:        uint64_t count;
+        -:  151:        uint64_t base_row;
+        -:  152:        bool is_consecutive;
+        -:  153:
+        -:  154:        uint16_t* get_rows() {
+        -:  155:            if (is_consecutive) {
+        -:  156:                throw std::logic_error("delete_info is consecutive - rows are not accessible");
+        -:  157:            }
+        -:  158:            return rows;
+        -:  159:        }
+        -:  160:        const uint16_t* get_rows() const {
+        -:  161:            if (is_consecutive) {
+        -:  162:                throw std::logic_error("delete_info is consecutive - rows are not accessible");
+        -:  163:            }
+        -:  164:            return rows;
+        -:  165:        }
+        -:  166:
+        -:  167:    private:
+        -:  168:        uint16_t rows[1] = {};
+        -:  169:    };
+        -:  170:
+        -:  171:    class row_version_manager_t {
+        -:  172:    public:
+        -:  173:        explicit row_version_manager_t(int64_t start) noexcept;
+        -:  174:
+        -:  175:        int64_t start() const { return start_; }
+        -:  176:        void set_start(int64_t start);
+        -:  177:        uint64_t committed_deleted_count(uint64_t count);
+        -:  178:
+        -:  179:        uint64_t indexing_vector(transaction_data transaction,
+        -:  180:                                 uint64_t vector_idx,
+        -:  181:                                 vector::indexing_vector_t& indexing_vector,
+        -:  182:                                 uint64_t max_count);
+        -:  183:        uint64_t committed_indexing_vector(uint64_t start_time,
+        -:  184:                                           uint64_t transaction_id,
+        -:  185:                                           uint64_t vector_idx,
+        -:  186:                                           vector::indexing_vector_t& indexing_vector,
+        -:  187:                                           uint64_t max_count);
+        -:  188:	        bool fetch(transaction_data transaction, uint64_t row);
+        -:  189:	        bool supports_threaded_scan() const;
+        -:  190:	        bool has_version_entries() const;
+        -:  191:	        bool has_visibility_changes() const;
+        -:  192:	        std::vector<std::byte> serialize_committed_deletes(uint64_t row_count) const;
+        -:  193:        void deserialize_committed_deletes(const std::byte* data, uint64_t size);
+        -:  194:        void mark_committed_deleted(uint64_t absolute_row, uint64_t commit_id = 0);
+        -:  195:
+        -:  196:        void append_version_info(transaction_data transaction,
+        -:  197:                                 uint64_t count,
+        -:  198:                                 uint64_t row_group_start,
+        -:  199:                                 uint64_t row_group_end);
+        -:  200:        void commit_append(uint64_t commit_id, uint64_t row_group_start, uint64_t count);
+        -:  201:        void revert_append(uint64_t start_row);
+        -:  202:        void cleanup_append(uint64_t lowest_active_transaction, uint64_t row_group_start, uint64_t count);
+        -:  203:
+        -:  204:        uint64_t delete_rows(uint64_t vector_idx, uint64_t transaction_id, int64_t rows[], uint64_t count);
+        -:  205:        void commit_delete(uint64_t vector_idx, uint64_t commit_id, const delete_info& info);
+        -:  206:        void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
+        -:  207:
+        -:  208:    private:
+        -:  209:        chunk_info* get_chunk_info(uint64_t vector_idx);
+        -:  210:        chunk_vector_info& vector_info(uint64_t vector_idx);
+        -:  211:        void fill_vector_info(uint64_t vector_idx);
+        -:  212:
+        -:  213:        mutable std::mutex version_lock_;
+        -:  214:        int64_t start_;
+        -:  215:        std::vector<std::unique_ptr<chunk_info>> vector_info_;
+        -:  216:        bool has_changes_;
+        -:  217:        std::vector<storage::meta_block_pointer_t> storage_pointers_;
+        -:  218:    };
+        -:  219:
+        -:  220:} // namespace components::table

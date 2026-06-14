@@ -1,0 +1,264 @@
+Test project /home/usrname/otterbrix/build-pax-coverage
+  Test  #15: components::table::column
+  Test  #16: components::table::data_table
+  Test  #17: components::table::data_table row id projection covers indexed scan paths
+  Test  #18: components::table::data_table string column update owns long strings
+  Test  #19: single_file_block_manager: write and read blocks
+  Test  #20: single_file_block_manager: create, close, load existing
+  Test  #21: single_file_block_manager: free list reuse
+  Test  #22: single_file_block_manager: header validation
+  Test  #23: single_file_block_manager: free list survives checkpoint/load
+  Test  #24: single_file_block_manager: empty free list persistence
+  Test  #25: metadata: write and read small data
+  Test  #26: metadata: long chain stays within persisted block payload
+  Test  #27: metadata: write and read typed data
+  Test  #28: metadata: multiple independent chains
+  Test  #29: metadata: row_group_pointer reads older columnar format
+  Test  #30: metadata: pax_fixed layout round trip
+  Test  #31: metadata: pax_fixed v1 layout defaults to all valid validity
+  Test  #32: metadata: pax_generic layout round trip
+  Test  #33: metadata: pax_generic v2 struct layout round trip
+  Test  #34: checkpoint_load: single INT64 column, 1000 rows
+  Test  #35: checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-fixed table
+  Test  #36: checkpoint_load: point-lookup (fetch by row_id) on reopened PAX-generic table
+  Test  #37: checkpoint_load: column_segment rejects out-of-block-bounds data pointer
+  Test  #38: checkpoint_load: three columns INT64 + STRING + DOUBLE
+  Test  #39: checkpoint_load: fixed integer columns are written as pax
+  Test  #40: checkpoint_load: explicit columnar-only root support matrix excludes variant and unsupported roots
+  Test  #41: checkpoint_load: explicit pax support matrix accepts mixed and rejects fallback root schemas
+  Test  #42: checkpoint_load: columnar-only layout policy disables pax routing
+  Test  #43: checkpoint_load: explicit layout policy metadata restores pax-only tables
+  Test  #44: checkpoint_load: pax fixed v1 metadata reloads integer roots
+  Test  #45: checkpoint_load: pax fixed v2 metadata restores nullable integer roots
+  Test  #46: checkpoint_load: extended fixed-width scalar roots are written as pax fixed v4
+  Test  #47: checkpoint_load: string columns are written as pax generic
+  Test  #48: checkpoint_load: pax generic string scan preserves null validity across pages
+  Test  #49: checkpoint_load: pax fixed round-trip preserves every row and null mask under buffer-pool pressure
+  Test  #50: checkpoint_load: clean restored row group checkpoint reuses persisted blocks
+  Test  #51: checkpoint_load: restored row group dirty append is persisted
+  Test  #52: checkpoint_load: columnar-only policy rewrites restored pax row group
+  Test  #53: checkpoint_load: pax generic string scan restores overflow strings
+  Test  #54: checkpoint_load: columnar layout refuses to persist a nested column (fail-closed)
+  Test  #55: checkpoint_load: pax generic struct column restores fixed and string children
+  Test  #56: checkpoint_load: pax generic nested struct column restores overflow strings
+  Test  #57: checkpoint_load: pax generic struct column restores extended fixed children
+  Test  #58: checkpoint_load: pax generic union column restores active member
+  Test  #59: checkpoint_load: pax generic list column restores offsets and child strings
+  Test  #60: checkpoint_load: pax generic array of struct restores nested child streams
+  Test  #61: checkpoint_load: pax generic projected scan uses fast path
+  Test  #62: checkpoint_load: pax generic projected scan skips committed deletes
+  Test  #63: checkpoint_load: pax generic projected scan applies active transaction delete visibility
+  Test  #64: checkpoint_load: pax generic projected scan persists committed deletes
+  Test  #65: checkpoint_load: pax generic projected scan applies update overlay
+  Test  #66: checkpoint_load: pax generic projected scan supports simple filters
+  Test  #67: checkpoint_load: pax generic projected scan supports non-projected filters and null predicates
+  Test  #68: checkpoint_load: pax generic projected scan restores overflow strings
+  Test  #69: checkpoint_load: pax generic projected scan supports mixed projection
+  Test  #70: checkpoint_load: pax fixed projected scan uses fast path
+  Test  #71: checkpoint_load: pax fixed projected scan skips committed deletes
+  Test  #72: checkpoint_load: pax fixed projected scan applies active transaction delete visibility
+  Test  #73: checkpoint_load: pax fixed projected scan persists committed deletes
+  Test  #74: checkpoint_load: pax fixed projected scan applies update overlay
+  Test  #75: checkpoint_load: pax fixed projected scan supports dml update predicate tree
+  Test  #76: checkpoint_load: pax fixed projected scan survives append after checkpoint
+  Test  #77: checkpoint_load: torn/corrupt database header recovers from intact slot or throws
+  Test  #78: checkpoint_load: corrupted pax data block is detected on reopen scan
+  Test  #79: checkpoint_load: interrupted checkpoint before header swap preserves prior state
+  Test  #80: checkpoint_load: minimal repro single-rg append-after-reopen value
+  Test  #81: checkpoint_load: differential round-trip fuzzer catalog (pax cold-reopen == oracle)
+  Test  #82: checkpoint_load: pax fixed projected scan decodes value encodings
+  Test  #83: checkpoint_load: pax fixed projected scan decodes value encodings across page-split windows
+  Test  #84: checkpoint_load: pax fixed projected scan supports simple filters
+  Test  #85: checkpoint_load: pax fixed projected scan filters fixed-width scalar types
+  Test  #86: checkpoint_load: pax fixed projected scan supports extended projections and non-projected filters
+  Test  #87: checkpoint_load: pax fixed projected scan supports null predicates
+  Test  #88: checkpoint_load: pax fixed projected scan preserves null validity
+  Test  #89: checkpoint_load: pax fixed projected scan resets reused buffer validity across pages
+  Test  #90: checkpoint_load: pax fixed projected scan prunes pages on multi-column AND filter
+  Test  #91: checkpoint_load: pax fixed projected scan falls back for unsupported cases
+  Test  #92: checkpoint_load: empty table
+  Test  #93: checkpoint_load: multiple row groups
+  Test  #94: checkpoint_load: CONSTANT compression — all identical values
+  Test  #95: checkpoint_load: RLE compression — sorted runs
+  Test  #96: checkpoint_load: DICTIONARY compression — low cardinality cycling
+  Test  #97: checkpoint_load: UNCOMPRESSED fallback — high cardinality
+  Test  #98: checkpoint_load: mixed row groups — constant + varied
+  Test  #99: checkpoint_load: DOUBLE column — constant compression
+  Test #100: checkpoint_load: small segment — 2 rows edge case
+  Test #101: checkpoint_load: fsync failure during checkpoint aborts commit and preserves prior state
+  Test #102: checkpoint_load: block-write failure during checkpoint aborts commit and preserves prior state
+  Test #103: checkpoint_load: corrupted metadata block is detected on reopen
+  Test #104: checkpoint_load: out-of-bounds pax data offset fails closed on scan
+  Test #105: components::table::transaction_manager::begin_commit
+  Test #106: components::table::transaction_manager::begin_abort
+  Test #107: components::table::transaction_manager::two_sessions_independent
+  Test #108: components::table::transaction_manager::find_transaction
+  Test #109: components::table::transaction_manager::lowest_active_start_time
+  Test #110: components::table::transaction_manager::id_monotonicity
+  Test #111: components::table::transaction_manager::append_tracking
+  Test #112: components::table::mvcc::append_commit_visible
+  Test #113: components::table::mvcc::append_revert_invisible
+  Test #114: components::table::mvcc::append_without_txn_backward_compat
+  Test #115: components::table::mvcc::cleanup_versions
+  Test #116: components::table::mvcc::multiple_txn_appends
+  Test #117: components::table::mvcc::delete_rows_txn_commit_all_deletes
+  Test #118: components::table::mvcc::delete_rows_txn_without_commit_visible
+  Test #119: components::table::mvcc::cleanup_committed_deletes
+  Test #120: components::table::mvcc::cleanup_partial_deletes
+  Test #121: components::table::mvcc::compact_after_delete
+  Test #122: components::table::mvcc::uncommitted_rows_invisible_to_other_txn
+  Test #123: components::table::mvcc::delete_not_visible_until_commit
+  Test #124: components::table::mvcc::txn_sees_own_writes
+  Test #125: components::table::mvcc::snapshot_does_not_see_later_insert_commit
+  Test #126: components::table::mvcc::snapshot_keeps_rows_deleted_after_start
+  Test #127: components::table::mvcc::snapshot_keeps_old_row_for_later_update_commit
+  Test #128: statistics: update from vector
+  Test #129: zonemap: check_zonemap filters
+  Test #130: per-segment statistics: check_segment_zonemap
+  Test #131: per-segment statistics: populated during append
+  Test #132: parallel scan: each call gets different row group
+  Test #133: parallel scan: atomic index increments correctly
+  Test #134: parallel scan: empty table returns false immediately
+  Test #135: parallel scan: all row values are correct
+  Test #136: parallel scan: two independent scans on same table
+  Test #137: parallel scan: copy_segments provides snapshot
+  Test #138: parallel scan: concurrent threads cover all rows exactly once [tsan]
+  Test #139: parallel scan: concurrent threads under buffer-pool eviction pressure [tsan]
+  Test #140: services::disk::table_storage::in_memory
+  Test #141: services::disk::table_storage::disk_checkpoint_and_load
+  Test #142: services::disk::table_storage::mode_query
+  Test #143: services::disk::table_storage::checkpoint_preserves_multi_column
+  Test #144: services::disk::table_storage::drop_column_in_memory
+  Test #145: services::disk::table_storage::drop_column_disk_is_noop
+  Test #146: services::disk::table_storage::parallel_scan_via_storage_adapter
+  Test #147: services::disk::table_storage::parallel_scan_batched_via_storage_adapter_threads
+  Test #148: services::disk::table_storage::parallel_scan_batched_via_storage_adapter_pumped_scheduler
+  Test #149: services::disk::table_storage::parallel_scan_batched_filter_projected_across_row_groups
+  Test #150: services::disk::table_storage::scan_batched_filter_string_bigint_single_row_group
+  Test #151: services::disk::table_storage::scan_batched_filter_string_bigint_single_row_group_committed_txn
+  Test #152: services::disk::table_storage::scan_batched_filter_string_bigint_multi_row_group_committed_txn
+  Test #153: services::disk::table_storage::scan_batched_filter_string_bigint_boundary_cutoff
+  Test #154: services::disk::table_storage::manager_disk_actor_scan_batched_filter_string_bigint
+  Test #155: services::disk::table_storage::manager_disk_actor_scan_batched_filter_string_bigint_cutoff_1023
+  Test #156: services::disk::table_storage::scan_batched_filter_string_bigint_cutoff_1023
+  Test #157: services::disk::table_storage::cursor_from_multi_batch_string_scan
+  Test #158: services::disk::table_storage::sequential_filter_scans_survive_cursor_projection_combine
+  Test #159: services::disk::table_storage::cursor_from_split_large_output_batches
+  Test #160: services::disk::table_storage::parallel_scan_batched_projected_via_storage_adapter_pumped_scheduler
+  Test #161: services::disk::table_storage::parallel_scan_batched_with_committed_deletes_uses_threads
+  Test #162: services::disk::table_storage::parallel_scan_batched_disk_load_uses_threads
+  Test #163: services::disk::table_storage::parallel_scan_batched_row_ids_only_keeps_empty_projection
+  Test #164: services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_deletes_uses_threads
+  Test #165: services::disk::table_storage::parallel_scan_batched_disk_load_with_reader_txn_falls_back
+  Test #166: services::disk::table_storage::parallel_scan_batched_disk_load_with_committed_update_overlay_uses_threads
+  Test #167: services::disk::table_storage::parallel_scan_batched_disk_load_with_uncommitted_versions_falls_back
+  Test #168: services::disk::table_storage::parallel_scan_batched_disk_load_with_unloaded_deletes_uses_threads
+  Test #169: services::disk::torn::checkpoint_wal_id_overload_tracks_prev
+  Test #170: services::disk::torn::checkpoint_no_overload_leaves_ids_zero
+  Test #171: services::disk::torn::data_persists_after_checkpoint_with_wal_id
+  Test #172: services::disk::torn::load_storage_disk_sync_promotes_only_prev
+  Test #173: services::disk::torn::load_falls_back_to_prev_on_corrupt_otbx
+  Test #174: services::disk::sysboot::creates_10_otbx_files
+  Test #175: services::disk::sysboot::bootstrap_is_idempotent
+  Test #176: services::disk::sysboot::restart_loads_all_10
+  Test #177: services::disk::sysboot::no_path_is_safe_noop
+  Test #178: services::disk::sysboot::oid_generator_default_seed
+  Test #179: services::disk::sysboot::all_schemas_non_empty
+  Test #180: services::disk::sysboot::dir_layout_per_table
+  Test #181: services::disk::sysboot::load_after_bootstrap_in_same_process
+  Test #182: services::disk::resolve::namespace_finds_bootstrap
+  Test #183: services::disk::resolve::namespace_misses_unknown
+  Test #184: services::disk::resolve::table_finds_after_create
+  Test #185: services::disk::resolve::table_misses_in_wrong_namespace
+  Test #186: services::disk::resolve::type_finds_bootstrap
+  Test #187: services::disk::resolve::function_finds_bootstrap_count
+  Test #188: services::disk::pg_depend::table_to_namespace_cascade
+  Test #189: services::disk::pg_depend::drop_namespace_restrict_blocks
+  Test #190: services::disk::pg_depend::index_cascades_with_table
+  Test #191: services::disk::pg_depend::type_cascades_with_namespace
+  Test #192: services::disk::pg_depend::function_cascades_with_namespace
+  Test #193: services::disk::pg_depend::drop_type_restrict_no_deps
+  Test #194: services::disk::pg_depend::multi_level_cascade
+  Test #195: services::disk::pg_depend::drop_table_restrict_vs_cascade
+  Test #196: services::disk::pg_depend::test_circular_dependency_detection
+  Test #197: services::disk::pg_depend::test_no_cycle_linear_chain
+  Test #198: services::disk::pg_depend::test_column_level_pg_depend_written
+  Test #199: services::disk::pg_depend::cross_namespace_fk_restricts_parent_drop
+  Test #200: services::disk::ddl::add_column_round_trip
+  Test #201: services::disk::ddl::computed_register_type_evolution
+  Test #202: services::disk::ddl::computed_append_new_field
+  Test #203: services::disk::ddl::computed_register_same_type_idempotent
+  Test #204: services::disk::ddl::computed_unregister_then_resolve_hides_column
+  Test #205: services::disk::ddl::computed_unregister_marks_dead
+  Test #206: services::disk::ddl::computed_field_drop_then_readd
+  Test #207: services::disk::ddl::vacuum_gc_clears_dead_computed_columns
+  Test #208: services::disk::ddl::vacuum_physical_compaction_removes_dropped_columns
+  Test #209: services::disk::ddl::dynamic_schema_concurrent_insert_skip
+  Test #210: services::disk::ddl::dynamic_schema_wal_recovery_skip
+  Test #211: services::disk::ddl::storage_expand_on_write_for_dynamic_schema
+  Test #212: services::disk::ddl::computing_table_pg_attribute_empty
+  Test #213: services::disk::wal_catalog::bootstrap_alone_no_wal
+  Test #214: services::disk::wal_catalog::create_namespace_writes_pg_namespace
+  Test #215: services::disk::wal_catalog::create_table_writes_pg_class_and_pg_attribute
+  Test #216: services::disk::wal_catalog::create_table_writes_pg_depend
+  Test #217: services::disk::wal_catalog::create_index_writes_pg_index
+  Test #218: services::disk::wal_catalog::index_set_valid_writes_pg_index
+  Test #219: services::disk::wal_catalog::create_type_writes_pg_type_and_depend
+  Test #220: services::disk::wal_catalog::create_function_writes_pg_proc_and_depend
+  Test #221: services::disk::wal_catalog::all_records_under_pg_catalog_database
+  Test #222: services::disk::wal_catalog::drop_table_no_resurrect_writes
+  Test #223: services::disk::wal_catalog::record_count_grows_with_ddl
+  Test #224: services::disk::wal_catalog::create_sequence_writes_pg_class
+  Test #225: services::disk::mvcc::auto_commit_create_namespace_visible
+  Test #226: services::disk::mvcc::uncommitted_insert_invisible_to_other_sessions
+  Test #227: services::disk::mvcc::auto_commit_drop_invisible
+  Test #228: services::disk::mvcc::uncommitted_delete_invisible_to_other_readers
+  Test #229: services::disk::mvcc::resolve_includes_uncommitted_deletes
+  Test #230: services::disk::mvcc::uncommitted_drop_index_invisible
+  Test #231: services::disk::mvcc::uncommitted_drop_type_invisible
+  Test #232: services::disk::mvcc::test_ddl_rollback_cleans_up
+  Test #233: services::disk::mvcc::drop_cascade_uncommitted_invisible_to_other_readers
+  Test #234: services::disk::mvcc::dynamic_schema_register_invisible_until_commit
+  Test #235: services::disk::mvcc::dynamic_schema_register_rollback_undoes
+  Test #236: services::disk::mvcc::dynamic_schema_register_visible_in_same_txn
+  Test #237: services::disk::mvcc::dynamic_field_register_concurrent_duplicate_TODO
+  Test #238: services::disk::mvcc::dynamic_field_drop_insert_concurrent_TODO
+  Test #239: services::disk::mvcc::vacuum_insert_concurrent_TODO
+  Test #240: services::disk::error::resolve_unknown_namespace
+  Test #241: services::disk::error::resolve_unknown_table
+  Test #242: services::disk::error::resolve_table_invalid_namespace
+  Test #243: services::disk::error::duplicate_namespace_name_two_rows
+  Test #244: services::disk::error::topological_drop_empty
+  Test #245: services::disk::error::long_namespace_name_accepted
+  Test #246: services::disk::error::empty_name_accepted
+  Test #247: services::disk::error::resolve_unknown_function
+  Test #248: test_recovery_system_wal_before_user
+  Test #249: test_recovery_ddl_then_dml
+  Test #250: test_recovery_orphaned_uncommitted_ddl
+  Test #251: services::disk::recovery::dynamic_schema_persists_across_restart
+  Test #252: services::disk::d4::all_system_tables_loaded_after_bootstrap
+  Test #253: services::disk::d4::user_table_not_in_storages_at_start
+  Test #254: services::disk::d4::create_table_does_not_eager_load_storage
+  Test #255: services::disk::d4::resolve_table_finds_unloaded_user_table
+  Test #256: services::disk::d4::drop_unloaded_table
+  Test #257: services::disk::d4::alter_unloaded_table_add_column
+  Test #258: services::disk::d4::repeated_resolve_does_not_create_storage
+  Test #259: services::disk::d4::resolve_table_collects_columns_by_attrelid
+  Test #260: services::disk::d4::peek_checkpoint_wal_id_unknown_returns_zero
+  Test #261: services::disk::d4::load_storage_for_wal_replay_noop_when_loaded
+  Test #262: services::disk::persistence::test_type_persistence_across_restart
+  Test #263: services::disk::persistence::test_function_persistence
+  Test #264: services::disk::persistence::test_constraint_persistence
+  Test #265: services::disk::persistence::table_storage_format_roundtrip
+  Test #266: services::disk::persistence::test_oid_persistence
+  Test #267: services::disk::persistence::test_oid_no_reuse_after_drop
+  Test #268: services::disk::persistence::test_pg_class_lists_all_objects
+  Test #269: services::disk::persistence::test_computing_table_persists_restart
+  Test #270: services::disk::persistence::test_sequence_persistence
+  Test #271: services::disk::persistence::test_view_persistence
+  Test #272: services::disk::persistence::test_macro_persistence
+  Test #273: services::disk::persistence::test_pg_constraint_orphan_after_drop_table
+  Test #274: services::disk::persistence::test_oid_no_collision_after_restore
+  Test #275: services::disk::persistence::test_check_constraint_persistence
+
+Total Tests: 261

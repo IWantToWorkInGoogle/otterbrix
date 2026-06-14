@@ -1,0 +1,644 @@
+        -:    0:Source:/home/usrname/otterbrix/services/disk/manager_disk.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include "agent_disk.hpp"
+        -:    4:#include "disk_contract.hpp"
+        -:    5:#include <actor-zeta/actor/basic_actor.hpp>
+        -:    6:#include <actor-zeta/actor/dispatch.hpp>
+        -:    7:#include <actor-zeta/actor/dispatch_traits.hpp>
+        -:    8:#include <actor-zeta/actor/implements.hpp>
+        -:    9:#include <actor-zeta/detail/behavior_t.hpp>
+        -:   10:#include <actor-zeta/detail/future.hpp>
+        -:   11:#include <actor-zeta/detail/queue/enqueue_result.hpp>
+        -:   12:#include <actor-zeta/mailbox/make_message.hpp>
+        -:   13:#include <actor-zeta/mailbox/message.hpp>
+        -:   14:#include <atomic>
+        -:   15:#include <chrono>
+        -:   16:#include <components/catalog/catalog_oids.hpp>
+        -:   17:#include <components/catalog/dependency_walker.hpp>
+        -:   18:#include <components/catalog/results/ddl_result.hpp>
+        -:   19:#include <components/catalog/results/resolve_result.hpp>
+        -:   20:#include <components/catalog/session_catalog.hpp>
+        -:   21:#include <components/configuration/configuration.hpp>
+        -:   22:#include <components/context/execution_context.hpp>
+        -:   23:#include <components/context/pg_catalog_swap.hpp>
+        -:   24:#include <components/log/log.hpp>
+        -:   25:#include <components/physical_plan/operators/operator_write_data.hpp>
+        -:   26:#include <components/storage/storage.hpp>
+        -:   27:#include <components/storage/table_storage_adapter.hpp>
+        -:   28:#include <components/table/data_table.hpp>
+        -:   29:#include <components/table/row_group.hpp>
+        -:   30:#include <components/table/storage/buffer_pool.hpp>
+        -:   31:#include <components/table/storage/in_memory_block_manager.hpp>
+        -:   32:#include <components/table/storage/metadata_manager.hpp>
+        -:   33:#include <components/table/storage/metadata_reader.hpp>
+        -:   34:#include <components/table/storage/metadata_writer.hpp>
+        -:   35:#include <components/table/storage/single_file_block_manager.hpp>
+        -:   36:#include <components/table/storage/standard_buffer_manager.hpp>
+        -:   37:#include <components/vector/data_chunk.hpp>
+        -:   38:#include <core/executor.hpp>
+        -:   39:#include <limits>
+        -:   40:#include <mutex>
+        -:   41:#include <optional>
+        -:   42:#include <services/wal/base.hpp>
+        -:   43:#include <set>
+        -:   44:#include <thread>
+        -:   45:#include <unordered_set>
+        -:   46:
+        -:   47:namespace services::disk {
+        -:   48:
+        -:   49:    using session_id_t = ::components::session::session_id_t;
+        -:   50:
+        -:   51:    enum class storage_mode_t : uint8_t
+        -:   52:    {
+        -:   53:        IN_MEMORY = 0,
+        -:   54:        DISK = 1
+        -:   55:    };
+        -:   56:
+        -:   57:    /// Owns data_table_t + its supporting storage infrastructure.
+        -:   58:    /// Supports both in-memory (schema-less computing tables) and disk-backed (table.otbx) storage.
+        -:   59:    class table_storage_t {
+        -:   60:    public:
+        -:   61:        /// In-memory mode: computing tables (schema-less)
+        -:   62:        explicit table_storage_t(std::pmr::memory_resource* resource);
+        -:   63:
+        -:   64:        /// In-memory mode with explicit columns
+        -:   65:        explicit table_storage_t(std::pmr::memory_resource* resource,
+        -:   66:                                 std::vector<components::table::column_definition_t> columns);
+        -:   67:
+        -:   68:        /// Disk mode: create new table.otbx
+        -:   69:        table_storage_t(std::pmr::memory_resource* resource,
+        -:   70:                        std::vector<components::table::column_definition_t> columns,
+        -:   71:                        const std::filesystem::path& otbx_path,
+        -:   72:                        configuration::disk_layout_policy layout_policy =
+        -:   73:                            configuration::disk_layout_policy::auto_select,
+        -:   74:                        uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page);
+        -:   75:
+        -:   76:        /// Disk mode: load existing table.otbx
+        -:   77:        table_storage_t(std::pmr::memory_resource* resource,
+        -:   78:                        const std::filesystem::path& otbx_path,
+        -:   79:                        configuration::disk_layout_policy layout_policy =
+        -:   80:                            configuration::disk_layout_policy::auto_select,
+        -:   81:                        uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page);
+        -:   82:
+        -:   83:        components::table::data_table_t& table() { return *table_; }
+        -:   84:        storage_mode_t mode() const { return mode_; }
+        -:   85:
+        -:   86:        /// Checkpoint (disk mode only, no-op for in-memory).
+        -:   87:        /// W-TORN: writes data blocks + fsync, then header + fsync (2 fsync — durability before header swap).
+        -:   88:        void checkpoint();
+        -:   89:        /// Same as checkpoint() + tracks W-TORN per-table wal_id snapshot.
+        -:   90:        /// prev_checkpoint_wal_id_ ← old checkpoint_wal_id_; checkpoint_wal_id_ ← new_wal_id.
+        -:   91:        void checkpoint(wal::id_t new_wal_id);
+        -:   92:
+        -:   93:        /// W-TORN: latest committed checkpoint wal_id for this DISK table (0 if never checkpointed / IN_MEMORY).
+        -:   94:        wal::id_t checkpoint_wal_id() const noexcept { return checkpoint_wal_id_; }
+        -:   95:        /// Used by load path to seed checkpoint_wal_id_ from sidecar before WAL replay
+        -:   96:        /// decides which records this storage already includes.
+        -:   97:        void set_checkpoint_wal_id(wal::id_t v) noexcept { checkpoint_wal_id_ = v; }
+        -:   98:        /// W-TORN: previous checkpoint wal_id (the state in the .prev backup); 0 before first overwrite.
+        -:   99:        /// Used by checkpoint_all to compute min(prev) for safe WAL truncation.
+        -:  100:        wal::id_t prev_checkpoint_wal_id() const noexcept { return prev_checkpoint_wal_id_; }
+        -:  101:
+        -:  102:        /// Add a new column to the live in-memory table. Replaces table_ with a new data_table_t
+        -:  103:        /// constructed from the current one + col. Retained as a primitive for tests and
+        -:  104:        /// future in-memory-sync paths; the SQL ALTER TABLE ADD COLUMN flow no longer calls
+        -:  105:        /// it (resolve_table reads columns from pg_attribute on every lookup).
+        -:  106:        void add_column(components::table::column_definition_t& col);
+        -:  107:
+        -:  108:        /// Physical column compaction. Drops the column whose name matches
+        -:  109:        /// `attname` from the IN_MEMORY data_table_t, reclaiming its physical storage.
+        -:  110:        /// Implemented via the data_table_t(parent, removed_column) rebuild constructor —
+        -:  111:        /// row_groups are rebuilt without the dropped column (collection_t::remove_column
+        -:  112:        /// per-segment). Used by VACUUM after pg_computed_column GC: columns that no
+        -:  113:        /// longer have any live attrefcount>0 row are physically dead and can be reclaimed.
+        -:  114:        ///
+        -:  115:        /// No-op for DISK-backed storages (would require segment rewrites + checkpoint
+        -:  116:        /// coordination). No-op if the column is missing.
+        -:  117:        ///
+        -:  118:        /// Returns true if the column was found and removed; false otherwise (column
+        -:  119:        /// missing OR storage is DISK-mode).
+        -:  120:        bool drop_column(const std::string& attname);
+        -:  121:
+        -:  122:    private:
+        -:  123:        storage_mode_t mode_;
+        -:  124:        core::filesystem::local_file_system_t fs_;
+        -:  125:        components::table::storage::buffer_pool_t buffer_pool_;
+        -:  126:        components::table::storage::standard_buffer_manager_t buffer_manager_;
+        -:  127:        std::unique_ptr<components::table::storage::block_manager_t> block_manager_;
+        -:  128:        std::unique_ptr<components::table::data_table_t> table_;
+        -:  129:        wal::id_t checkpoint_wal_id_{0};
+        -:  130:        wal::id_t prev_checkpoint_wal_id_{0};
+        -:  131:    };
+        -:  132:
+        -:  133:    class manager_disk_t final : public actor_zeta::actor::actor_mixin<manager_disk_t> {
+        -:  134:    public:
+        -:  135:        template<typename T>
+        -:  136:        using unique_future = actor_zeta::unique_future<T>;
+        -:  137:
+        -:  138:        using address_pack = std::tuple<actor_zeta::address_t>;
+        -:  139:
+        -:  140:        using run_fn_t = std::function<void()>;
+        -:  141:
+        -:  142:        manager_disk_t(
+        -:  143:            std::pmr::memory_resource*,
+        -:  144:            actor_zeta::scheduler_raw scheduler,
+        -:  145:            actor_zeta::scheduler_raw scheduler_disk,
+        -:  146:            configuration::config_disk config,
+        -:  147:            log_t& log,
+        -:  148:            run_fn_t run_fn = [] { std::this_thread::yield(); });
+        -:  149:        ~manager_disk_t();
+        -:  150:
+        -:  151:        void set_run_fn(run_fn_t fn) { run_fn_ = std::move(fn); }
+        -:  152:
+        -:  153:        // True if a storage entry is registered for `table_oid` (used by WAL replay to lazily
+        -:  154:        // create in-memory storages on the first PHYSICAL_INSERT for tables without an .otbx).
+        -:  155:        bool has_storage(components::catalog::oid_t table_oid) const noexcept {
+        -:  156:            return storages_.find(table_oid) != storages_.end();
+        -:  157:        }
+        -:  158:        // Sync row-count probe used by base_spaces WAL replay to avoid duplicating already-
+        -:  159:        // checkpointed records. Returns 0 for unknown OIDs.
+        -:  160:        uint64_t total_rows_sync(components::catalog::oid_t table_oid) const noexcept {
+        -:  161:            auto it = storages_.find(table_oid);
+        -:  162:            if (it == storages_.end())
+        -:  163:                return 0;
+        -:  164:            return it->second->table_storage.table().calculate_size();
+        -:  165:        }
+        -:  166:        // Returns the persisted checkpoint_wal_id for `table_oid` (0 if never checkpointed or unknown).
+        -:  167:        wal::id_t checkpoint_wal_id_sync(components::catalog::oid_t table_oid) const noexcept {
+        -:  168:            auto it = storages_.find(table_oid);
+        -:  169:            if (it == storages_.end())
+        -:  170:                return wal::id_t{0};
+        -:  171:            return it->second->table_storage.checkpoint_wal_id();
+        -:  172:        }
+        -:  173:        components::table::row_group_scan_path_counts_t user_table_scan_path_counts_sync() const noexcept;
+        -:  174:        void reset_user_table_scan_path_counts_sync() noexcept;
+        -:  175:#if defined(DEV_MODE)
+        -:  176:        components::table::storage::row_group_layout_kind
+        -:  177:        debug_first_row_group_layout_kind_sync(components::catalog::oid_t table_oid) const noexcept;
+        -:  178:        void debug_reset_first_row_group_scan_path_counts_sync(components::catalog::oid_t table_oid) noexcept;
+        -:  179:        components::table::row_group_scan_path_counts_t
+        -:  180:        debug_first_row_group_scan_path_counts_sync(components::catalog::oid_t table_oid) const noexcept;
+        -:  181:#endif
+        -:  182:
+        -:  183:        // Read the .otbx.wal_id sidecar directly from disk without loading the storage.
+        -:  184:        wal::id_t peek_checkpoint_wal_id_from_disk(components::catalog::oid_t table_oid,
+        -:  185:                                                   components::catalog::oid_t database_oid) const noexcept;
+        -:  186:
+        -:  187:        // Load a user-table storage from its .otbx file on demand. Called by WAL replay
+        -:  188:        // when it encounters a record for a disk-backed table that hasn't been loaded yet.
+        -:  189:        void load_storage_for_wal_replay_sync(components::catalog::oid_t table_oid,
+        -:  190:                                              components::catalog::oid_t database_oid);
+        -:  191:
+        -:  192:        // Synchronous storage creation for initialization (before schedulers start).
+        -:  193:        void create_storage_with_columns_sync(components::catalog::oid_t table_oid,
+        -:  194:                                              components::catalog::oid_t database_oid,
+        -:  195:                                              std::vector<components::table::column_definition_t> columns);
+        -:  196:        // System catalog (pg_*) bootstrap and load. Called from base_spaces during PHASE 1
+        -:  197:        // before any actor is spawned. bootstrap creates the 9 .otbx files for the system
+        -:  198:        // tables; load picks them up on subsequent starts. Both are idempotent w.r.t. the
+        -:  199:        // resulting `storages_` map — collections are keyed by `pg_catalog.<name>`.
+        -:  200:        void bootstrap_system_tables_sync();
+        -:  201:        void load_system_tables_sync();
+        -:  202:        // Walk config_.path looking for user-table .otbx files
+        -:  203:        // (${db_oid}/${tbl_oid}/table.otbx where tbl_oid >= FIRST_USER_OID) and
+        -:  204:        // load each into storages_ via load_storage_disk_sync. Called by
+        -:  205:        // base_spaces after bootstrap_system_tables_sync so that subsequent
+        -:  206:        // WAL replay can (1) read each user table's checkpoint_wal_id sidecar
+        -:  207:        // for filtering and (2) avoid synthesising phantom storages with
+        -:  208:        // possibly-wrong schemas from a single WAL chunk.
+        -:  209:        void load_user_table_storages_sync();
+        -:  210:        // Synchronous scan of pg_class.oid column, returning the set
+        -:  211:        // of user-table OIDs (oid >= FIRST_USER_OID) currently alive in the
+        -:  212:        // catalog. Called by base_spaces between system-record replay and
+        -:  213:        // user-record replay so user WAL records targeting a dropped table
+        -:  214:        // (whose .otbx and pg_class row are gone) are skipped instead of
+        -:  215:        // resurrecting a phantom storage.
+        -:  216:        std::unordered_set<components::catalog::oid_t> alive_user_oids_sync() const;
+        -:  217:        // After load, scan pg_class/pg_attribute/pg_type/pg_proc/pg_constraint and seed
+        -:  218:        // oid_gen_ to max(oid)+1 so future allocate() never collides with on-disk OIDs.
+        -:  219:        // Scans pg_class/pg_attribute/pg_type/pg_proc/pg_constraint/pg_index for the max
+        -:  220:        // OID across all system tables, then seeds oid_gen_ to max+1 so future allocate()
+        -:  221:        // never collides with on-disk OIDs.
+        -:  222:        void restore_oid_generator_sync();
+        -:  223:
+        -:  224:        // Read the value of a named setting from pg_settings. Returns the most recently
+        -:  225:        // appended value for the given name, or empty string if not found.
+        -:  226:        // Synchronous — called at startup before actor schedulers start.
+        -:  227:        std::string read_setting_sync(std::string_view name);
+        -:  228:
+        -:  229:        // Public accessor — ddl_* methods take their OIDs from this generator.
+        -:  230:        components::catalog::oid_generator& oid_gen() noexcept { return oid_gen_; }
+        -:  231:
+        -:  232:        // Per-item resolve methods. Каждый метод сканирует соответствующую pg_*-таблицу
+        -:  233:        // на disk actor thread и возвращает найденный объект (или {found=false}).
+        -:  234:        // Параметр since_version сохранён для совместимости с message dispatch (всегда
+        -:  235:        // игнорируется — версионирование больше не используется).
+        -:  236:        unique_future<resolve_namespace_result_t>
+        -:  237:        resolve_namespace(execution_context_t ctx, std::string name, std::uint64_t since_version);
+        -:  238:        unique_future<resolve_table_result_t> resolve_table(execution_context_t ctx,
+        -:  239:                                                            components::catalog::oid_t namespace_oid,
+        -:  240:                                                            std::string name,
+        -:  241:                                                            std::uint64_t since_version);
+        -:  242:        unique_future<resolve_type_result_t> resolve_type(execution_context_t ctx,
+        -:  243:                                                          components::catalog::oid_t namespace_oid,
+        -:  244:                                                          std::string name,
+        -:  245:                                                          std::uint64_t since_version);
+        -:  246:        // Sync internal: pg_type → pg_class fallback. Self-recurses for composite STRUCT
+        -:  247:        // field references (UNKNOWN-by-name) without going through actor messaging.
+        -:  248:        resolve_type_result_t resolve_type_sync(components::catalog::oid_t namespace_oid, const std::string& name);
+        -:  249:        unique_future<resolve_function_result_t> resolve_function(execution_context_t ctx,
+        -:  250:                                                                  components::catalog::oid_t namespace_oid,
+        -:  251:                                                                  std::string name,
+        -:  252:                                                                  std::uint64_t since_version);
+        -:  253:
+        -:  254:        // Cross-namespace function lookup: returns ALL pg_proc rows whose proname matches
+        -:  255:        // `name`, regardless of pronamespace. Used by the UDF admin paths (#41 Path 2/4):
+        -:  256:        // register_udf needs to detect cross-namespace conflicts; drop_udf needs to purge
+        -:  257:        // every row sharing the name. The single-namespace resolve_function above is the
+        -:  258:        // hot-path query API; this one is admin-scope and may return an empty vector.
+        -:  259:        unique_future<std::pmr::vector<resolve_function_result_t>>
+        -:  260:        resolve_function_by_name(execution_context_t ctx, std::string name, std::uint64_t since_version);
+        -:  261:
+        -:  262:        // V4 admin-path enumerators. Bypass the per-name cache (cache is per-(name, ns_oid)
+        -:  263:        // keyed; enumeration of "all namespaces" / "all tables in ns" cannot be served by
+        -:  264:        // it). Used by the dispatcher's collections_ rebuild and UDF namespace pick.
+        -:  265:        unique_future<std::pmr::vector<std::string>> list_namespaces(execution_context_t ctx);
+        -:  266:
+        -:  267:        // Allocate a batch of fresh OIDs from the disk-local oid_gen_. Called by the
+        -:  268:        // dispatcher before invoking planner_t::create_plan for DDL statements, so that
+        -:  269:        // the planner can build pg_class / pg_attribute rows without needing async access
+        -:  270:        // to the disk actor. Wasted OIDs (plan rejected before execution) are acceptable —
+        -:  271:        // same trade-off as PostgreSQL's pre-allocation approach.
+        -:  272:        unique_future<std::vector<components::catalog::oid_t>> allocate_oids_batch(std::size_t count);
+        -:  273:
+        -:  274:        // WAL-safe append of a single pre-built row into a pg_catalog table.
+        -:  275:        unique_future<components::pg_catalog_append_range_t>
+        -:  276:        append_pg_catalog_row(execution_context_t ctx,
+        -:  277:                              components::catalog::oid_t table_oid,
+        -:  278:                              components::vector::data_chunk_t row);
+        -:  279:
+        -:  280:        // WAL-safe delete of all rows where column[oid_col_idx] == target_oid.
+        -:  281:        unique_future<void> delete_pg_catalog_rows(execution_context_t ctx,
+        -:  282:                                                   components::catalog::oid_t table_oid,
+        -:  283:                                                   std::int64_t oid_col_idx,
+        -:  284:                                                   components::catalog::oid_t target_oid);
+        -:  285:
+        -:  286:        // Pure storage scan: row_ids of txn-visible rows in the table with `table_oid`
+        -:  287:        // where key_col_names[i] == key_values[i] for every i.
+        -:  288:        unique_future<std::pmr::vector<std::int64_t>>
+        -:  289:        scan_by_key(execution_context_t ctx,
+        -:  290:                    components::catalog::oid_t table_oid,
+        -:  291:                    std::pmr::vector<std::string> key_col_names,
+        -:  292:                    std::pmr::vector<components::types::logical_value_t> key_values);
+        -:  293:
+        -:  294:        // Full row-data scan: returns all column values for every txn-visible row
+        -:  295:        // where key_col_names[i] == key_values[i].
+        -:  296:        unique_future<std::pmr::vector<std::pmr::vector<components::types::logical_value_t>>>
+        -:  297:        read_rows_by_key(execution_context_t ctx,
+        -:  298:                         components::catalog::oid_t table_oid,
+        -:  299:                         std::pmr::vector<std::string> key_col_names,
+        -:  300:                         std::pmr::vector<components::types::logical_value_t> key_values);
+        -:  301:
+        -:  302:        // Physical column compaction. For an IN_MEMORY relkind='g' storage,
+        -:  303:        // drop every physical column whose name is NOT in `live_attnames`. Called by
+        -:  304:        // operator_vacuum_t after pg_computed_column GC: columns whose
+        -:  305:        // attrefcount<=0 rows have been deleted are physically dead and can be
+        -:  306:        // reclaimed. Returns the number of columns physically dropped (0 if storage
+        -:  307:        // is DISK-mode, missing, or already compact). DISK-backed storages would
+        -:  308:        // need segment rewrites + checkpoint coordination.
+        -:  309:        unique_future<std::uint64_t> compact_relkind_g_storage(execution_context_t ctx,
+        -:  310:                                                               components::catalog::oid_t table_oid,
+        -:  311:                                                               std::set<std::string> live_attnames);
+        -:  312:
+        -:  313:        // ALTER TABLE ADD COLUMN owned by operator_alter_column_add_t; computed
+        -:  314:        // tables maintained via operator_computed_field_register_t.
+        -:  315:
+        -:  316:        // Synchronous direct replay methods for physical WAL (before schedulers start).
+        -:  317:        uint64_t direct_append_sync(components::catalog::oid_t table_oid,
+        -:  318:                                    components::vector::data_chunk_t& data,
+        -:  319:                                    core::date::timezone_offset_t session_tz);
+        -:  320:        uint64_t direct_append_sync(components::catalog::oid_t table_oid,
+        -:  321:                                    components::vector::data_chunk_t& data,
+        -:  322:                                    core::date::timezone_offset_t session_tz,
+        -:  323:                                    const components::table::transaction_data& txn);
+        -:  324:        void direct_delete_sync(components::catalog::oid_t table_oid,
+        -:  325:                                const std::pmr::vector<int64_t>& row_ids,
+        -:  326:                                uint64_t count);
+        -:  327:        void direct_delete_sync(components::catalog::oid_t table_oid,
+        -:  328:                                const std::pmr::vector<int64_t>& row_ids,
+        -:  329:                                uint64_t count,
+        -:  330:                                const components::table::transaction_data& txn);
+        -:  331:        void direct_update_sync(components::catalog::oid_t table_oid,
+        -:  332:                                const std::pmr::vector<int64_t>& row_ids,
+        -:  333:                                components::vector::data_chunk_t& new_data);
+        -:  334:
+function _ZNK8services4disk14manager_disk_t8resourceEv called 0 returned 0% blocks executed 0%
+    #####:  335:        std::pmr::memory_resource* resource() const noexcept { return resource_; }
+        -:  336:        auto make_type() const noexcept -> const char* { return "manager_disk"; }
+        -:  337:
+        -:  338:        actor_zeta::behavior_t behavior(actor_zeta::mailbox::message* msg);
+        -:  339:
+        -:  340:        [[nodiscard]] std::pair<bool, actor_zeta::detail::enqueue_result>
+        -:  341:        enqueue_impl(actor_zeta::mailbox::message_ptr msg);
+        -:  342:
+        -:  343:        template<typename ReturnType, typename... Args>
+        -:  344:        requires(actor_zeta::type_traits::is_unique_future_v<ReturnType>) [[nodiscard]] ReturnType
+        -:  345:            enqueue_impl(actor_zeta::actor::address_t sender, actor_zeta::mailbox::message_id cmd, Args&&... args);
+        -:  346:
+        -:  347:        void sync(address_pack pack);
+        -:  348:
+        -:  349:        unique_future<void> flush(session_id_t session, wal::id_t wal_id);
+        -:  350:
+        -:  351:        unique_future<wal::id_t> checkpoint_all(session_id_t session, wal::id_t current_wal_id);
+        -:  352:        unique_future<void> vacuum_all(session_id_t session, uint64_t lowest_active_start_time);
+        -:  353:        unique_future<void> maybe_cleanup(execution_context_t ctx, uint64_t lowest_active_start_time);
+        -:  354:
+        -:  355:        // Storage management
+        -:  356:        unique_future<void> create_storage(session_id_t session,
+        -:  357:                                           components::catalog::oid_t table_oid,
+        -:  358:                                           components::catalog::oid_t database_oid);
+        -:  359:        unique_future<void> create_storage_with_columns(session_id_t session,
+        -:  360:                                                        components::catalog::oid_t table_oid,
+        -:  361:                                                        components::catalog::oid_t database_oid,
+        -:  362:                                                        std::vector<components::table::column_definition_t> columns);
+        -:  363:        unique_future<void> create_storage_disk(session_id_t session,
+        -:  364:                                                components::catalog::oid_t table_oid,
+        -:  365:                                                components::catalog::oid_t database_oid,
+        -:  366:                                                std::vector<components::table::column_definition_t> columns,
+        -:  367:                                                configuration::disk_layout_policy layout_policy =
+        -:  368:                                                    configuration::disk_layout_policy::auto_select);
+        -:  369:        unique_future<void> drop_storage(session_id_t session, components::catalog::oid_t table_oid);
+        -:  370:
+        -:  371:        // Storage queries
+        -:  372:        unique_future<std::pmr::vector<components::types::complex_logical_type>>
+        -:  373:        storage_types(session_id_t session, components::catalog::oid_t table_oid);
+        -:  374:        unique_future<uint64_t> storage_total_rows(session_id_t session, components::catalog::oid_t table_oid);
+        -:  375:
+        -:  376:        // Storage data operations
+        -:  377:        unique_future<std::unique_ptr<components::vector::data_chunk_t>>
+        -:  378:        storage_scan(session_id_t session,
+        -:  379:                     components::catalog::oid_t table_oid,
+        -:  380:                     std::unique_ptr<components::table::table_filter_t> filter,
+        -:  381:                     int limit,
+        -:  382:                     components::table::transaction_data txn);
+        -:  383:        // Batched + projected variant: returns a vector of chunks (PR #483 multi-chunk)
+        -:  384:        // and applies index-based column projection at the storage layer (PR #477).
+        -:  385:        // Empty `projected_cols` means "read all columns" (pass-through).
+        -:  386:        unique_future<std::unique_ptr<std::pmr::vector<components::vector::data_chunk_t>>>
+        -:  387:        storage_scan_batched(session_id_t session,
+        -:  388:                             components::catalog::oid_t table_oid,
+        -:  389:                             std::unique_ptr<components::table::table_filter_t> filter,
+        -:  390:                             int64_t limit,
+        -:  391:                             std::vector<size_t> projected_cols,
+        -:  392:                             bool row_ids_only,
+        -:  393:                             components::table::transaction_data txn);
+        -:  394:        unique_future<std::unique_ptr<components::vector::data_chunk_t>>
+        -:  395:        storage_fetch(session_id_t session,
+        -:  396:                      components::catalog::oid_t table_oid,
+        -:  397:                      components::vector::vector_t row_ids,
+        -:  398:                      uint64_t count,
+        -:  399:                      components::table::transaction_data txn);
+        -:  400:        unique_future<std::unique_ptr<components::vector::data_chunk_t>>
+        -:  401:        storage_scan_segment(session_id_t session, components::catalog::oid_t table_oid, int64_t start, uint64_t count);
+        -:  402:        unique_future<std::pair<uint64_t, uint64_t>>
+        -:  403:        storage_append(execution_context_t ctx,
+        -:  404:                       components::catalog::oid_t table_oid,
+        -:  405:                       std::unique_ptr<components::vector::data_chunk_t> data);
+        -:  406:
+        -:  407:        unique_future<std::pair<int64_t, uint64_t>>
+        -:  408:        storage_update(execution_context_t ctx,
+        -:  409:                       components::catalog::oid_t table_oid,
+        -:  410:                       components::vector::vector_t row_ids,
+        -:  411:                       std::unique_ptr<components::vector::data_chunk_t> data);
+        -:  412:        unique_future<uint64_t> storage_delete_rows(execution_context_t ctx,
+        -:  413:                                                    components::catalog::oid_t table_oid,
+        -:  414:                                                    components::vector::vector_t row_ids,
+        -:  415:                                                    uint64_t count);
+        -:  416:        // MVCC commit/revert
+        -:  417:        unique_future<void> storage_commit_append(execution_context_t ctx,
+        -:  418:                                                  components::catalog::oid_t table_oid,
+        -:  419:                                                  uint64_t commit_id,
+        -:  420:                                                  int64_t row_start,
+        -:  421:                                                  uint64_t count);
+        -:  422:        unique_future<void> storage_revert_append(execution_context_t ctx,
+        -:  423:                                                  components::catalog::oid_t table_oid,
+        -:  424:                                                  int64_t row_start,
+        -:  425:                                                  uint64_t count);
+        -:  426:        unique_future<void>
+        -:  427:        storage_commit_delete(execution_context_t ctx, components::catalog::oid_t table_oid, uint64_t commit_id);
+        -:  428:
+        -:  429:        // Batched MVCC swap. Each range carries its own table_oid.
+        -:  430:        unique_future<void> storage_commit_appends(execution_context_t ctx,
+        -:  431:                                                   uint64_t commit_id,
+        -:  432:                                                   std::vector<components::pg_catalog_append_range_t> ranges);
+        -:  433:
+        -:  434:        unique_future<void> storage_commit_deletes(execution_context_t ctx,
+        -:  435:                                                   uint64_t commit_id,
+        -:  436:                                                   std::set<components::catalog::oid_t> tables);
+        -:  437:
+        -:  438:        unique_future<void> storage_revert_appends(execution_context_t ctx,
+        -:  439:                                                   std::vector<components::pg_catalog_append_range_t> ranges);
+        -:  440:
+        -:  441:        using dispatch_traits = actor_zeta::implements<disk_contract,
+        -:  442:                                                       &manager_disk_t::flush,
+        -:  443:                                                       &manager_disk_t::checkpoint_all,
+        -:  444:                                                       &manager_disk_t::vacuum_all,
+        -:  445:                                                       &manager_disk_t::maybe_cleanup,
+        -:  446:                                                       // Storage management
+        -:  447:                                                       &manager_disk_t::create_storage,
+        -:  448:                                                       &manager_disk_t::create_storage_with_columns,
+        -:  449:                                                       &manager_disk_t::create_storage_disk,
+        -:  450:                                                       &manager_disk_t::drop_storage,
+        -:  451:                                                       // Storage queries
+        -:  452:                                                       &manager_disk_t::storage_types,
+        -:  453:                                                       &manager_disk_t::storage_total_rows,
+        -:  454:                                                       // Storage data operations
+        -:  455:                                                       &manager_disk_t::storage_scan,
+        -:  456:                                                       &manager_disk_t::storage_scan_batched,
+        -:  457:                                                       &manager_disk_t::storage_fetch,
+        -:  458:                                                       &manager_disk_t::storage_scan_segment,
+        -:  459:                                                       &manager_disk_t::storage_append,
+        -:  460:                                                       &manager_disk_t::storage_update,
+        -:  461:                                                       &manager_disk_t::storage_delete_rows,
+        -:  462:                                                       // MVCC commit/revert
+        -:  463:                                                       &manager_disk_t::storage_commit_append,
+        -:  464:                                                       &manager_disk_t::storage_revert_append,
+        -:  465:                                                       &manager_disk_t::storage_commit_delete,
+        -:  466:                                                       &manager_disk_t::storage_commit_appends,
+        -:  467:                                                       &manager_disk_t::storage_commit_deletes,
+        -:  468:                                                       &manager_disk_t::storage_revert_appends,
+        -:  469:                                                       // resolve + invalidation pull
+        -:  470:                                                       &manager_disk_t::resolve_namespace,
+        -:  471:                                                       &manager_disk_t::resolve_table,
+        -:  472:                                                       &manager_disk_t::resolve_type,
+        -:  473:                                                       &manager_disk_t::resolve_function,
+        -:  474:                                                       &manager_disk_t::resolve_function_by_name,
+        -:  475:                                                       &manager_disk_t::list_namespaces,
+        -:  476:                                                       &manager_disk_t::allocate_oids_batch,
+        -:  477:                                                       &manager_disk_t::append_pg_catalog_row,
+        -:  478:                                                       &manager_disk_t::delete_pg_catalog_rows,
+        -:  479:                                                       &manager_disk_t::scan_by_key,
+        -:  480:                                                       &manager_disk_t::read_rows_by_key,
+        -:  481:                                                       &manager_disk_t::compact_relkind_g_storage>;
+        -:  482:
+        -:  483:    private:
+        -:  484:        // Disk storage helpers — used only by bootstrap / io / recovery paths
+        -:  485:        // inside services/disk/. Not part of the actor's public interface.
+        -:  486:        void create_storage_disk_sync(components::catalog::oid_t table_oid,
+        -:  487:                                      components::catalog::oid_t database_oid,
+        -:  488:                                      std::vector<components::table::column_definition_t> columns,
+        -:  489:                                      const std::filesystem::path& otbx_path,
+        -:  490:                                      configuration::disk_layout_policy layout_policy =
+        -:  491:                                          configuration::disk_layout_policy::auto_select);
+        -:  492:        void load_storage_disk_sync(components::catalog::oid_t table_oid,
+        -:  493:                                    components::catalog::oid_t database_oid,
+        -:  494:                                    const std::filesystem::path& otbx_path);
+        -:  495:
+        -:  496:        std::pmr::memory_resource* resource_;
+        -:  497:        actor_zeta::scheduler_raw scheduler_;
+        -:  498:        actor_zeta::scheduler_raw scheduler_disk_;
+        -:  499:        run_fn_t run_fn_;
+        -:  500:        std::mutex mutex_;
+        -:  501:
+        -:  502:        actor_zeta::address_t manager_wal_ = actor_zeta::address_t::empty_address();
+        -:  503:        log_t log_;
+        -:  504:        configuration::config_disk config_;
+        -:  505:        std::vector<agent_disk_ptr> agents_;
+        -:  506:        components::catalog::oid_generator oid_gen_;
+        -:  507:        components::catalog::session_catalog_t stored_catalog_;
+        -:  508:
+        -:  509:        // Storage entries per collection
+        -:  510:        struct collection_storage_entry_t {
+        -:  511:            table_storage_t table_storage;
+        -:  512:            std::unique_ptr<components::storage::storage_t> storage;
+        -:  513:            // Actual on-disk path for DISK-mode tables. Empty for IN_MEMORY entries.
+        -:  514:            // Used by checkpoint_all (sidecar lands next to .otbx) and drop_storage
+        -:  515:            // (physical file removal).
+        -:  516:            std::filesystem::path otbx_path;
+        -:  517:            actor_zeta::scheduler::sharing_scheduler* scan_scheduler{nullptr};
+        -:  518:            std::function<void()>* progress_fn{nullptr};
+        -:  519:
+        -:  520:            /// In-memory: schema-less
+        -:  521:            explicit collection_storage_entry_t(std::pmr::memory_resource* resource,
+        -:  522:                                                actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+        -:  523:                                                std::function<void()>* progress = nullptr)
+        -:  524:                : table_storage(resource)
+        -:  525:                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  526:                                                                                         resource,
+        -:  527:                                                                                         scheduler,
+        -:  528:                                                                                         progress))
+        -:  529:                , scan_scheduler(scheduler)
+        -:  530:                , progress_fn(progress) {}
+        -:  531:
+        -:  532:            /// In-memory: with columns
+        -:  533:            explicit collection_storage_entry_t(std::pmr::memory_resource* resource,
+        -:  534:                                                std::vector<components::table::column_definition_t> columns,
+        -:  535:                                                actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+        -:  536:                                                std::function<void()>* progress = nullptr)
+        -:  537:                : table_storage(resource, std::move(columns))
+        -:  538:                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  539:                                                                                         resource,
+        -:  540:                                                                                         scheduler,
+        -:  541:                                                                                         progress))
+        -:  542:                , scan_scheduler(scheduler)
+        -:  543:                , progress_fn(progress) {}
+        -:  544:
+        -:  545:            /// Disk: create new table.otbx
+        -:  546:            collection_storage_entry_t(std::pmr::memory_resource* resource,
+        -:  547:                                       std::vector<components::table::column_definition_t> columns,
+        -:  548:                                       const std::filesystem::path& otbx_path_in,
+        -:  549:                                       configuration::disk_layout_policy layout_policy =
+        -:  550:                                           configuration::disk_layout_policy::auto_select,
+        -:  551:                                       uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page,
+        -:  552:                                       actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+        -:  553:                                       std::function<void()>* progress = nullptr)
+        -:  554:                : table_storage(resource, std::move(columns), otbx_path_in, layout_policy, pax_rows_per_page)
+        -:  555:                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  556:                                                                                         resource,
+        -:  557:                                                                                         scheduler,
+        -:  558:                                                                                         progress))
+        -:  559:                , otbx_path(otbx_path_in)
+        -:  560:                , scan_scheduler(scheduler)
+        -:  561:                , progress_fn(progress) {}
+        -:  562:
+        -:  563:            /// Disk: load existing table.otbx
+        -:  564:            collection_storage_entry_t(std::pmr::memory_resource* resource,
+        -:  565:                                       const std::filesystem::path& otbx_path_in,
+        -:  566:                                       configuration::disk_layout_policy layout_policy =
+        -:  567:                                           configuration::disk_layout_policy::auto_select,
+        -:  568:                                       uint16_t pax_rows_per_page = configuration::default_pax_rows_per_page,
+        -:  569:                                       actor_zeta::scheduler::sharing_scheduler* scheduler = nullptr,
+        -:  570:                                       std::function<void()>* progress = nullptr)
+        -:  571:                : table_storage(resource, otbx_path_in, layout_policy, pax_rows_per_page)
+        -:  572:                , storage(std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  573:                                                                                         resource,
+        -:  574:                                                                                         scheduler,
+        -:  575:                                                                                         progress))
+        -:  576:                , otbx_path(otbx_path_in)
+        -:  577:                , scan_scheduler(scheduler)
+        -:  578:                , progress_fn(progress) {}
+        -:  579:
+        -:  580:            /// Update live in-memory schema: add new column to table_ and recreate the storage adapter.
+        -:  581:            void add_column(components::table::column_definition_t& col, std::pmr::memory_resource* res) {
+        -:  582:                table_storage.add_column(col);
+        -:  583:                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  584:                                                                                         res,
+        -:  585:                                                                                         scan_scheduler,
+        -:  586:                                                                                         progress_fn);
+        -:  587:            }
+        -:  588:
+        -:  589:            /// Physical column compaction: drop column from in-memory table_ and
+        -:  590:            /// recreate the storage adapter (the adapter holds a data_table_t& that becomes
+        -:  591:            /// dangling after the rebuild). Returns true if the column was found and removed.
+        -:  592:            bool drop_column(const std::string& attname, std::pmr::memory_resource* res) {
+        -:  593:                if (!table_storage.drop_column(attname)) {
+        -:  594:                    return false;
+        -:  595:                }
+        -:  596:                storage = std::make_unique<components::storage::table_storage_adapter_t>(table_storage.table(),
+        -:  597:                                                                                         res,
+        -:  598:                                                                                         scan_scheduler,
+        -:  599:                                                                                         progress_fn);
+        -:  600:                return true;
+        -:  601:            }
+        -:  602:        };
+        -:  603:        std::unordered_map<components::catalog::oid_t, std::unique_ptr<collection_storage_entry_t>> storages_;
+        -:  604:        components::storage::storage_t* get_storage(components::catalog::oid_t table_oid);
+        -:  605:
+        -:  606:        void create_agent(int count_agents);
+        -:  607:        auto agent() -> actor_zeta::address_t;
+        -:  608:
+        -:  609:        actor_zeta::behavior_t current_behavior_;
+        -:  610:    };
+        -:  611:
+        -:  612:    template<typename ReturnType, typename... Args>
+        -:  613:    requires(actor_zeta::type_traits::is_unique_future_v<ReturnType>)
+        -:  614:        ReturnType manager_disk_t::enqueue_impl(actor_zeta::actor::address_t sender,
+        -:  615:                                                actor_zeta::mailbox::message_id cmd,
+        -:  616:                                                Args&&... args) {
+        -:  617:        using R = typename actor_zeta::type_traits::is_unique_future<ReturnType>::value_type;
+        -:  618:
+        -:  619:        auto [msg, future] =
+        -:  620:            actor_zeta::detail::make_message<R>(resource(), std::move(sender), cmd, std::forward<Args>(args)...);
+        -:  621:
+        -:  622:        std::lock_guard<std::mutex> guard(mutex_);
+        -:  623:        current_behavior_ = behavior(msg.get());
+        -:  624:
+        -:  625:        while (current_behavior_.is_busy()) {
+        -:  626:            if (current_behavior_.is_awaited_ready()) {
+        -:  627:                auto cont = current_behavior_.take_awaited_continuation();
+        -:  628:                if (cont) {
+        -:  629:                    cont.resume();
+        -:  630:                }
+        -:  631:            } else {
+        -:  632:                run_fn_();
+        -:  633:            }
+        -:  634:        }
+        -:  635:
+        -:  636:        return std::move(future);
+        -:  637:    }
+        -:  638:
+        -:  639:} //namespace services::disk

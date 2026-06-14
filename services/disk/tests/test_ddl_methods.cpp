@@ -8,14 +8,17 @@
 #include <components/session/session.hpp>
 #include <components/table/column_definition.hpp>
 #include <components/types/types.hpp>
+#include <components/vector/data_chunk.hpp>
 #include <core/non_thread_scheduler/scheduler_test.hpp>
 #include <services/disk/manager_disk.hpp>
 
+#include "catalog_probe.hpp"
 #include "disk_test_helpers.hpp"
 
 #include <algorithm>
 #include <filesystem>
 #include <functional>
+#include <thread>
 #include <unistd.h>
 
 // DDL roundtrip tests. Each test creates catalog objects via the build_create_*_writes
@@ -52,10 +55,13 @@ namespace {
             , manager(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {
             cleanup();
             std::filesystem::create_directories(ddl_dir());
-            manager->set_run_fn([this] { scheduler->run(10000); });
             manager->bootstrap_system_tables_sync();
         }
         ~fixture() {
+            // Destroy the manager first: its dtor joins the internal loop thread,
+            // which may still enqueue children onto the scheduler. Only then is it
+            // safe to stop/delete the scheduler.
+            manager.reset();
             scheduler->stop();
             delete scheduler;
             cleanup();
@@ -64,7 +70,11 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(manager->address(), fn, std::forward<Args>(args)...);
-            scheduler->run(10000);
+            for (int i = 0; i < 100000 && !future.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(future.is_ready());
             return std::move(future).get();
         }
 
@@ -88,7 +98,7 @@ TEST_CASE("services::disk::ddl::add_column_round_trip") {
     auto attoid = test_add_column(fx, table_oid, std::move(new_col), 2);
     REQUIRE(attoid >= FIRST_USER_OID);
     // After add, the column count visible via resolve_table grows.
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("t"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("t"));
     REQUIRE(rs.found);
     REQUIRE(rs.columns.size() == 2);
 }
@@ -115,7 +125,7 @@ TEST_CASE("services::disk::ddl::computed_register_type_evolution") {
     REQUIRE(attoid_text != attoid_int);
 
     // resolve_table must report the latest version (TEXT) of column "a".
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rs.found);
     REQUIRE(rs.relkind == components::catalog::relkind::computed);
     REQUIRE(rs.columns.size() == 1);
@@ -166,11 +176,17 @@ TEST_CASE("services::disk::ddl::computed_register_same_type_idempotent") {
     std::pmr::vector<components::types::logical_value_t> v1{&fx.resource};
     v1.emplace_back(toid_lv);
     v1.emplace_back(name_lv);
-    auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(k1), std::move(v1));
-    REQUIRE(rows.size() == 1);
-    REQUIRE(rows[0][6].value<std::int64_t>() == 1);
+    auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                             fx.ctx(),
+                             pg_cc,
+                             std::move(k1),
+                             test_probe::build_key_chunk(&fx.resource, std::move(v1)));
+    std::uint64_t total = 0;
+    for (const auto& c : batches) total += c.size();
+    REQUIRE(total == 1);
+    REQUIRE(batches[0].value(6, 0).value<std::int64_t>() == 1);
 
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rs.found);
     REQUIRE(rs.columns.size() == 1);
 }
@@ -192,7 +208,7 @@ TEST_CASE("services::disk::ddl::computed_unregister_then_resolve_hides_column") 
     REQUIRE(attoid >= FIRST_USER_OID);
 
     // Confirm column visible before unregister.
-    auto rs_before = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rs_before = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rs_before.found);
     REQUIRE(rs_before.columns.size() == 1);
     REQUIRE(rs_before.columns[0].attname == "count");
@@ -201,7 +217,7 @@ TEST_CASE("services::disk::ddl::computed_unregister_then_resolve_hides_column") 
     REQUIRE(test_computed_unregister(fx, table_oid, "count"));
 
     // Column hidden from resolve_table.
-    auto rs_after = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rs_after = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rs_after.found);
     REQUIRE(rs_after.relkind == components::catalog::relkind::computed);
     REQUIRE(rs_after.columns.empty());
@@ -210,7 +226,7 @@ TEST_CASE("services::disk::ddl::computed_unregister_then_resolve_hides_column") 
 // 25. Refcount-decrement is replaced by binary register/unregister +
 // tombstone semantics. Verify that unregister appends a tombstone row with
 // refcount=0 and that the live row + tombstone coexist until VACUUM
-// (i.e. read_rows_by_key sees both).
+// (i.e. read_chunks_by_key sees both).
 TEST_CASE("services::disk::ddl::computed_unregister_marks_dead") {
     fixture fx;
     auto ns_oid = test_create_namespace(fx, "nstomb");
@@ -234,24 +250,32 @@ TEST_CASE("services::disk::ddl::computed_unregister_marks_dead") {
     std::pmr::vector<components::types::logical_value_t> v2{&fx.resource};
     v2.emplace_back(toid_lv);
     v2.emplace_back(name_lv);
-    auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(k2), std::move(v2));
-    REQUIRE(rows.size() == 2);
+    auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                             fx.ctx(),
+                             pg_cc,
+                             std::move(k2),
+                             test_probe::build_key_chunk(&fx.resource, std::move(v2)));
+    std::uint64_t total = 0;
+    for (const auto& c : batches) total += c.size();
+    REQUIRE(total == 2);
 
     bool found_live = false;
     bool found_tomb = false;
     std::int64_t live_v = -1;
     std::int64_t tomb_v = -1;
-    for (const auto& row : rows) {
-        REQUIRE(row.size() >= 7);
-        const auto v = row[5].value<std::int64_t>();
-        const auto rc = row[6].value<std::int64_t>();
-        if (rc > 0) {
-            found_live = true;
-            live_v = v;
-        }
-        if (rc == 0) {
-            found_tomb = true;
-            tomb_v = v;
+    for (const auto& chunk : batches) {
+        REQUIRE(chunk.column_count() >= 7);
+        for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+            const auto v = chunk.value(5, i).value<std::int64_t>();
+            const auto rc = chunk.value(6, i).value<std::int64_t>();
+            if (rc > 0) {
+                found_live = true;
+                live_v = v;
+            }
+            if (rc == 0) {
+                found_tomb = true;
+                tomb_v = v;
+            }
         }
     }
     REQUIRE(found_live);
@@ -259,21 +283,19 @@ TEST_CASE("services::disk::ddl::computed_unregister_marks_dead") {
     REQUIRE(tomb_v > live_v);
 }
 
-// 25b. task #103 — disk-level mirror of the SQL-level
-// dynamic_schema_drop_then_readd_preserves_old_data test. Verify the post-
+// Disk-level mirror of the SQL-level
+// dynamic_schema_drop_then_readd_preserves_old_data test. Verify the
 // register/unregister/register sequence at the pg_computed_column row level:
 //
 //   register("a", BIGINT)            -> 1 row: a/v0/rc=1
 //   register("b", STRING)            -> 2 rows: a/v0/rc=1, b/v0/rc=1
 //   unregister("b")                  -> 3 rows: a/v0/rc=1, b/v0/rc=1, b-tomb/v1/rc=0
 //                                      (tombstone reuses live attoid_b)
-//   register("b", STRING)            -> EXPECTED 3 rows still: same-type re-
-//                                      register short-circuits to a no-op
-//                                      (operator_computed_field_register.cpp:126-134
-//                                      treats latest_atttypid==new_atttypid as
-//                                      `same_type`; max_version comes from the
-//                                      tombstone, refcount filter is not applied
-//                                      at this read).
+//   register("b", STRING)            -> EXPECTED 3 rows still: a same-type
+//                                      re-register short-circuits to a no-op in
+//                                      operator_computed_field_register (max_version
+//                                      comes from the tombstone, refcount filter
+//                                      not applied at this read).
 //   resolve_table                    -> EXPECTED 1 column ("a") — 'b' is
 //                                      tombstoned and the resolver gates on
 //                                      refcount>0.
@@ -310,7 +332,13 @@ TEST_CASE("services::disk::ddl::computed_field_drop_then_readd") {
     k3.emplace_back("relid");
     std::pmr::vector<components::types::logical_value_t> v3{&fx.resource};
     v3.emplace_back(toid_lv);
-    auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(k3), std::move(v3));
+    auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                             fx.ctx(),
+                             pg_cc,
+                             std::move(k3),
+                             test_probe::build_key_chunk(&fx.resource, std::move(v3)));
+    std::uint64_t total_rows = 0;
+    for (const auto& c : batches) total_rows += c.size();
 
     // Branch on observed register-side behavior so the test stays useful even
     // if the operator's same-type policy is later relaxed (e.g. to revive
@@ -320,7 +348,7 @@ TEST_CASE("services::disk::ddl::computed_field_drop_then_readd") {
         //   a (live, v=0, rc=1)
         //   b (live, v=0, rc=1)            -- attoid_b
         //   b (tombstone, v=1, rc=0)       -- attoid_b reused
-        REQUIRE(rows.size() == 3);
+        REQUIRE(total_rows == 3);
 
         // Per-attname classification.
         int rows_a = 0, rows_b_live = 0, rows_b_tomb = 0;
@@ -328,22 +356,24 @@ TEST_CASE("services::disk::ddl::computed_field_drop_then_readd") {
         std::int64_t b_tomb_v = -1;
         catalog::oid_t observed_b_live_attoid = catalog::INVALID_OID;
         catalog::oid_t observed_b_tomb_attoid = catalog::INVALID_OID;
-        for (const auto& row : rows) {
-            REQUIRE(row.size() >= 7);
-            const auto attname = std::string(row[2].value<std::string_view>());
-            const auto v = row[5].value<std::int64_t>();
-            const auto rc = row[6].value<std::int64_t>();
-            if (attname == "a") {
-                ++rows_a;
-            } else if (attname == "b") {
-                if (rc > 0) {
-                    ++rows_b_live;
-                    b_live_v = v;
-                    observed_b_live_attoid = static_cast<catalog::oid_t>(row[1].value<std::uint32_t>());
-                } else {
-                    ++rows_b_tomb;
-                    b_tomb_v = v;
-                    observed_b_tomb_attoid = static_cast<catalog::oid_t>(row[1].value<std::uint32_t>());
+        for (const auto& chunk : batches) {
+            REQUIRE(chunk.column_count() >= 7);
+            for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                const auto attname = std::string(chunk.value(2, i).value<std::string_view>());
+                const auto v = chunk.value(5, i).value<std::int64_t>();
+                const auto rc = chunk.value(6, i).value<std::int64_t>();
+                if (attname == "a") {
+                    ++rows_a;
+                } else if (attname == "b") {
+                    if (rc > 0) {
+                        ++rows_b_live;
+                        b_live_v = v;
+                        observed_b_live_attoid = static_cast<catalog::oid_t>(chunk.value(1, i).value<std::uint32_t>());
+                    } else {
+                        ++rows_b_tomb;
+                        b_tomb_v = v;
+                        observed_b_tomb_attoid = static_cast<catalog::oid_t>(chunk.value(1, i).value<std::uint32_t>());
+                    }
                 }
             }
         }
@@ -361,12 +391,12 @@ TEST_CASE("services::disk::ddl::computed_field_drop_then_readd") {
         WARN("operator_computed_field_register_t now allocates a fresh attoid "
              "on same-type re-register (instead of no-oping); update task "
              "#103 expectations.");
-        REQUIRE(rows.size() == 4);
+        REQUIRE(total_rows == 4);
         REQUIRE(attoid_b2 != attoid_b);
     }
 
     // resolve_table reflects the resolver's refcount>0 + max-attversion gate.
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("foo"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("foo"));
     REQUIRE(rs.found);
     REQUIRE(rs.relkind == components::catalog::relkind::computed);
 
@@ -438,8 +468,14 @@ TEST_CASE("services::disk::ddl::vacuum_gc_clears_dead_computed_columns") {
         kk.emplace_back("relid");
         std::pmr::vector<components::types::logical_value_t> vv{&fx.resource};
         vv.emplace_back(toid_lv);
-        auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(kk), std::move(vv));
-        REQUIRE(rows.size() == 4);
+        auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                 fx.ctx(),
+                                 pg_cc,
+                                 std::move(kk),
+                                 test_probe::build_key_chunk(&fx.resource, std::move(vv)));
+        std::uint64_t total = 0;
+        for (const auto& c : batches) total += c.size();
+        REQUIRE(total == 4);
     }
 
     // Imitate operator_vacuum_t step 5: collect attoids of dead rows (rc<=0)
@@ -452,13 +488,19 @@ TEST_CASE("services::disk::ddl::vacuum_gc_clears_dead_computed_columns") {
         kk.emplace_back("relid");
         std::pmr::vector<components::types::logical_value_t> vv{&fx.resource};
         vv.emplace_back(toid_lv);
-        auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(kk), std::move(vv));
+        auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                 fx.ctx(),
+                                 pg_cc,
+                                 std::move(kk),
+                                 test_probe::build_key_chunk(&fx.resource, std::move(vv)));
         std::vector<catalog::oid_t> dead_attoids;
-        for (const auto& row : rows) {
-            REQUIRE(row.size() >= 7);
-            const auto rc = row[6].value<std::int64_t>();
-            if (rc <= 0) {
-                dead_attoids.push_back(static_cast<catalog::oid_t>(row[1].value<std::uint32_t>()));
+        for (const auto& chunk : batches) {
+            REQUIRE(chunk.column_count() >= 7);
+            for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                const auto rc = chunk.value(6, i).value<std::int64_t>();
+                if (rc <= 0) {
+                    dead_attoids.push_back(static_cast<catalog::oid_t>(chunk.value(1, i).value<std::uint32_t>()));
+                }
             }
         }
         REQUIRE(dead_attoids.size() == 1);
@@ -468,7 +510,7 @@ TEST_CASE("services::disk::ddl::vacuum_gc_clears_dead_computed_columns") {
             fx.invoke(&manager_disk_t::delete_pg_catalog_rows, txn_ctx(), pg_cc, std::int64_t{1}, attoid);
         }
         std::set<catalog::oid_t> deletes_local{pg_cc};
-        fx.invoke(&manager_disk_t::storage_commit_deletes, txn_ctx(), std::uint64_t{1000}, std::move(deletes_local));
+        fx.invoke(&manager_disk_t::storage_publish_deletes, txn_ctx(), std::uint64_t{1000}, std::move(deletes_local));
     }
 
     // Post-VACUUM: 2 rows left (a, c). b's live row was wiped together with
@@ -479,18 +521,26 @@ TEST_CASE("services::disk::ddl::vacuum_gc_clears_dead_computed_columns") {
         kk.emplace_back("relid");
         std::pmr::vector<components::types::logical_value_t> vv{&fx.resource};
         vv.emplace_back(toid_lv);
-        auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(kk), std::move(vv));
-        REQUIRE(rows.size() == 2);
+        auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                 fx.ctx(),
+                                 pg_cc,
+                                 std::move(kk),
+                                 test_probe::build_key_chunk(&fx.resource, std::move(vv)));
+        std::uint64_t total = 0;
+        for (const auto& c : batches) total += c.size();
+        REQUIRE(total == 2);
         std::vector<std::string> names;
-        for (const auto& row : rows) {
-            names.emplace_back(row[2].value<std::string_view>());
+        for (const auto& chunk : batches) {
+            for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                names.emplace_back(chunk.value(2, i).value<std::string_view>());
+            }
         }
         std::sort(names.begin(), names.end());
         REQUIRE(names == std::vector<std::string>{"a", "c"});
     }
 
     // resolve_table sees only {a, c}.
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rs.found);
     REQUIRE(rs.relkind == components::catalog::relkind::computed);
     REQUIRE(rs.columns.size() == 2);
@@ -567,18 +617,24 @@ TEST_CASE("services::disk::ddl::vacuum_physical_compaction_removes_dropped_colum
         kk.emplace_back("relid");
         std::pmr::vector<logical_value_t> vv{&fx.resource};
         vv.emplace_back(toid_lv);
-        auto rows = fx.invoke(&manager_disk_t::read_rows_by_key, fx.ctx(), pg_cc, std::move(kk), std::move(vv));
+        auto batches = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                 fx.ctx(),
+                                 pg_cc,
+                                 std::move(kk),
+                                 test_probe::build_key_chunk(&fx.resource, std::move(vv)));
         std::vector<catalog::oid_t> dead_attoids;
-        for (const auto& row : rows) {
-            if (row[6].value<std::int64_t>() <= 0) {
-                dead_attoids.push_back(static_cast<catalog::oid_t>(row[1].value<std::uint32_t>()));
+        for (const auto& chunk : batches) {
+            for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                if (chunk.value(6, i).value<std::int64_t>() <= 0) {
+                    dead_attoids.push_back(static_cast<catalog::oid_t>(chunk.value(1, i).value<std::uint32_t>()));
+                }
             }
         }
         for (const auto attoid : dead_attoids) {
             fx.invoke(&manager_disk_t::delete_pg_catalog_rows, txn_ctx(), pg_cc, std::int64_t{1}, attoid);
         }
         std::set<catalog::oid_t> deletes_local{pg_cc};
-        fx.invoke(&manager_disk_t::storage_commit_deletes, txn_ctx(), std::uint64_t{1000}, std::move(deletes_local));
+        fx.invoke(&manager_disk_t::storage_publish_deletes, txn_ctx(), std::uint64_t{1000}, std::move(deletes_local));
     }
 
     // Now run step 5b: compact_relkind_g_storage with live = {a, c}. Storage
@@ -640,20 +696,13 @@ TEST_CASE("services::disk::ddl::dynamic_schema_wal_recovery_skip") {
     WARN("TODO: requires restart fixture; covered by test_recovery.cpp pattern but not yet for relkind='g'");
 }
 
-// 30. task #91 — verify storage_append behavior for relkind='g'
-// tables with dynamic schema. The premise under test: an INSERT bringing a new
-// column (not yet in the underlying table_storage_t) should silently extend
-// the storage's schema. This documents what storage_append actually does today
-// (services/disk/manager_disk_storage.cpp lines 290+):
-//   - If !s->has_schema(), the FIRST chunk's types are adopted (one-shot).
-//   - On subsequent chunks the code only iterates over table_columns and seeks
-//     matching incoming columns by alias. Extra columns in the incoming chunk
-//     (that are NOT yet in table_columns) are silently DROPPED.
-// Conclusion: storage_append does NOT auto-extend an already-adopted schema.
-// adopt_schema is one-shot (data_table.cpp:90 asserts column_definitions_.empty()),
-// so dynamic-schema growth for relkind='g' must happen via an explicit
-// add_column / pg_computed_column path before storage_append. This test pins
-// that behavior down with WARN()s so the regression boundary is explicit.
+// Pins down storage_append for relkind='g' (dynamic-schema) tables:
+//   - first chunk: adopts its types (one-shot, since adopt_schema asserts the
+//     schema is empty);
+//   - later chunks: matches incoming columns to existing ones by alias; columns
+//     not already in the schema are silently DROPPED, not auto-added.
+// So dynamic-schema growth must go through an explicit add_column /
+// pg_computed_column path before storage_append, never via the INSERT itself.
 TEST_CASE("services::disk::ddl::storage_expand_on_write_for_dynamic_schema") {
     using components::types::complex_logical_type;
     using components::types::logical_type;
@@ -693,7 +742,6 @@ TEST_CASE("services::disk::ddl::storage_expand_on_write_for_dynamic_schema") {
         return chunk;
     };
 
-    // Step 1: register column "a" then storage_append a row with just "a".
     auto attoid_a = test_computed_register(fx, table_oid, "a", components::catalog::well_known_oid::int64_type);
     REQUIRE(attoid_a >= FIRST_USER_OID);
     {
@@ -707,12 +755,9 @@ TEST_CASE("services::disk::ddl::storage_expand_on_write_for_dynamic_schema") {
         (void) start;
     }
 
-    // Step 2: register column "b" and storage_append a row with both "a" and "b".
-    // Expected (per task #91 premise): storage now has 2 columns; row 1 has b=NULL.
-    // Actual: storage's schema was frozen at 1 column when the first chunk was
-    // appended (adopt_schema is one-shot). The "b" column in the incoming chunk
-    // is silently dropped by manager_disk_storage.cpp:316 (only iterates over
-    // table_columns). storage_total_rows grows to 2, but column count stays 1.
+    // The schema was frozen at 1 column by the first append (adopt_schema is
+    // one-shot), so the incoming "b" is silently dropped: row count grows to 2
+    // but column count stays 1. (Naively you'd expect 2 columns with b=NULL.)
     auto attoid_b = test_computed_register(fx, table_oid, "b", components::catalog::well_known_oid::string_type);
     REQUIRE(attoid_b >= FIRST_USER_OID);
     {
@@ -744,7 +789,6 @@ TEST_CASE("services::disk::ddl::storage_expand_on_write_for_dynamic_schema") {
         REQUIRE(rows->size() == 2);
     }
 
-    // Step 3: register "c" and storage_append a row with all three columns.
     auto attoid_c = test_computed_register(fx, table_oid, "c", components::catalog::well_known_oid::float64_type);
     REQUIRE(attoid_c >= FIRST_USER_OID);
     {
@@ -778,16 +822,203 @@ TEST_CASE("services::disk::ddl::storage_expand_on_write_for_dynamic_schema") {
     // pg_computed_column, which DOES grow correctly across the three
     // test_computed_register calls. This is the path the runtime relies on
     // for dynamic-schema growth — independent of what storage_append does.
-    auto rs = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("docs"), std::uint64_t{0});
+    auto rs = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("docs"));
     REQUIRE(rs.found);
     REQUIRE(rs.relkind == components::catalog::relkind::computed);
     REQUIRE(rs.columns.size() == 3);
 }
 
-// 26. Computing tables (relkind='g') do not get pg_attribute rows on creation —
-// versioned fields live in pg_computed_column. resolve_table.columns must
-// therefore be empty for a fresh computing table. Doc test alias:
-// test_computing_table_pg_attribute_empty (catalog-migration-to-postgresql-style.md §14).
+// Batched DROP: drop_storage_many erases N user storages in ONE call. Create N
+// IN_MEMORY user storages (with one row each so they're observably non-empty),
+// confirm each is present, then send a single drop_storage_many with the N oids
+// and assert all N are gone (has_storage false / storage_total_rows 0 /
+// read_chunks_by_key empty) while a non-targeted storage survives untouched.
+TEST_CASE("services::disk::ddl::drop_storage_many_erases_n") {
+    using components::types::complex_logical_type;
+    using components::types::logical_type;
+    using components::types::logical_value_t;
+    using components::vector::data_chunk_t;
+
+    fixture fx;
+
+    // Allocate N+1 fresh user OIDs (N targeted for DROP + 1 survivor).
+    constexpr std::size_t N = 4;
+    auto oids = fx.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{N + 1});
+    REQUIRE(oids.size() == N + 1);
+
+    std::vector<catalog::oid_t> targets(oids.begin(), oids.begin() + N);
+    const catalog::oid_t survivor = oids[N];
+
+    auto append_one = [&](catalog::oid_t oid, std::int64_t kval) {
+        std::pmr::vector<complex_logical_type> types(&fx.resource);
+        for (auto n : {"k", "payload"}) {
+            complex_logical_type t{logical_type::BIGINT};
+            t.set_alias(n);
+            types.push_back(std::move(t));
+        }
+        auto chunk = std::make_unique<data_chunk_t>(&fx.resource, types, 1);
+        chunk->set_cardinality(1);
+        chunk->set_value(0, 0, logical_value_t(&fx.resource, kval));
+        chunk->set_value(1, 0, logical_value_t(&fx.resource, std::int64_t{kval * 10}));
+        components::execution_context_t append_ctx{session_id_t{},
+                                                   components::table::transaction_data{0, 0},
+                                                   {},
+                                                   oid};
+        fx.invoke(&manager_disk_t::storage_append, append_ctx, oid, std::move(chunk));
+    };
+
+    // Create + populate the N targets and the survivor.
+    for (std::size_t i = 0; i < N; ++i) {
+        fx.invoke(&manager_disk_t::create_storage, session_id_t{}, targets[i], well_known_oid::main_database);
+        append_one(targets[i], static_cast<std::int64_t>(i + 1));
+    }
+    fx.invoke(&manager_disk_t::create_storage, session_id_t{}, survivor, well_known_oid::main_database);
+    append_one(survivor, std::int64_t{777});
+
+    // Pre-DROP: every target is present and non-empty.
+    for (std::size_t i = 0; i < N; ++i) {
+        REQUIRE(fx.manager->has_storage(targets[i]));
+        auto rows = fx.invoke(&manager_disk_t::storage_total_rows, session_id_t{}, targets[i]);
+        REQUIRE(rows == 1);
+    }
+    REQUIRE(fx.manager->has_storage(survivor));
+    REQUIRE(fx.invoke(&manager_disk_t::storage_total_rows, session_id_t{}, survivor) == 1);
+
+    // ONE batched drop for all N targets (survivor NOT in the oid list).
+    {
+        std::pmr::vector<catalog::oid_t> drop_oids{&fx.resource};
+        for (auto oid : targets)
+            drop_oids.push_back(oid);
+        fx.invoke(&manager_disk_t::drop_storage_many, session_id_t{}, std::move(drop_oids));
+    }
+
+    // Post-DROP: all N targets are gone on every observable surface.
+    for (std::size_t i = 0; i < N; ++i) {
+        REQUIRE_FALSE(fx.manager->has_storage(targets[i]));
+        REQUIRE(fx.invoke(&manager_disk_t::storage_total_rows, session_id_t{}, targets[i]) == 0);
+        std::pmr::vector<std::string> key_cols{&fx.resource};
+        key_cols.emplace_back("k");
+        std::pmr::vector<logical_value_t> vals{&fx.resource};
+        vals.emplace_back(&fx.resource, static_cast<std::int64_t>(i + 1));
+        auto chunks = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                fx.ctx(),
+                                targets[i],
+                                std::move(key_cols),
+                                test_probe::build_key_chunk(&fx.resource, std::move(vals)));
+        std::uint64_t total = 0;
+        for (const auto& c : chunks)
+            total += c.size();
+        REQUIRE(total == 0);
+    }
+
+    // Survivor untouched: still present, still 1 row, still readable.
+    REQUIRE(fx.manager->has_storage(survivor));
+    REQUIRE(fx.invoke(&manager_disk_t::storage_total_rows, session_id_t{}, survivor) == 1);
+    {
+        std::pmr::vector<std::string> key_cols{&fx.resource};
+        key_cols.emplace_back("k");
+        std::pmr::vector<logical_value_t> vals{&fx.resource};
+        vals.emplace_back(&fx.resource, std::int64_t{777});
+        auto chunks = fx.invoke(&manager_disk_t::read_chunks_by_key,
+                                fx.ctx(),
+                                survivor,
+                                std::move(key_cols),
+                                test_probe::build_key_chunk(&fx.resource, std::move(vals)));
+        std::uint64_t total = 0;
+        for (const auto& c : chunks)
+            total += c.size();
+        REQUIRE(total == 1);
+    }
+}
+
+// Batched DROP-GC marking: mark_storage_dropped_many records N GC entries in ONE
+// call, and a subsequent on_horizon_advanced past the dropped_at_commit_id
+// reclaims each storage's .otbx file. The per-agent dropped_storages_ slice has
+// no direct accessor, so observability is via the GC side effect: create N
+// DISK-backed storages (each gets a real <db>/<oid>/table.otbx), mark them all
+// dropped at commit D, advance the horizon past D, and assert the .otbx files
+// are gone. A non-marked DISK storage's .otbx survives.
+//
+// NOTE on the limitation: mark_storage_dropped_many does NOT remove the storage
+// entry from storages_ (that is drop_storage_many's job) and does NOT itself
+// delete files; it only records the GC entry. The .otbx removal is performed by
+// on_horizon_advanced_inner (agent_disk.cpp: dropped_at_commit_id < new_horizon).
+// So the file-reclamation assertion below is the strongest feasible observation
+// of the recorded GC entries without a dropped_storages_ accessor.
+TEST_CASE("services::disk::ddl::mark_storage_dropped_many_records_n_gc_entries") {
+    using components::table::column_definition_t;
+    using components::types::complex_logical_type;
+    using components::types::logical_type;
+
+    fixture fx;
+
+    constexpr std::size_t N = 3;
+    auto oids = fx.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{N + 1});
+    REQUIRE(oids.size() == N + 1);
+    std::vector<catalog::oid_t> targets(oids.begin(), oids.begin() + N);
+    const catalog::oid_t survivor = oids[N];
+
+    // .otbx path layout mirrors manager_disk_t::create_storage_disk:
+    //   <config.path>/<db_oid>/<tbl_oid>/table.otbx
+    constexpr catalog::oid_t db_oid = well_known_oid::main_database;
+    auto otbx_path_for = [&](catalog::oid_t tbl) {
+        return std::filesystem::path(ddl_dir()) / std::to_string(static_cast<unsigned>(db_oid)) /
+               std::to_string(static_cast<unsigned>(tbl)) / "table.otbx";
+    };
+
+    auto make_disk_storage = [&](catalog::oid_t tbl) {
+        std::vector<column_definition_t> cols;
+        cols.emplace_back("k", complex_logical_type{logical_type::BIGINT});
+        fx.invoke(&manager_disk_t::create_storage_disk,
+                  session_id_t{},
+                  tbl,
+                  db_oid,
+                  std::move(cols),
+                  configuration::disk_layout_policy::auto_select);
+    };
+
+    for (auto oid : targets)
+        make_disk_storage(oid);
+    make_disk_storage(survivor);
+
+    // Every DISK-backed storage materialised its .otbx on creation.
+    for (auto oid : targets)
+        REQUIRE(std::filesystem::exists(otbx_path_for(oid)));
+    REQUIRE(std::filesystem::exists(otbx_path_for(survivor)));
+
+    // ONE batched mark for all N targets at dropped_at_commit_id = D (survivor
+    // not in the list). mark does NOT remove storages_ entries or touch files.
+    constexpr std::uint64_t D = 5000;
+    {
+        std::pmr::vector<catalog::oid_t> mark_oids{&fx.resource};
+        for (auto oid : targets)
+            mark_oids.push_back(oid);
+        fx.invoke(&manager_disk_t::mark_storage_dropped_many, session_id_t{}, std::move(mark_oids), D);
+    }
+
+    // Marking alone leaves the .otbx files in place (GC is horizon-driven).
+    for (auto oid : targets)
+        REQUIRE(std::filesystem::exists(otbx_path_for(oid)));
+
+    // A horizon advance that does NOT pass D (dropped_at_commit_id < new_horizon
+    // is false for new_horizon <= D) reclaims nothing.
+    fx.invoke(&manager_disk_t::on_horizon_advanced, D);
+    for (auto oid : targets)
+        REQUIRE(std::filesystem::exists(otbx_path_for(oid)));
+
+    // Advancing the horizon PAST D fires the GC sweep: each recorded entry's
+    // .otbx (and sidecars) is reclaimed.
+    fx.invoke(&manager_disk_t::on_horizon_advanced, D + 1);
+    for (auto oid : targets)
+        REQUIRE_FALSE(std::filesystem::exists(otbx_path_for(oid)));
+
+    // The non-marked survivor's .otbx is untouched (no GC entry was recorded).
+    REQUIRE(std::filesystem::exists(otbx_path_for(survivor)));
+}
+
+// Computing tables (relkind='g') get no pg_attribute rows on creation —
+// versioned fields live in pg_computed_column, so resolve_table.columns is
+// empty for a fresh computing table.
 TEST_CASE("services::disk::ddl::computing_table_pg_attribute_empty") {
     fixture fx;
     auto ns_oid = test_create_namespace(fx, "nscempty");
@@ -797,7 +1028,7 @@ TEST_CASE("services::disk::ddl::computing_table_pg_attribute_empty") {
                                        std::vector<components::table::column_definition_t>{},
                                        catalog::relkind::computed);
     REQUIRE(table_oid >= FIRST_USER_OID);
-    auto rr = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rr = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rr.found);
     REQUIRE(rr.relkind == components::catalog::relkind::computed);
     REQUIRE(rr.columns.empty());
@@ -806,7 +1037,7 @@ TEST_CASE("services::disk::ddl::computing_table_pg_attribute_empty") {
     // V4 resolve_table for relkind='g' tables fills `columns` from pg_computed_column
     // (latest non-zero refcount per attname).
     test_computed_append_simple(fx, table_oid, "count", components::catalog::well_known_oid::int64_type);
-    auto rr2 = fx.invoke(&manager_disk_t::resolve_table, fx.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+    auto rr2 = test_probe::probe_table(fx, fx.ctx(), ns_oid, std::string("agg"));
     REQUIRE(rr2.found);
     REQUIRE(rr2.relkind == components::catalog::relkind::computed);
     REQUIRE(rr2.columns.size() == 1);

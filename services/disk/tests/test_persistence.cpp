@@ -9,27 +9,22 @@
 #include <components/session/session.hpp>
 #include <components/table/column_definition.hpp>
 #include <components/types/types.hpp>
+#include <components/vector/data_chunk.hpp>
 #include <core/non_thread_scheduler/scheduler_test.hpp>
 #include <services/disk/manager_disk.hpp>
 
+#include "catalog_probe.hpp"
 #include "disk_test_helpers.hpp"
 
 #include <filesystem>
 #include <limits>
 #include <string_view>
+#include <thread>
 #include <unistd.h>
 
-// Phase-5 persistence tests (catalog-migration-to-postgresql-style.md §9, §14 lines
-// 2746–2757). These cover the doc's named persistence cases that aren't already
-// represented in integration/cpp/test/test_clean_break_startup.cpp:
-//   test_type_persistence_across_restart
-//   test_function_persistence
-//   test_constraint_persistence
-//   test_pg_class_lists_all_objects
-//   test_oid_persistence              (Phase-0 §14, OID survives checkpoint→load)
-//   test_oid_no_reuse_after_drop      (Phase-0 §14, dropped OIDs leave gaps)
-// The remaining doc-named tests (sequence/view/macro/index/load_sequence/catalog_otbx_not_needed)
-// are already covered there with different names; aliasing is task #7.
+// Disk-level persistence cases not covered by
+// integration/cpp/test/test_clean_break_startup.cpp (types, functions,
+// constraints, pg_class listing, OID survival, OID no-reuse-after-drop).
 
 using namespace services::disk;
 namespace catalog = components::catalog;
@@ -58,10 +53,12 @@ namespace {
                 c.path = path;
                 return c;
             }())
-            , manager(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {
-            manager->set_run_fn([this] { scheduler->run(10000); });
-        }
+            , manager(actor_zeta::spawn<manager_disk_t>(&resource, scheduler, scheduler, disk_config, log)) {}
         ~fresh_disk() {
+            // Destroy the manager first: its dtor joins the internal loop thread,
+            // which may still enqueue children onto the scheduler. Only then is it
+            // safe to stop/delete the scheduler.
+            manager.reset();
             scheduler->stop();
             delete scheduler;
         }
@@ -73,7 +70,11 @@ namespace {
         template<typename Fn, typename... Args>
         auto invoke(Fn fn, Args&&... args) {
             auto [_, future] = actor_zeta::otterbrix::send(manager->address(), fn, std::forward<Args>(args)...);
-            scheduler->run(10000);
+            for (int i = 0; i < 100000 && !future.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(future.is_ready());
             return std::move(future).get();
         }
 
@@ -81,8 +82,15 @@ namespace {
             auto [_, cf] = actor_zeta::otterbrix::send(manager->address(),
                                                        &manager_disk_t::checkpoint_all,
                                                        session_id_t{},
-                                                       services::wal::id_t{0});
-            scheduler->run(10000);
+                                                       services::wal::id_t{0},
+                                                       // No concurrent snapshots in this fixture —
+                                                       // everything is visible-to-all, compact may run.
+                                                       std::numeric_limits<uint64_t>::max());
+            for (int i = 0; i < 100000 && !cf.is_ready(); ++i) {
+                scheduler->run(1000);
+                std::this_thread::yield();
+            }
+            REQUIRE(cf.is_ready());
             (void) std::move(cf).get();
         }
     };
@@ -106,9 +114,9 @@ TEST_CASE("services::disk::persistence::test_type_persistence_across_restart") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto rr = fd2.invoke(&manager_disk_t::resolve_type, fd2.ctx(), ns_oid, std::string("money"), std::uint64_t{0});
+        auto rr = test_probe::probe_type(fd2, fd2.ctx(), ns_oid, std::string("money"));
         REQUIRE(rr.found);
         REQUIRE(rr.oid == type_oid);
     }
@@ -133,10 +141,9 @@ TEST_CASE("services::disk::persistence::test_function_persistence") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto rr =
-            fd2.invoke(&manager_disk_t::resolve_function, fd2.ctx(), ns_oid, std::string("incr"), std::uint64_t{0});
+        auto rr = test_probe::probe_function(fd2, fd2.ctx(), ns_oid, std::string("incr"));
         REQUIRE(rr.found);
         REQUIRE(rr.oid == fn_oid);
     }
@@ -170,10 +177,10 @@ TEST_CASE("services::disk::persistence::test_constraint_persistence") {
 
         // Resolve column attoids — needed by test_create_constraint (conkey/confkey are
         // attoid CSVs).
-        auto rrc = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, std::string("child"), std::uint64_t{0});
+        auto rrc = test_probe::probe_table(fd, fd.ctx(), ns_oid, std::string("child"));
         REQUIRE(rrc.found);
         REQUIRE_FALSE(rrc.columns.empty());
-        auto rrp = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, std::string("parent"), std::uint64_t{0});
+        auto rrp = test_probe::probe_table(fd, fd.ctx(), ns_oid, std::string("parent"));
         REQUIRE(rrp.found);
         REQUIRE_FALSE(rrp.columns.empty());
 
@@ -194,7 +201,7 @@ TEST_CASE("services::disk::persistence::test_constraint_persistence") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
         // Verify FK constraint persisted: resolve child table should still succeed
         // (fk_constraints_for_table removed in Etap 5.1; field-level checks moved to
@@ -206,6 +213,12 @@ TEST_CASE("services::disk::persistence::test_constraint_persistence") {
     std::filesystem::remove_all(dir);
 }
 
+// Feature: requested storage format (disk_auto / disk_pax / disk_columnar) is
+// written to pg_class.relstorageformat and survives checkpoint + restart. The
+// read-back goes through the same read_chunks_by_key boundary production uses —
+// the former resolve_table read oracle was deleted, so relstorageformat (pg_class
+// column index 4: oid, relname, relnamespace, relkind, relstorageformat) is read
+// directly here, keyed on relname.
 TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
     auto dir = persist_dir() + "/storage_format_roundtrip";
     std::filesystem::remove_all(dir);
@@ -235,7 +248,7 @@ TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
                                                          storage_format);
         std::vector<components::pg_catalog_append_range_t> appends_local;
         append_writes(fd, auto_ctx(), writes, appends_local);
-        fd.invoke(&manager_disk_t::storage_commit_appends,
+        fd.invoke(&manager_disk_t::storage_publish_commits,
                   rebuild_ctx(),
                   std::uint64_t{1000},
                   std::move(appends_local));
@@ -278,7 +291,7 @@ TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
 
     {
         fresh_disk fd(dir);
-        fd.manager->load_system_tables_sync();
+        fd.manager->bootstrap_system_tables_sync();
         fd.manager->restore_oid_generator_sync();
         fd.manager->load_user_table_storages_sync();
 
@@ -292,20 +305,51 @@ TEST_CASE("services::disk::persistence::table_storage_format_roundtrip") {
             {"disk_columnar_tbl", std::string(catalog::relstorageformat::disk_columnar)},
         };
 
+        // pg_class layout: oid(0), relname(1), relnamespace(2), relkind(3),
+        // relstorageformat(4). Read the surviving format straight from pg_class via
+        // the production read path, keyed on (relnamespace, relname).
+        constexpr oid_t pg_class = well_known_oid::pg_class_table;
         for (const auto& [name, expected_format] : expected) {
-            auto rr = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, name, std::uint64_t{0});
-            REQUIRE(rr.found);
-            REQUIRE(rr.storage_format == expected_format);
+            std::pmr::vector<std::string> keys{&fd.resource};
+            keys.emplace_back("relnamespace");
+            keys.emplace_back("relname");
+            std::pmr::vector<components::types::logical_value_t> vals{&fd.resource};
+            vals.emplace_back(components::types::logical_value_t(&fd.resource, ns_oid));
+            vals.emplace_back(components::types::logical_value_t(&fd.resource, name));
+            auto batches =
+                fd.invoke(&manager_disk_t::read_chunks_by_key,
+                          fd.ctx(),
+                          pg_class,
+                          std::move(keys),
+                          test_probe::build_key_chunk(&fd.resource, std::move(vals)));
+            bool found = false;
+            std::string actual_format;
+            for (const auto& chunk : batches) {
+                for (std::uint64_t i = 0; i < chunk.size(); ++i) {
+                    auto oid_v = chunk.value(0, i);
+                    if (oid_v.is_null())
+                        continue;
+                    found = true;
+                    auto fmt_v = chunk.value(4, i);
+                    if (!fmt_v.is_null())
+                        actual_format = std::string(fmt_v.template value<std::string_view>());
+                    break;
+                }
+                if (found)
+                    break;
+            }
+            INFO("relation: " << name);
+            REQUIRE(found);
+            REQUIRE(actual_format == expected_format);
         }
     }
 
     std::filesystem::remove_all(dir);
 }
 
-// 5. test_oid_persistence: OIDs allocated to a table (and its columns) before
-// checkpoint resolve to the same OIDs after restart. Validates Phase-0 design
-// rule "OIDs are immutable after assignment" (catalog-migration-to-postgresql-style.md §4)
-// across the full disk round-trip.
+// OIDs allocated to a table (and its columns) before checkpoint resolve to the
+// same OIDs after restart — the "OIDs are immutable after assignment" rule,
+// validated across a full disk round-trip.
 TEST_CASE("services::disk::persistence::test_oid_persistence") {
     auto dir = persist_dir() + "/oid_persist";
     std::filesystem::remove_all(dir);
@@ -324,7 +368,7 @@ TEST_CASE("services::disk::persistence::test_oid_persistence") {
                           components::types::complex_logical_type{components::types::logical_type::STRING_LITERAL});
         table_oid = test_create_table(fd, ns_oid, "widgets", std::move(cols));
 
-        auto rr = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, std::string("widgets"), std::uint64_t{0});
+        auto rr = test_probe::probe_table(fd, fd.ctx(), ns_oid, std::string("widgets"));
         REQUIRE(rr.found);
         column_oids_before.clear();
         column_oids_before.reserve(rr.columns.size());
@@ -335,10 +379,9 @@ TEST_CASE("services::disk::persistence::test_oid_persistence") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto rr =
-            fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, std::string("widgets"), std::uint64_t{0});
+        auto rr = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, std::string("widgets"));
         REQUIRE(rr.found);
         REQUIRE(rr.oid == table_oid);
         REQUIRE(rr.columns.size() == column_oids_before.size());
@@ -350,12 +393,11 @@ TEST_CASE("services::disk::persistence::test_oid_persistence") {
     std::filesystem::remove_all(dir);
 }
 
-// 6. test_oid_no_reuse_after_drop: a dropped OID is never handed out again. After
-// restart, restore_oid_generator_sync seeds the counter to max(persisted OIDs)+1
-// — but persisted OIDs include the dropped table's siblings, so even though the
-// row is gone, the counter has already advanced past it (the OID generator never
-// recycles). Validates "OIDs are never reused after DROP (gaps are acceptable)"
-// (catalog-migration-to-postgresql-style.md §4 design rule 2).
+// A dropped OID is never handed out again. After restart,
+// restore_oid_generator_sync seeds the counter to max(persisted OIDs)+1; the
+// dropped table's siblings are still persisted, so the counter has already
+// advanced past the dropped OID and never recycles it. Gaps are acceptable,
+// reuse is not.
 TEST_CASE("services::disk::persistence::test_oid_no_reuse_after_drop") {
     auto dir = persist_dir() + "/oid_no_reuse";
     std::filesystem::remove_all(dir);
@@ -386,7 +428,7 @@ TEST_CASE("services::disk::persistence::test_oid_no_reuse_after_drop") {
         // must not let a fresh CREATE land on dropped_oid. The remaining live OIDs
         // (namespace, t_new, columns) seed the high-water mark above dropped_oid.
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
 
         std::vector<components::table::column_definition_t> cols3;
@@ -434,7 +476,7 @@ TEST_CASE("services::disk::persistence::test_pg_class_lists_all_objects") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
         struct expected_t {
             std::string name;
@@ -450,7 +492,7 @@ TEST_CASE("services::disk::persistence::test_pg_class_lists_all_objects") {
             {"regular_t_idx", idx_oid, components::catalog::relkind::index},
         };
         for (const auto& exp : objects) {
-            auto r = fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, exp.name, std::uint64_t{0});
+            auto r = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, exp.name);
             INFO("relation: " << exp.name);
             REQUIRE(r.found);
             REQUIRE(r.oid == exp.oid);
@@ -483,9 +525,9 @@ TEST_CASE("services::disk::persistence::test_computing_table_persists_restart") 
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto rr = fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, std::string("agg"), std::uint64_t{0});
+        auto rr = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, std::string("agg"));
         REQUIRE(rr.found);
         REQUIRE(rr.oid == comp_oid);
         REQUIRE(rr.relkind == components::catalog::relkind::computed);
@@ -517,16 +559,30 @@ TEST_CASE("services::disk::persistence::test_sequence_persistence") {
         sk1.emplace_back("seqrelid");
         std::pmr::vector<components::types::logical_value_t> sv1{&fd.resource};
         sv1.emplace_back(components::types::logical_value_t(&fd.resource, seq_oid));
-        auto seq_rows = fd.invoke(&manager_disk_t::scan_by_key, fd.ctx(), pg_seq, std::move(sk1), std::move(sv1));
-        REQUIRE(seq_rows.size() == 1);
+        auto seq_batches =
+            fd.invoke(&manager_disk_t::read_chunks_by_key,
+                      fd.ctx(),
+                      pg_seq,
+                      std::move(sk1),
+                      test_probe::build_key_chunk(&fd.resource, std::move(sv1)));
+        uint64_t seq_total = 0;
+        for (auto& c : seq_batches) seq_total += c.size();
+        REQUIRE(seq_total == 1);
         // AC #2: DROP removes the pg_sequence row.
         test_drop_sequence(fd, seq_oid);
         std::pmr::vector<std::string> sk2{&fd.resource};
         sk2.emplace_back("seqrelid");
         std::pmr::vector<components::types::logical_value_t> sv2{&fd.resource};
         sv2.emplace_back(components::types::logical_value_t(&fd.resource, seq_oid));
-        auto seq_rows_after = fd.invoke(&manager_disk_t::scan_by_key, fd.ctx(), pg_seq, std::move(sk2), std::move(sv2));
-        REQUIRE(seq_rows_after.empty());
+        auto seq_batches_after =
+            fd.invoke(&manager_disk_t::read_chunks_by_key,
+                      fd.ctx(),
+                      pg_seq,
+                      std::move(sk2),
+                      test_probe::build_key_chunk(&fd.resource, std::move(sv2)));
+        uint64_t seq_total_after = 0;
+        for (auto& c : seq_batches_after) seq_total_after += c.size();
+        REQUIRE(seq_total_after == 0);
         // Re-create for restart test.
         seq_oid = test_create_sequence(fd, ns_oid, "counter2", 5, 1, 1, 500, false);
         fd.checkpoint();
@@ -534,10 +590,9 @@ TEST_CASE("services::disk::persistence::test_sequence_persistence") {
     {
         // AC #3: pg_sequence row still readable after restart.
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto r =
-            fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, std::string("counter2"), std::uint64_t{0});
+        auto r = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, std::string("counter2"));
         REQUIRE(r.found);
         REQUIRE(r.oid == seq_oid);
         REQUIRE(r.relkind == components::catalog::relkind::sequence);
@@ -546,8 +601,15 @@ TEST_CASE("services::disk::persistence::test_sequence_persistence") {
         sk3.emplace_back("seqrelid");
         std::pmr::vector<components::types::logical_value_t> sv3{&fd2.resource};
         sv3.emplace_back(components::types::logical_value_t(&fd2.resource, seq_oid));
-        auto seq_rows2 = fd2.invoke(&manager_disk_t::scan_by_key, fd2.ctx(), pg_seq2, std::move(sk3), std::move(sv3));
-        REQUIRE(seq_rows2.size() == 1);
+        auto seq_batches2 =
+            fd2.invoke(&manager_disk_t::read_chunks_by_key,
+                       fd2.ctx(),
+                       pg_seq2,
+                       std::move(sk3),
+                       test_probe::build_key_chunk(&fd2.resource, std::move(sv3)));
+        uint64_t seq_total2 = 0;
+        for (auto& c : seq_batches2) seq_total2 += c.size();
+        REQUIRE(seq_total2 == 1);
     }
     std::filesystem::remove_all(dir);
 }
@@ -573,18 +635,30 @@ TEST_CASE("services::disk::persistence::test_view_persistence") {
         rk1.emplace_back("ev_class");
         std::pmr::vector<components::types::logical_value_t> rv1{&fd.resource};
         rv1.emplace_back(components::types::logical_value_t(&fd.resource, view_oid));
-        auto rewrite_rows =
-            fd.invoke(&manager_disk_t::scan_by_key, fd.ctx(), pg_rewrite_tbl, std::move(rk1), std::move(rv1));
-        REQUIRE(rewrite_rows.size() == 1);
+        auto rewrite_batches =
+            fd.invoke(&manager_disk_t::read_chunks_by_key,
+                      fd.ctx(),
+                      pg_rewrite_tbl,
+                      std::move(rk1),
+                      test_probe::build_key_chunk(&fd.resource, std::move(rv1)));
+        uint64_t rewrite_total = 0;
+        for (auto& c : rewrite_batches) rewrite_total += c.size();
+        REQUIRE(rewrite_total == 1);
         // AC #3: DROP removes the pg_rewrite row.
         test_drop_view(fd, view_oid);
         std::pmr::vector<std::string> rk2{&fd.resource};
         rk2.emplace_back("ev_class");
         std::pmr::vector<components::types::logical_value_t> rv2{&fd.resource};
         rv2.emplace_back(components::types::logical_value_t(&fd.resource, view_oid));
-        auto rewrite_rows_after =
-            fd.invoke(&manager_disk_t::scan_by_key, fd.ctx(), pg_rewrite_tbl, std::move(rk2), std::move(rv2));
-        REQUIRE(rewrite_rows_after.empty());
+        auto rewrite_batches_after =
+            fd.invoke(&manager_disk_t::read_chunks_by_key,
+                      fd.ctx(),
+                      pg_rewrite_tbl,
+                      std::move(rk2),
+                      test_probe::build_key_chunk(&fd.resource, std::move(rv2)));
+        uint64_t rewrite_total_after = 0;
+        for (auto& c : rewrite_batches_after) rewrite_total_after += c.size();
+        REQUIRE(rewrite_total_after == 0);
         // Re-create for restart test.
         view_oid = test_create_view(fd, ns_oid, "my_view2", view_sql);
         fd.checkpoint();
@@ -592,10 +666,9 @@ TEST_CASE("services::disk::persistence::test_view_persistence") {
     {
         // AC #4: ev_action survives restart.
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto r =
-            fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, std::string("my_view2"), std::uint64_t{0});
+        auto r = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, std::string("my_view2"));
         REQUIRE(r.found);
         REQUIRE(r.oid == view_oid);
         REQUIRE(r.relkind == components::catalog::relkind::view);
@@ -604,9 +677,15 @@ TEST_CASE("services::disk::persistence::test_view_persistence") {
         rk3.emplace_back("ev_class");
         std::pmr::vector<components::types::logical_value_t> rv3{&fd2.resource};
         rv3.emplace_back(components::types::logical_value_t(&fd2.resource, view_oid));
-        auto rewrite_rows2 =
-            fd2.invoke(&manager_disk_t::scan_by_key, fd2.ctx(), pg_rewrite_tbl2, std::move(rk3), std::move(rv3));
-        REQUIRE(rewrite_rows2.size() == 1);
+        auto rewrite_batches2 =
+            fd2.invoke(&manager_disk_t::read_chunks_by_key,
+                       fd2.ctx(),
+                       pg_rewrite_tbl2,
+                       std::move(rk3),
+                       test_probe::build_key_chunk(&fd2.resource, std::move(rv3)));
+        uint64_t rewrite_total2 = 0;
+        for (auto& c : rewrite_batches2) rewrite_total2 += c.size();
+        REQUIRE(rewrite_total2 == 1);
     }
     std::filesystem::remove_all(dir);
 }
@@ -631,16 +710,22 @@ TEST_CASE("services::disk::persistence::test_macro_persistence") {
         mk1.emplace_back("ev_class");
         std::pmr::vector<components::types::logical_value_t> mv1{&fd.resource};
         mv1.emplace_back(components::types::logical_value_t(&fd.resource, macro_oid));
-        auto rewrite_rows_m =
-            fd.invoke(&manager_disk_t::scan_by_key, fd.ctx(), pg_rewrite_m, std::move(mk1), std::move(mv1));
-        REQUIRE(rewrite_rows_m.size() == 1);
+        auto rewrite_batches_m =
+            fd.invoke(&manager_disk_t::read_chunks_by_key,
+                      fd.ctx(),
+                      pg_rewrite_m,
+                      std::move(mk1),
+                      test_probe::build_key_chunk(&fd.resource, std::move(mv1)));
+        uint64_t rewrite_total_m = 0;
+        for (auto& c : rewrite_batches_m) rewrite_total_m += c.size();
+        REQUIRE(rewrite_total_m == 1);
         fd.checkpoint();
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        auto r = fd2.invoke(&manager_disk_t::resolve_table, fd2.ctx(), ns_oid, std::string("double"), std::uint64_t{0});
+        auto r = test_probe::probe_table(fd2, fd2.ctx(), ns_oid, std::string("double"));
         REQUIRE(r.found);
         REQUIRE(r.oid == macro_oid);
         REQUIRE(r.relkind == components::catalog::relkind::macro);
@@ -649,9 +734,15 @@ TEST_CASE("services::disk::persistence::test_macro_persistence") {
         mk2.emplace_back("ev_class");
         std::pmr::vector<components::types::logical_value_t> mv2{&fd2.resource};
         mv2.emplace_back(components::types::logical_value_t(&fd2.resource, macro_oid));
-        auto rewrite_rows_m2 =
-            fd2.invoke(&manager_disk_t::scan_by_key, fd2.ctx(), pg_rewrite_m2, std::move(mk2), std::move(mv2));
-        REQUIRE(rewrite_rows_m2.size() == 1);
+        auto rewrite_batches_m2 =
+            fd2.invoke(&manager_disk_t::read_chunks_by_key,
+                       fd2.ctx(),
+                       pg_rewrite_m2,
+                       std::move(mk2),
+                       test_probe::build_key_chunk(&fd2.resource, std::move(mv2)));
+        uint64_t rewrite_total_m2 = 0;
+        for (auto& c : rewrite_batches_m2) rewrite_total_m2 += c.size();
+        REQUIRE(rewrite_total_m2 == 1);
     }
     std::filesystem::remove_all(dir);
 }
@@ -676,8 +767,8 @@ TEST_CASE("services::disk::persistence::test_pg_constraint_orphan_after_drop_tab
         auto child_oid = test_create_table(fd, ns_oid, "child", std::move(ccols));
 
         // Resolve attoids to wire the FK.
-        auto pr = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, std::string("parent"), std::uint64_t{0});
-        auto cr = fd.invoke(&manager_disk_t::resolve_table, fd.ctx(), ns_oid, std::string("child"), std::uint64_t{0});
+        auto pr = test_probe::probe_table(fd, fd.ctx(), ns_oid, std::string("parent"));
+        auto cr = test_probe::probe_table(fd, fd.ctx(), ns_oid, std::string("child"));
         REQUIRE(pr.found);
         REQUIRE(cr.found);
         REQUIRE_FALSE(pr.columns.empty());
@@ -723,16 +814,21 @@ TEST_CASE("services::disk::persistence::test_oid_no_collision_after_restore") {
         // The rule_oid is the highest; restore must pick it up from pg_rewrite col-0 scan.
         test_create_view(fd, ns_oid, "v");
         // Capture the peak OID BEFORE checkpoint so we know what restore must beat.
-        pre_restart_peak = fd.manager->oid_gen().peek() - 1; // last issued OID
+        // allocate_oids_batch(1) returns the next free OID, so peak == that - 1.
+        auto probe = fd.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{1});
+        REQUIRE(probe.size() == 1);
+        pre_restart_peak = probe[0] - 1; // last issued OID
         fd.checkpoint();
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
-        // After restore the generator must be seeded at or above the pre-restart peak.
-        auto new_oid = fd2.manager->oid_gen().allocate();
-        REQUIRE(new_oid > pre_restart_peak);
+        // After restore the generator must be seeded at or above the pre-restart peak,
+        // so the next allocation is strictly greater than the last issued OID.
+        auto next = fd2.invoke(&manager_disk_t::allocate_oids_batch, std::size_t{1});
+        REQUIRE(next.size() == 1);
+        REQUIRE(next[0] > pre_restart_peak);
     }
     std::filesystem::remove_all(dir);
 }
@@ -767,15 +863,22 @@ TEST_CASE("services::disk::persistence::test_check_constraint_persistence") {
     }
     {
         fresh_disk fd2(dir);
-        fd2.manager->load_system_tables_sync();
+        fd2.manager->bootstrap_system_tables_sync();
         fd2.manager->restore_oid_generator_sync();
         constexpr oid_t pg_constr = well_known_oid::pg_constraint_table;
         std::pmr::vector<std::string> ck{&fd2.resource};
         ck.emplace_back("conrelid");
         std::pmr::vector<components::types::logical_value_t> cv{&fd2.resource};
         cv.emplace_back(components::types::logical_value_t(&fd2.resource, table_oid));
-        auto check_rows = fd2.invoke(&manager_disk_t::scan_by_key, fd2.ctx(), pg_constr, std::move(ck), std::move(cv));
-        REQUIRE(check_rows.size() == 1);
+        auto check_batches =
+            fd2.invoke(&manager_disk_t::read_chunks_by_key,
+                       fd2.ctx(),
+                       pg_constr,
+                       std::move(ck),
+                       test_probe::build_key_chunk(&fd2.resource, std::move(cv)));
+        uint64_t check_total = 0;
+        for (auto& c : check_batches) check_total += c.size();
+        REQUIRE(check_total == 1);
     }
     std::filesystem::remove_all(dir);
 }

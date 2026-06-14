@@ -176,7 +176,7 @@ TEST_CASE("integration::cpp::test_batch_where") {
     INFO("initialization") {
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, std::string("CREATE DATABASE ") + database_name + ";");
         }
         {
             auto session = otterbrix::session_id_t();
@@ -185,7 +185,7 @@ TEST_CASE("integration::cpp::test_batch_where") {
             for (const auto& type : types) {
                 columns.emplace_back(type.alias(), type);
             }
-            dispatcher->create_collection(session, database_name, collection_name, columns);
+            test_create_collection(dispatcher, session, database_name, collection_name, columns);
         }
     }
 
@@ -197,7 +197,8 @@ TEST_CASE("integration::cpp::test_batch_where") {
             collection_name,
             logical_plan::make_node_insert(dispatcher->resource(), std::move(chunk)));
         auto session = otterbrix::session_id_t();
-        auto cur = dispatcher->execute_plan(session, ins);
+        auto cur =
+            dispatcher->execute_plan(session, logical_plan::execution_plan_t{dispatcher->resource(), ins, nullptr});
         REQUIRE(cur->is_success());
         REQUIRE(cur->size() == N);
     }
@@ -277,7 +278,7 @@ TEST_CASE("integration::cpp::test_batch_aggregate") {
     INFO("initialization") {
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, std::string("CREATE DATABASE ") + database_name + ";");
         }
         {
             auto session = otterbrix::session_id_t();
@@ -286,7 +287,7 @@ TEST_CASE("integration::cpp::test_batch_aggregate") {
             for (const auto& type : types) {
                 columns.emplace_back(type.alias(), type);
             }
-            dispatcher->create_collection(session, database_name, collection_name, columns);
+            test_create_collection(dispatcher, session, database_name, collection_name, columns);
         }
     }
 
@@ -299,7 +300,8 @@ TEST_CASE("integration::cpp::test_batch_aggregate") {
                 collection_name,
                 logical_plan::make_node_insert(dispatcher->resource(), std::move(chunk)));
             auto session = otterbrix::session_id_t();
-            auto cur = dispatcher->execute_plan(session, ins);
+            auto cur =
+                dispatcher->execute_plan(session, logical_plan::execution_plan_t{dispatcher->resource(), ins, nullptr});
             REQUIRE(cur->is_success());
             REQUIRE(cur->size() == N);
         }
@@ -607,7 +609,7 @@ TEST_CASE("integration::cpp::test_batch_edge_cases") {
     INFO("initialization") {
         {
             auto session = otterbrix::session_id_t();
-            dispatcher->create_database(session, database_name);
+            dispatcher->execute_sql(session, std::string("CREATE DATABASE ") + database_name + ";");
         }
         {
             auto session = otterbrix::session_id_t();
@@ -616,7 +618,7 @@ TEST_CASE("integration::cpp::test_batch_edge_cases") {
             for (const auto& type : types) {
                 columns.emplace_back(type.alias(), type);
             }
-            dispatcher->create_collection(session, database_name, collection_name, columns);
+            test_create_collection(dispatcher, session, database_name, collection_name, columns);
         }
     }
 
@@ -628,7 +630,8 @@ TEST_CASE("integration::cpp::test_batch_edge_cases") {
             collection_name,
             logical_plan::make_node_insert(dispatcher->resource(), std::move(chunk)));
         auto session = otterbrix::session_id_t();
-        auto cur = dispatcher->execute_plan(session, ins);
+        auto cur =
+            dispatcher->execute_plan(session, logical_plan::execution_plan_t{dispatcher->resource(), ins, nullptr});
         REQUIRE(cur->is_success());
         REQUIRE(cur->size() == 1);
     }
@@ -707,11 +710,11 @@ TEST_CASE("integration::cpp::test_batch_boundaries") {
 
     {
         auto session = otterbrix::session_id_t();
-        dispatcher->create_database(session, database_name);
+        dispatcher->execute_sql(session, std::string("CREATE DATABASE ") + database_name + ";");
     }
     {
         auto session = otterbrix::session_id_t();
-        dispatcher->create_collection(session, database_name, collection_name);
+        test_create_collection(dispatcher, session, database_name, collection_name);
     }
     {
         auto session = otterbrix::session_id_t();

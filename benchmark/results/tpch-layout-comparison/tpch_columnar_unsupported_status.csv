@@ -1,0 +1,11 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch/q11,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported subquery in HAVING operand: scalar subquery"
+tpch/q15,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression while executing: select  s_suppkey,  s_name,  s_address,  s_phone,  total_revenue from  tpch.supplier,  revenue0 where  s_suppkey = supplier_no  and total_revenue = (   select    max(total_revenue)   from    revenue0  ) order by  s_suppk..."
+tpch/q16,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expr type in transform_a_expr"
+tpch/q17,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression"
+tpch/q18,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression: unknown expr type in transform_a_expr"
+tpch/q2,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression"
+tpch/q20,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression: unknown expr type in transform_a_expr"
+tpch/q21,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression: unknown expr type in transform_a_expr"
+tpch/q22,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=IN expression: left side must be a column reference"
+tpch/q4,tpch,columnar,disk,warm,true,false,Release,1,0.000,0.000,0.000,0.000,FAIL,,,,"SQL error: code=29 what=Unsupported expression: unknown expr type in transform_a_expr"

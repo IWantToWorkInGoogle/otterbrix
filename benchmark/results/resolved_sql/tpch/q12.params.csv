@@ -1,0 +1,4 @@
+query,parameter,value
+tpch/q12,:1,MAIL
+tpch/q12,:2,SHIP
+tpch/q12,:3,1994-01-01

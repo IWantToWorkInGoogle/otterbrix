@@ -1,0 +1,235 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/send.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <actor-zeta/actor/dispatch_traits.hpp>
+        -:    4:#include <actor-zeta/mailbox/make_message.hpp>
+        -:    5:
+        -:    6:namespace actor_zeta {
+        -:    7:
+        -:    8:    namespace detail {
+        -:    9:
+        -:   10:        // Compile-time argument validation
+        -:   11:
+        -:   12:        template<typename Actor, auto MethodPtr, typename... Args>
+        -:   13:        struct validate_send_args {
+        -:   14:            using callable_trait = type_traits::callable_trait<decltype(MethodPtr)>;
+        -:   15:            using method_result_type = typename callable_trait::result_type;
+        -:   16:            using expected_args = typename callable_trait::args_types;
+        -:   17:            using provided_args = type_traits::type_list<Args...>;
+        -:   18:
+        -:   19:            static constexpr size_t expected_count = callable_trait::number_of_arguments;
+        -:   20:            static constexpr size_t provided_count = sizeof...(Args);
+        -:   21:
+        -:   22:            static_assert(
+        -:   23:                expected_count == provided_count,
+        -:   24:                "send(): argument count mismatch - check method signature");
+        -:   25:
+        -:   26:            static_assert(
+        -:   27:                args_compatible_v<expected_args, provided_args>,
+        -:   28:                "send(): argument types are not compatible with method signature");
+        -:   29:
+        -:   30:            static_assert(
+        -:   31:                all_args_storable_v<Args...>,
+        -:   32:                "send(): all arguments must be storable in message "
+        -:   33:                "(move/copy constructible, not abstract)");
+        -:   34:        };
+        -:   35:
+        -:   36:        // Dispatch implementation - creates message and calls enqueue_impl
+        -:   37:
+        -:   38:        template<typename Actor, auto MethodPtr, uint64_t ActionId, typename ActorPtr, typename... Args>
+function _ZN10actor_zeta6detail20dispatch_method_implIN10components7storage6detail22parallel_scan_worker_tEXadL_ZNS5_14scan_row_groupESt6vectorINS2_5table15storage_index_tESaIS8_EEmPKNS7_14table_filter_tES6_ImSaImEEbNS7_16transaction_dataEEELm0ES5_JRSA_RmRSD_RSF_RKbRSG_EEENS0_16send_result_typeIT_NS_11type_traits14callable_traitIDtT0_EE11result_typeEE4typeEPT2_DpOT3_ called 0 returned 0% blocks executed 0%
+    #####:   39:        inline auto dispatch_method_impl(ActorPtr* actor, Args&&... args)
+        -:   40:            -> send_result_t<Actor, typename type_traits::callable_trait<decltype(MethodPtr)>::result_type> {
+        -:   41:            (void)validate_send_args<Actor, MethodPtr, Args...>{};
+        -:   42:
+        -:   43:            using callable_trait = type_traits::callable_trait<decltype(MethodPtr)>;
+        -:   44:            using method_result_type = typename callable_trait::result_type;
+        -:   45:
+    #####:   46:            auto cmd = mailbox::make_message_id(ActionId);
+        -:   47:
+        -:   48:            if constexpr (type_traits::is_unique_future_v<method_result_type>) {
+        -:   49:                using value_type = typename type_traits::is_unique_future<method_result_type>::value_type;
+        -:   50:
+        -:   51:                // Create message with shared_state for the result
+    #####:   52:                auto [msg, future] = detail::make_message<value_type>(
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+branch  8 never executed
+branch  9 never executed
+call   10 never executed
+call   11 never executed
+        -:   53:                    actor->resource(), cmd, std::forward<Args>(args)...);
+        -:   54:
+        -:   55:                // Enqueue the message
+    #####:   56:                auto [needs_sched, result] = actor->enqueue_impl(std::move(msg));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+call    8 never executed
+        -:   57:
+        -:   58:                // On queue_closed, the message destructor will automatically call cleanup_fn_
+        -:   59:                // which sets error and releases promise - no need to manually handle it
+    #####:   60:                ignore_unused(result);
+call    0 never executed
+        -:   61:
+        -:   62:                // Return pair<bool, future> for new API
+    #####:   63:                return {needs_sched, std::move(future)};
+call    0 never executed
+call    1 never executed
+        -:   64:
+    #####:   65:            } else if constexpr (type_traits::is_generator_v<method_result_type>) {
+call    0 never executed
+call    1 never executed
+        -:   66:                using value_type = typename method_result_type::value_type;
+        -:   67:
+        -:   68:                // Create message with generator_state
+        -:   69:                auto [msg, gen] = detail::make_generator_message<value_type>(
+        -:   70:                    actor->resource(), cmd, std::forward<Args>(args)...);
+        -:   71:
+        -:   72:                auto [needs_sched, enq_result] = actor->enqueue_impl(std::move(msg));
+        -:   73:
+        -:   74:                if (enq_result == enqueue_result::queue_closed) {
+        -:   75:                    gen.cancel();
+        -:   76:                }
+        -:   77:
+        -:   78:                return {needs_sched, std::move(gen)};
+        -:   79:            }
+        -:   80:        }
+        -:   81:
+        -:   82:        // Dispatch for address_t (interface polymorphism)
+        -:   83:
+        -:   84:        template<typename Interface, auto MethodPtr, uint64_t ActionId, typename... Args>
+        -:   85:        inline auto dispatch_method_impl_address(actor::address_t target, Args&&... args)
+        -:   86:            -> send_result_t<Interface, typename type_traits::callable_trait<decltype(MethodPtr)>::result_type> {
+        -:   87:            (void)validate_send_args<Interface, MethodPtr, Args...>{};
+        -:   88:
+        -:   89:            using callable_trait = type_traits::callable_trait<decltype(MethodPtr)>;
+        -:   90:            using method_result_type = typename callable_trait::result_type;
+        -:   91:
+        -:   92:            auto cmd = mailbox::make_message_id(ActionId);
+        -:   93:
+        -:   94:            if constexpr (type_traits::is_unique_future_v<method_result_type>) {
+        -:   95:                using value_type = typename type_traits::is_unique_future<method_result_type>::value_type;
+        -:   96:
+        -:   97:                // Create message with shared_state for the result
+        -:   98:                auto [msg, future] = detail::make_message<value_type>(
+        -:   99:                    target.resource(), cmd, std::forward<Args>(args)...);
+        -:  100:
+        -:  101:                // Enqueue the message
+        -:  102:                auto [needs_sched, result] = target.enqueue_impl(std::move(msg));
+        -:  103:
+        -:  104:                // On queue_closed, the message destructor will automatically call cleanup_fn_
+        -:  105:                ignore_unused(result);
+        -:  106:
+        -:  107:                // Return pair<bool, future> for new API
+        -:  108:                return {needs_sched, std::move(future)};
+        -:  109:
+        -:  110:            } else if constexpr (type_traits::is_generator_v<method_result_type>) {
+        -:  111:                using value_type = typename method_result_type::value_type;
+        -:  112:
+        -:  113:                // Create message with generator_state
+        -:  114:                auto [msg, gen] = detail::make_generator_message<value_type>(
+        -:  115:                    target.resource(), cmd, std::forward<Args>(args)...);
+        -:  116:
+        -:  117:                auto [needs_sched, enq_result] = target.enqueue_impl(std::move(msg));
+        -:  118:
+        -:  119:                if (enq_result == enqueue_result::queue_closed) {
+        -:  120:                    gen.cancel();
+        -:  121:                }
+        -:  122:
+        -:  123:                return {needs_sched, std::move(gen)};
+        -:  124:            }
+        -:  125:        }
+        -:  126:
+        -:  127:    } // namespace detail
+        -:  128:
+        -:  129:    // send() for Actor* (direct actor pointer)
+        -:  130:
+        -:  131:    template<typename ActorPtr, typename Method, typename... Args,
+        -:  132:             typename Actor = typename type_traits::callable_trait<Method>::class_type>
+        -:  133:    [[nodiscard]] inline auto send(ActorPtr* actor, Method method, Args&&... args)
+        -:  134:        -> detail::send_result_t<Actor, typename type_traits::callable_trait<Method>::result_type> {
+        -:  135:        using result_type = typename type_traits::callable_trait<Method>::result_type;
+        -:  136:
+        -:  137:        // Compile-time validation: method must be registered in dispatch_traits
+        -:  138:        static_assert(detail::validate_method_for_send<Actor, Method>::valid,
+        -:  139:                      "send(): Method validation failed - see above for details");
+        -:  140:
+        -:  141:        static_assert(!std::is_same_v<result_type, bool>,
+        -:  142:                      "Actor methods must not return bool. "
+        -:  143:                      "Use void or other types - all return results via promise/future.");
+        -:  144:
+        -:  145:        using methods = typename Actor::dispatch_traits::methods;
+        -:  146:
+        -:  147:        return runtime_dispatch_helper<Actor, Method, methods>::dispatch(
+        -:  148:            method, actor, std::forward<Args>(args)...);
+        -:  149:    }
+        -:  150:
+        -:  151:    // send() for address_t (interface polymorphism)
+        -:  152:
+        -:  153:    template<typename Method, typename... Args,
+        -:  154:             typename Interface = typename type_traits::callable_trait<Method>::class_type>
+        -:  155:        requires detail::is_interface<Interface>
+        -:  156:    [[nodiscard]] inline auto send(actor::address_t target, Method method, Args&&... args)
+        -:  157:        -> detail::send_result_t<Interface, typename type_traits::callable_trait<Method>::result_type> {
+        -:  158:        using result_type = typename type_traits::callable_trait<Method>::result_type;
+        -:  159:
+        -:  160:        // Compile-time validation: method must be registered in dispatch_traits
+        -:  161:        static_assert(detail::validate_method_for_send<Interface, Method>::valid,
+        -:  162:                      "send(): Method validation failed - see above for details");
+        -:  163:
+        -:  164:        static_assert(!std::is_same_v<result_type, bool>,
+        -:  165:                      "Actor methods must not return bool. "
+        -:  166:                      "Use void or other types - all return results via promise/future.");
+        -:  167:
+        -:  168:        assert(target && "target address must not be empty");
+        -:  169:
+        -:  170:        using methods = typename Interface::dispatch_traits::methods;
+        -:  171:
+        -:  172:        return runtime_dispatch_helper_address<Interface, Method, methods>::dispatch(
+        -:  173:            method, target, std::forward<Args>(args)...);
+        -:  174:    }
+        -:  175:
+        -:  176:    // send() for address_t when Method belongs to Actor (not Interface)
+        -:  177:    // This allows sending to an actor via its address
+        -:  178:
+        -:  179:    template<typename Method, typename... Args,
+        -:  180:             typename Actor = typename type_traits::callable_trait<Method>::class_type>
+        -:  181:        requires detail::is_actor<Actor>
+        -:  182:    [[nodiscard]] inline auto send(actor::address_t target, Method method, Args&&... args)
+        -:  183:        -> detail::send_result_t<Actor, typename type_traits::callable_trait<Method>::result_type> {
+        -:  184:        using result_type = typename type_traits::callable_trait<Method>::result_type;
+        -:  185:
+        -:  186:        // Compile-time validation: method must be registered in dispatch_traits
+        -:  187:        static_assert(detail::validate_method_for_send<Actor, Method>::valid,
+        -:  188:                      "send(): Method validation failed - see above for details");
+        -:  189:
+        -:  190:        static_assert(!std::is_same_v<result_type, bool>,
+        -:  191:                      "Actor methods must not return bool. "
+        -:  192:                      "Use void or other types - all return results via promise/future.");
+        -:  193:
+        -:  194:        assert(target && "target address must not be empty");
+        -:  195:
+        -:  196:        // Cast address back to Actor* and use direct dispatch
+        -:  197:        auto* actor = static_cast<Actor*>(target.get());
+        -:  198:        using methods = typename Actor::dispatch_traits::methods;
+        -:  199:
+        -:  200:        return runtime_dispatch_helper<Actor, Method, methods>::dispatch(
+        -:  201:            method, actor, std::forward<Args>(args)...);
+        -:  202:    }
+        -:  203:
+        -:  204:} // namespace actor_zeta

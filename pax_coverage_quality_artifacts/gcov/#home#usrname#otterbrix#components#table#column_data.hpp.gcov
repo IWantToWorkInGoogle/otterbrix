@@ -1,0 +1,205 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/column_data.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include "base_statistics.hpp"
+        -:    4:#include "column_segment.hpp"
+        -:    5:#include "column_state.hpp"
+        -:    6:#include "segment_tree.hpp"
+        -:    7:#include "update_segment.hpp"
+        -:    8:
+        -:    9:namespace components::table {
+        -:   10:    class row_group_t;
+        -:   11:
+        -:   12:    struct persistent_column_data_t;
+        -:   13:
+        -:   14:    namespace storage {
+        -:   15:        class block_manager_t;
+        -:   16:        class partial_block_manager_t;
+        -:   17:    } // namespace storage
+        -:   18:
+        -:   19:    enum class filter_propagate_result_t : uint8_t
+        -:   20:    {
+        -:   21:        NO_PRUNING_POSSIBLE = 0,
+        -:   22:        ALWAYS_TRUE = 1,
+        -:   23:        ALWAYS_FALSE = 2,
+        -:   24:        TRUE_OR_NULL = 3,
+        -:   25:        FALSE_OR_NULL = 4
+        -:   26:    };
+        -:   27:    constexpr uint64_t MAX_ROW_ID = 1ULL << 55; // 2^55
+        -:   28:
+        -:   29:    class column_data_t {
+        -:   30:        friend class column_segment_t;
+        -:   31:        friend class column_data_checkpointer_t;
+        -:   32:        friend class column_checkpoint_state_t;
+        -:   33:        friend class row_group_t;
+        -:   34:
+        -:   35:    public:
+        -:   36:        column_data_t(std::pmr::memory_resource* resource,
+        -:   37:                      storage::block_manager_t& block_manager,
+        -:   38:                      uint64_t column_index,
+        -:   39:                      int64_t start_row,
+        -:   40:                      types::complex_logical_type type,
+        -:   41:                      column_data_t* parent);
+        -:   42:        virtual ~column_data_t() = default;
+        -:   43:
+        -:   44:        virtual filter_propagate_result_t check_zonemap(column_scan_state& state, table_filter_t& filter);
+        -:   45:        filter_propagate_result_t check_segment_zonemap(column_scan_state& state, table_filter_t& filter);
+        -:   46:
+function _ZN10components5table13column_data_t13block_managerEv called 974 returned 100% blocks executed 100%
+      974:   47:        storage::block_manager_t& block_manager() { return block_manager_; }
+        -:   48:        virtual uint64_t max_entry();
+        -:   49:
+function _ZNK10components5table13column_data_t15allocation_sizeEv called 46052 returned 100% blocks executed 100%
+    46052:   50:        uint64_t allocation_size() const { return allocation_size_; }
+        -:   51:
+        -:   52:        virtual void set_start(int64_t new_start);
+        -:   53:        const types::complex_logical_type& root_type() const;
+function _ZNK10components5table13column_data_t4typeEv called 21013 returned 100% blocks executed 100%
+    21013:   54:        const types::complex_logical_type& type() const { return type_; }
+        -:   55:        bool has_updates() const;
+        -:   56:        bool has_uncommitted_updates() const;
+        -:   57:        virtual scan_vector_type
+        -:   58:        get_vector_scan_type(column_scan_state& state, uint64_t scan_count, vector::vector_t& result);
+        -:   59:        virtual void initialize_scan(column_scan_state& state);
+        -:   60:        virtual void initialize_scan_with_offset(column_scan_state& state, int64_t row_idx);
+        -:   61:        uint64_t scan(uint64_t vector_index, column_scan_state& state, vector::vector_t& result);
+        -:   62:        uint64_t
+        -:   63:        scan_committed(uint64_t vector_index, column_scan_state& state, vector::vector_t& result, bool allow_updates);
+        -:   64:        virtual uint64_t
+        -:   65:        scan(uint64_t vector_index, column_scan_state& state, vector::vector_t& result, uint64_t scan_count);
+        -:   66:        virtual uint64_t scan_committed(uint64_t vector_index,
+        -:   67:                                        column_scan_state& state,
+        -:   68:                                        vector::vector_t& result,
+        -:   69:                                        bool allow_updates,
+        -:   70:                                        uint64_t scan_count);
+        -:   71:
+        -:   72:        virtual void scan_committed_range(uint64_t row_group_start,
+        -:   73:                                          uint64_t offset_in_row_group,
+        -:   74:                                          uint64_t count,
+        -:   75:                                          vector::vector_t& result);
+        -:   76:        virtual void fetch_committed_updates_range(uint64_t offset_in_row_group,
+        -:   77:                                                   uint64_t count,
+        -:   78:                                                   vector::vector_t& result,
+        -:   79:                                                   uint64_t result_offset = 0);
+        -:   80:        virtual uint64_t scan_count(column_scan_state& state, vector::vector_t& result, uint64_t count);
+        -:   81:
+        -:   82:        virtual void select(uint64_t vector_index,
+        -:   83:                            column_scan_state& state,
+        -:   84:                            vector::vector_t& result,
+        -:   85:                            vector::indexing_vector_t& indexing,
+        -:   86:                            uint64_t count);
+        -:   87:        virtual void select_committed(uint64_t vector_index,
+        -:   88:                                      column_scan_state& state,
+        -:   89:                                      vector::vector_t& result,
+        -:   90:                                      vector::indexing_vector_t& indexing,
+        -:   91:                                      uint64_t count,
+        -:   92:                                      bool allow_updates);
+        -:   93:        virtual void filter(uint64_t vector_index,
+        -:   94:                            column_scan_state& state,
+        -:   95:                            vector::vector_t& result,
+        -:   96:                            vector::indexing_vector_t& indexing,
+        -:   97:                            uint64_t& count,
+        -:   98:                            const table_filter_t& filter);
+        -:   99:        virtual void filter_scan(uint64_t vector_index,
+        -:  100:                                 column_scan_state& state,
+        -:  101:                                 vector::vector_t& result,
+        -:  102:                                 vector::indexing_vector_t& indexing,
+        -:  103:                                 uint64_t count);
+        -:  104:        virtual void filter_scan_committed(uint64_t vector_index,
+        -:  105:                                           column_scan_state& state,
+        -:  106:                                           vector::vector_t& result,
+        -:  107:                                           vector::indexing_vector_t& indexing,
+        -:  108:                                           uint64_t count,
+        -:  109:                                           bool allow_updates);
+        -:  110:
+        -:  111:        virtual void skip(column_scan_state& state, uint64_t count = vector::DEFAULT_VECTOR_CAPACITY);
+        -:  112:
+        -:  113:        virtual void initialize_append(column_append_state& state);
+        -:  114:        virtual void append(column_append_state& state, vector::vector_t& vector, uint64_t count);
+        -:  115:        virtual void append_data(column_append_state& state, vector::unified_vector_format& uvf, uint64_t count);
+        -:  116:        virtual void revert_append(int64_t start_row);
+        -:  117:
+        -:  118:        virtual bool check_predicate(int64_t row_id, const table_filter_t* filter);
+        -:  119:        virtual bool check_validity(int64_t row_id);
+        -:  120:        virtual uint64_t fetch(column_scan_state& state, int64_t row_id, vector::vector_t& result);
+        -:  121:        virtual void
+        -:  122:        fetch_row(column_fetch_state& state, int64_t row_id, vector::vector_t& result, uint64_t result_idx);
+        -:  123:
+        -:  124:        virtual void
+        -:  125:        update(uint64_t column_index, vector::vector_t& update_vector, int64_t* row_ids, uint64_t update_count);
+        -:  126:        virtual void update_column(const std::vector<uint64_t>& column_path,
+        -:  127:                                   vector::vector_t& update_vector,
+        -:  128:                                   int64_t* row_ids,
+        -:  129:                                   uint64_t update_count,
+        -:  130:                                   uint64_t depth);
+        -:  131:
+        -:  132:        virtual void get_column_segment_info(uint64_t row_group_index,
+        -:  133:                                             std::vector<uint64_t> col_path,
+        -:  134:                                             std::vector<column_segment_info>& result);
+        -:  135:
+        -:  136:        static std::unique_ptr<column_data_t> create_column(std::pmr::memory_resource* resource,
+        -:  137:                                                            storage::block_manager_t& block_manager,
+        -:  138:                                                            uint64_t column_index,
+        -:  139:                                                            int64_t start_row,
+        -:  140:                                                            const types::complex_logical_type& type,
+        -:  141:                                                            column_data_t* parent = nullptr);
+        -:  142:
+function _ZNK10components5table13column_data_t8resourceEv called 4931 returned 100% blocks executed 100%
+     4931:  143:        std::pmr::memory_resource* resource() const noexcept { return resource_; }
+        -:  144:        uint64_t count() const noexcept { return count_; }
+function _ZNK10components5table13column_data_t5startEv called 6 returned 100% blocks executed 100%
+        6:  145:        int64_t start() const noexcept { return start_; }
+        -:  146:        const base_statistics_t& statistics() const noexcept { return statistics_; }
+        -:  147:        base_statistics_t& statistics() noexcept { return statistics_; }
+        -:  148:
+        -:  149:        persistent_column_data_t checkpoint(storage::partial_block_manager_t& partial_block_manager);
+        -:  150:        virtual void initialize_column(const persistent_column_data_t& persistent_data);
+        -:  151:        void initialize_column_validity(const persistent_column_data_t& persistent_data);
+        -:  152:
+        -:  153:    protected:
+        -:  154:        // requested_size: exact byte size for the new segment; 0 defaults to a whole block
+        -:  155:        // (or DEFAULT_VECTOR_CAPACITY*type_size for the MAX_ROW_ID marker). Pass the real
+        -:  156:        // payload size (e.g. validity) to avoid reserving a full block per page.
+        -:  157:        void apend_transient_segment(std::unique_lock<std::mutex>& l, int64_t start_row, uint64_t requested_size = 0);
+        -:  158:
+        -:  159:        uint64_t
+        -:  160:        scan_vector(column_scan_state& state, vector::vector_t& result, uint64_t remaining, scan_vector_type scan_type);
+        -:  161:        template<bool SCAN_COMMITTED, bool ALLOW_UPDATES>
+        -:  162:        uint64_t
+        -:  163:        scan_vector(uint64_t vector_index, column_scan_state& state, vector::vector_t& result, uint64_t target_scan);
+        -:  164:
+        -:  165:        void clear_updates();
+        -:  166:        void fetch_updates(uint64_t vector_index,
+        -:  167:                           vector::vector_t& result,
+        -:  168:                           uint64_t result_offset,
+        -:  169:                           uint64_t scan_count,
+        -:  170:                           bool allow_updates,
+        -:  171:                           bool scan_committed);
+        -:  172:        void fetch_update_row(int64_t row_id, vector::vector_t& result, uint64_t result_idx);
+        -:  173:        void update_internal(uint64_t column_index,
+        -:  174:                             vector::vector_t& update_vector,
+        -:  175:                             int64_t* row_ids,
+        -:  176:                             uint64_t update_count,
+        -:  177:                             vector::vector_t& base_vector);
+        -:  178:
+        -:  179:        uint64_t vector_count(uint64_t vector_index) const;
+        -:  180:
+        -:  181:        int64_t start_;
+        -:  182:        std::atomic<uint64_t> count_;
+        -:  183:        storage::block_manager_t& block_manager_;
+        -:  184:        uint64_t column_index_;
+        -:  185:        types::complex_logical_type type_;
+        -:  186:        column_data_t* parent_;
+        -:  187:        segment_tree_t<column_segment_t> data_;
+        -:  188:        mutable std::mutex update_lock_;
+        -:  189:        std::unique_ptr<update_segment_t> updates_;
+        -:  190:        uint64_t allocation_size_;
+        -:  191:        base_statistics_t statistics_;
+        -:  192:
+        -:  193:        std::pmr::memory_resource* resource_;
+        -:  194:    };
+        -:  195:
+        -:  196:} // namespace components::table

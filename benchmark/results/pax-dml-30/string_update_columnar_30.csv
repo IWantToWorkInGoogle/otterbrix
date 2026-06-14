@@ -1,0 +1,2 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,stddev_ms,ci95_ms,rsd_pct,verified,row_count,column_count,result_hash,error_message
+pax/dml/string_update/update_toggle,pax/dml/string_update,columnar,disk,warm,true,false,Release,30,85.769,117.085,100.990,100.819,9.173,3.282,9.083,OK,,,,""

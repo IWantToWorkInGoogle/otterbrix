@@ -1,0 +1,447 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/segment_tree.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <atomic>
+        -:    4:#include <cassert>
+        -:    5:#include <memory>
+        -:    6:#include <mutex>
+        -:    7:#include <stdexcept>
+        -:    8:#include <vector>
+        -:    9:
+        -:   10:namespace components::table {
+        -:   11:
+        -:   12:    template<class T>
+        -:   13:    class segment_base_t {
+        -:   14:    public:
+        -:   15:        segment_base_t(int64_t start, uint64_t count)
+        -:   16:            : start(start)
+        -:   17:            , count(count)
+        -:   18:            , next(nullptr) {}
+        -:   19:
+        -:   20:        int64_t start;
+        -:   21:        std::atomic<uint64_t> count;
+        -:   22:        T* next;
+        -:   23:        uint64_t index = 0;
+        -:   24:    };
+        -:   25:
+        -:   26:    template<class T>
+        -:   27:    struct segment_node_t {
+        -:   28:        int64_t row_start;
+        -:   29:        std::unique_ptr<T> node;
+        -:   30:    };
+        -:   31:
+        -:   32:    template<class T, bool SUPPORTS_LAZY_LOADING = false>
+        -:   33:    class segment_tree_t {
+        -:   34:        class segment_iteration_helper;
+        -:   35:
+        -:   36:    public:
+        -:   37:        explicit segment_tree_t()
+        -:   38:            : finished_loading_(true) {}
+        -:   39:        virtual ~segment_tree_t() = default;
+        -:   40:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE4lockEv called 0 returned 0% blocks executed 0%
+    #####:   41:        std::unique_lock<std::mutex> lock() { return std::unique_lock(node_lock_); }
+call    0 never executed
+        -:   42:
+        -:   43:        bool is_empty(std::unique_lock<std::mutex>& l) { return root_segment(l) == nullptr; }
+        -:   44:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE12root_segmentEv called 0 returned 0% blocks executed 0%
+    #####:   45:        T* root_segment() {
+    #####:   46:            auto l = lock();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   47:            return root_segment(l);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   48:        }
+call    0 never executed
+call    1 never executed
+        -:   49:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE12root_segmentERSt11unique_lockISt5mutexE called 0 returned 0% blocks executed 0%
+    #####:   50:        T* root_segment(std::unique_lock<std::mutex>& l) {
+    #####:   51:            if (nodes_.empty()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   52:                load_next_segment(l);
+call    0 never executed
+        -:   53:            }
+    #####:   54:            return root_segment_internal();
+call    0 never executed
+        -:   55:        }
+        -:   56:        std::vector<segment_node_t<T>> move_segments(std::unique_lock<std::mutex>& l) {
+        -:   57:            load_all_segments(l);
+        -:   58:            return std::move(nodes_);
+        -:   59:        }
+        -:   60:        std::vector<segment_node_t<T>> move_segments() {
+        -:   61:            auto l = lock();
+        -:   62:            return move_segments(l);
+        -:   63:        }
+        -:   64:
+        -:   65:        const std::vector<segment_node_t<T>>& reference_segments(std::unique_lock<std::mutex>& l) {
+        -:   66:            load_all_segments(l);
+        -:   67:            return nodes_;
+        -:   68:        }
+        -:   69:        const std::vector<segment_node_t<T>>& reference_segments() {
+        -:   70:            auto l = lock();
+        -:   71:            return reference_segments(l);
+        -:   72:        }
+        -:   73:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE13segment_countEv called 0 returned 0% blocks executed 0%
+    #####:   74:        uint64_t segment_count() {
+    #####:   75:            auto l = lock();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   76:            return segment_count(l);
+call    0 never executed
+    #####:   77:        }
+call    0 never executed
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE13segment_countERSt11unique_lockISt5mutexE called 0 returned 0% blocks executed 0%
+    #####:   78:        uint64_t segment_count(std::unique_lock<std::mutex>&) { return nodes_.size(); }
+call    0 never executed
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE10segment_atEl called 0 returned 0% blocks executed 0%
+    #####:   79:        T* segment_at(int64_t index) {
+    #####:   80:            auto l = lock();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   81:            return segment_at(l, index);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   82:        }
+call    0 never executed
+call    1 never executed
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE10segment_atERSt11unique_lockISt5mutexEl called 0 returned 0% blocks executed 0%
+    #####:   83:        T* segment_at(std::unique_lock<std::mutex>& l, int64_t index) {
+    #####:   84:            if (index < 0) {
+branch  0 never executed
+branch  1 never executed
+    #####:   85:                load_all_segments(l);
+call    0 never executed
+    #####:   86:                index += static_cast<int64_t>(nodes_.size());
+call    0 never executed
+    #####:   87:                if (index < 0) {
+branch  0 never executed
+branch  1 never executed
+    #####:   88:                    return nullptr;
+        -:   89:                }
+    #####:   90:                return nodes_[static_cast<uint64_t>(index)].node.get();
+call    0 never executed
+call    1 never executed
+        -:   91:            } else {
+    #####:   92:                while (uint64_t(index) >= nodes_.size() && load_next_segment(l)) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+branch  6 never executed
+branch  7 never executed
+        -:   93:                }
+    #####:   94:                if (uint64_t(index) >= nodes_.size()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   95:                    return nullptr;
+        -:   96:                }
+    #####:   97:                return nodes_[static_cast<uint64_t>(index)].node.get();
+call    0 never executed
+call    1 never executed
+        -:   98:            }
+        -:   99:        }
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE12next_segmentEPS2_ called 0 returned 0% blocks executed 0%
+    #####:  100:        T* next_segment(T* segment) {
+        -:  101:            if (!SUPPORTS_LAZY_LOADING) {
+        -:  102:                return segment->next;
+        -:  103:            }
+    #####:  104:            if (finished_loading_) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  105:                return segment->next;
+        -:  106:            }
+    #####:  107:            auto l = lock();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  108:            return next_segment(l, segment);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  109:        }
+call    0 never executed
+call    1 never executed
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE12next_segmentERSt11unique_lockISt5mutexEPS2_ called 0 returned 0% blocks executed 0%
+    #####:  110:        T* next_segment(std::unique_lock<std::mutex>& l, T* segment) {
+    #####:  111:            if (!segment) {
+branch  0 never executed
+branch  1 never executed
+    #####:  112:                return nullptr;
+        -:  113:            }
+    #####:  114:            assert(nodes_[segment->index].node.get() == segment);
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+    #####:  115:            return segment_at(l, static_cast<int64_t>(segment->index + 1));
+call    0 never executed
+        -:  116:        }
+        -:  117:
+        -:  118:        T* last_segment(std::unique_lock<std::mutex>& l) {
+        -:  119:            load_all_segments(l);
+        -:  120:            if (nodes_.empty()) {
+        -:  121:                return nullptr;
+        -:  122:            }
+        -:  123:            return nodes_.back().node.get();
+        -:  124:        }
+        -:  125:        T* get_segment(int64_t row_number) {
+        -:  126:            auto l = lock();
+        -:  127:            return get_segment(l, row_number);
+        -:  128:        }
+        -:  129:        T* get_segment(std::unique_lock<std::mutex>& l, int64_t row_number) {
+        -:  130:            return nodes_[segment_index(l, row_number)].node.get();
+        -:  131:        }
+        -:  132:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE23append_segment_internalERSt11unique_lockISt5mutexESt10unique_ptrIS2_St14default_deleteIS2_EE called 0 returned 0% blocks executed 0%
+    #####:  133:        void append_segment_internal(std::unique_lock<std::mutex>&, std::unique_ptr<T> segment) {
+    #####:  134:            assert(segment);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+    #####:  135:            if (!nodes_.empty()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  136:                nodes_.back().node->next = segment.get();
+call    0 never executed
+call    1 never executed
+call    2 never executed
+        -:  137:            }
+    #####:  138:            segment_node_t<T> node;
+call    0 never executed
+    #####:  139:            segment->index = nodes_.size();
+call    0 never executed
+call    1 never executed
+    #####:  140:            segment->next = nullptr;
+call    0 never executed
+    #####:  141:            node.row_start = segment->start;
+call    0 never executed
+    #####:  142:            node.node = std::move(segment);
+call    0 never executed
+call    1 never executed
+    #####:  143:            nodes_.push_back(std::move(node));
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  144:        }
+call    0 never executed
+call    1 never executed
+        -:  145:        void append_segment(std::unique_ptr<T> segment) {
+        -:  146:            auto l = lock();
+        -:  147:            append_segment(l, std::move(segment));
+        -:  148:        }
+        -:  149:        void append_segment(std::unique_lock<std::mutex>& l, std::unique_ptr<T> segment) {
+        -:  150:            load_all_segments(l);
+        -:  151:            append_segment_internal(l, std::move(segment));
+        -:  152:        }
+        -:  153:        bool has_segment(T* segment) {
+        -:  154:            auto l = lock();
+        -:  155:            return has_segment(l, segment);
+        -:  156:        }
+        -:  157:        bool has_segment(std::unique_lock<std::mutex>&, T* segment) {
+        -:  158:            return segment->index < nodes_.size() && nodes_[segment->index].node.get() == segment;
+        -:  159:        }
+        -:  160:
+        -:  161:        void replace(segment_tree_t<T>& other) {
+        -:  162:            auto l = lock();
+        -:  163:            replace(l, other);
+        -:  164:        }
+        -:  165:        void replace(std::unique_lock<std::mutex>& l, segment_tree_t<T>& other) {
+        -:  166:            other.load_all_segments(l);
+        -:  167:            nodes_ = std::move(other.nodes_);
+        -:  168:        }
+        -:  169:
+        -:  170:        void erase_segments(std::unique_lock<std::mutex>& l, uint64_t segment_start) {
+        -:  171:            load_all_segments(l);
+        -:  172:            if (segment_start >= nodes_.size() - 1) {
+        -:  173:                return;
+        -:  174:            }
+        -:  175:            nodes_.erase(nodes_.begin() + static_cast<int64_t>(segment_start) + 1, nodes_.end());
+        -:  176:        }
+        -:  177:
+        -:  178:        uint64_t segment_index(std::unique_lock<std::mutex>& l, int64_t row_number) {
+        -:  179:            uint64_t segment_index;
+        -:  180:            if (try_segment_index(l, row_number, segment_index)) {
+        -:  181:                return segment_index;
+        -:  182:            }
+        -:  183:            throw std::runtime_error("Could not find node in column segment tree");
+        -:  184:        }
+        -:  185:
+        -:  186:        bool try_segment_index(std::unique_lock<std::mutex>& l, int64_t row_number, uint64_t& result) {
+        -:  187:            while (nodes_.empty() ||
+        -:  188:                   row_number >= nodes_.back().row_start + static_cast<int64_t>(nodes_.back().node->count)) {
+        -:  189:                if (!load_next_segment(l)) {
+        -:  190:                    break;
+        -:  191:                }
+        -:  192:            }
+        -:  193:            if (nodes_.empty()) {
+        -:  194:                return false;
+        -:  195:            }
+        -:  196:            uint64_t lower = 0;
+        -:  197:            uint64_t upper = nodes_.size() - 1;
+        -:  198:            while (lower <= upper) {
+        -:  199:                uint64_t index = (lower + upper) / 2;
+        -:  200:                assert(index < nodes_.size());
+        -:  201:                auto& entry = nodes_[index];
+        -:  202:                assert(entry.row_start == entry.node->start);
+        -:  203:                if (row_number < entry.row_start) {
+        -:  204:                    upper = index - 1;
+        -:  205:                } else if (row_number >= entry.row_start + static_cast<int64_t>(entry.node->count)) {
+        -:  206:                    lower = index + 1;
+        -:  207:                } else {
+        -:  208:                    result = index;
+        -:  209:                    return true;
+        -:  210:                }
+        -:  211:            }
+        -:  212:            return false;
+        -:  213:        }
+        -:  214:
+        -:  215:        segment_iteration_helper segments() { return segment_iteration_helper(*this); }
+        -:  216:
+        -:  217:        std::vector<T*> copy_segments() {
+        -:  218:            auto l = lock();
+        -:  219:            load_all_segments(l);
+        -:  220:            std::vector<T*> result;
+        -:  221:            result.reserve(nodes_.size());
+        -:  222:            for (auto& entry : nodes_) {
+        -:  223:                result.push_back(entry.node.get());
+        -:  224:            }
+        -:  225:            return result;
+        -:  226:        }
+        -:  227:
+        -:  228:        void reinitialize() {
+        -:  229:            if (nodes_.empty()) {
+        -:  230:                return;
+        -:  231:            }
+        -:  232:            int64_t offset = nodes_[0].node->start;
+        -:  233:            for (auto& entry : nodes_) {
+        -:  234:                if (entry.node->start != offset) {
+        -:  235:                    throw std::runtime_error("In segment_tree_t::reinitialize - gap found between nodes!");
+        -:  236:                }
+        -:  237:                entry.row_start = offset;
+        -:  238:                offset += static_cast<int64_t>(entry.node->count);
+        -:  239:            }
+        -:  240:        }
+        -:  241:
+        -:  242:    protected:
+        -:  243:        std::atomic<bool> finished_loading_;
+        -:  244:
+        -:  245:        virtual std::unique_ptr<T> load_segment() { return nullptr; }
+        -:  246:
+        -:  247:    private:
+        -:  248:        std::vector<segment_node_t<T>> nodes_;
+        -:  249:        std::mutex node_lock_;
+        -:  250:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE21root_segment_internalEv called 0 returned 0% blocks executed 0%
+    #####:  251:        T* root_segment_internal() { return nodes_.empty() ? nullptr : nodes_[0].node.get(); }
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+call    4 never executed
+        -:  252:
+        -:  253:        class segment_iteration_helper {
+        -:  254:            class segment_iterator;
+        -:  255:
+        -:  256:        public:
+        -:  257:            explicit segment_iteration_helper(segment_tree_t& tree)
+        -:  258:                : tree_(tree) {}
+        -:  259:
+        -:  260:            segment_iterator begin() { return segment_iterator(tree_, tree_.root_segment()); }
+        -:  261:            segment_iterator end() { return segment_iterator(tree_, nullptr); }
+        -:  262:
+        -:  263:        private:
+        -:  264:            segment_tree_t& tree_;
+        -:  265:
+        -:  266:            class segment_iterator {
+        -:  267:            public:
+        -:  268:                segment_iterator(segment_tree_t& tree, T* current)
+        -:  269:                    : tree(tree)
+        -:  270:                    , current(current) {}
+        -:  271:
+        -:  272:                segment_tree_t& tree;
+        -:  273:                T* current;
+        -:  274:
+        -:  275:                void next() { current = tree.next_segment(current); }
+        -:  276:
+        -:  277:                segment_iterator& operator++() {
+        -:  278:                    next();
+        -:  279:                    return *this;
+        -:  280:                }
+        -:  281:                bool operator!=(const segment_iterator& other) const { return current != other.current; }
+        -:  282:                T& operator*() const {
+        -:  283:                    assert(current);
+        -:  284:                    return *current;
+        -:  285:                }
+        -:  286:            };
+        -:  287:        };
+        -:  288:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE17load_next_segmentERSt11unique_lockISt5mutexE called 0 returned 0% blocks executed 0%
+    #####:  289:        bool load_next_segment(std::unique_lock<std::mutex>& l) {
+        -:  290:            if (!SUPPORTS_LAZY_LOADING) {
+        -:  291:                return false;
+        -:  292:            }
+    #####:  293:            if (finished_loading_) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  294:                return false;
+        -:  295:            }
+    #####:  296:            auto result = load_segment();
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  297:            if (result) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  298:                append_segment_internal(l, std::move(result));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+call    6 never executed
+    #####:  299:                return true;
+        -:  300:            }
+    #####:  301:            return false;
+    #####:  302:        }
+call    0 never executed
+call    1 never executed
+        -:  303:
+function _ZN10components5table14segment_tree_tINS0_11row_group_tELb1EE17load_all_segmentsERSt11unique_lockISt5mutexE called 0 returned 0% blocks executed 0%
+    #####:  304:        void load_all_segments(std::unique_lock<std::mutex>& l) {
+        -:  305:            if (!SUPPORTS_LAZY_LOADING) {
+        -:  306:                return;
+        -:  307:            }
+    #####:  308:            while (load_next_segment(l)) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  309:            }
+        -:  310:        }
+        -:  311:    };
+        -:  312:
+        -:  313:} // namespace components::table

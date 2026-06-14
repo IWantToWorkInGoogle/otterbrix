@@ -118,12 +118,14 @@ namespace services::planner::impl {
                                                         : std::get<core::parameter_id_t>(comp_expr->left());
                             auto& value = get_parameter(context.parameters, param_id);
                             auto ctype = key_on_left ? comp_expr->type() : mirror_compare(comp_expr->type());
+                            auto preferred_index_type = context.preferred_index_type_for_compare(key, ctype);
                             return boost::intrusive_ptr(new components::operators::index_scan(context.resource,
                                                                                               context.log.clone(),
                                                                                               table_oid,
                                                                                               key,
                                                                                               value,
                                                                                               ctype,
+                                                                                              preferred_index_type,
                                                                                               limit));
                         }
                     }

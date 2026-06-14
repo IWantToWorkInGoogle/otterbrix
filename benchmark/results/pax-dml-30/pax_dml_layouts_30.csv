@@ -1,0 +1,10 @@
+scenario,group,description,layout,runs,min_ms,max_ms,median_ms,avg_ms,stddev_ms,ci95_ms,rsd_pct,verified
+fixed_update,pax/dml/fixed_update,Update 5000 fixed-width rows and restore them,auto,30,244.042,486.062,305.578,323.172,70.498,25.227,21.814,OK
+fixed_update,pax/dml/fixed_update,Update 5000 fixed-width rows and restore them,pax,30,237.763,518.065,336.158,350.514,72.888,26.083,20.795,OK
+fixed_update,pax/dml/fixed_update,Update 5000 fixed-width rows and restore them,columnar,30,219.255,490.324,313.144,323.677,71.394,25.548,22.057,OK
+fixed_delete_insert,pax/dml/fixed_delete_insert,Delete 1000 fixed-width rows and insert them back from seed,auto,30,56.548,73.533,64.299,65.029,3.613,1.293,5.555,OK
+fixed_delete_insert,pax/dml/fixed_delete_insert,Delete 1000 fixed-width rows and insert them back from seed,pax,30,58.485,74.304,64.979,65.223,4.069,1.456,6.239,OK
+fixed_delete_insert,pax/dml/fixed_delete_insert,Delete 1000 fixed-width rows and insert them back from seed,columnar,30,55.909,73.400,63.410,63.640,4.357,1.559,6.847,OK
+string_update,pax/dml/string_update,Update 4000 string payload rows and restore them,auto,30,86.792,116.217,102.573,102.788,8.306,2.972,8.081,OK
+string_update,pax/dml/string_update,Update 4000 string payload rows and restore them,pax,30,94.255,129.108,111.748,111.555,8.956,3.205,8.028,OK
+string_update,pax/dml/string_update,Update 4000 string payload rows and restore them,columnar,30,85.769,117.085,100.819,100.990,9.173,3.282,9.083,OK

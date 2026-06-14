@@ -1,0 +1,301 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/absei239f7149f892e/p/include/absl/numeric/int128_have_intrinsic.inc
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1://
+        -:    2:// Copyright 2017 The Abseil Authors.
+        -:    3://
+        -:    4:// Licensed under the Apache License, Version 2.0 (the "License");
+        -:    5:// you may not use this file except in compliance with the License.
+        -:    6:// You may obtain a copy of the License at
+        -:    7://
+        -:    8://      https://www.apache.org/licenses/LICENSE-2.0
+        -:    9://
+        -:   10:// Unless required by applicable law or agreed to in writing, software
+        -:   11:// distributed under the License is distributed on an "AS IS" BASIS,
+        -:   12:// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        -:   13:// See the License for the specific language governing permissions and
+        -:   14:// limitations under the License.
+        -:   15:
+        -:   16:// This file contains :int128 implementation details that depend on internal
+        -:   17:// representation when ABSL_HAVE_INTRINSIC_INT128 is defined. This file is
+        -:   18:// included by int128.h and relies on ABSL_INTERNAL_WCHAR_T being defined.
+        -:   19:
+        -:   20:namespace int128_internal {
+        -:   21:
+        -:   22:// Casts from unsigned to signed while preserving the underlying binary
+        -:   23:// representation.
+        -:   24:constexpr __int128 BitCastToSigned(unsigned __int128 v) {
+        -:   25:  // Casting an unsigned integer to a signed integer of the same
+        -:   26:  // width is implementation defined behavior if the source value would not fit
+        -:   27:  // in the destination type. We step around it with a roundtrip bitwise not
+        -:   28:  // operation to make sure this function remains constexpr. Clang and GCC
+        -:   29:  // optimize this to a no-op on x86-64.
+        -:   30:  return v & (static_cast<unsigned __int128>(1) << 127)
+        -:   31:             ? ~static_cast<__int128>(~v)
+        -:   32:             : static_cast<__int128>(v);
+        -:   33:}
+        -:   34:
+        -:   35:}  // namespace int128_internal
+        -:   36:
+        -:   37:inline int128& int128::operator=(__int128 v) {
+        -:   38:  v_ = v;
+        -:   39:  return *this;
+        -:   40:}
+        -:   41:
+        -:   42:constexpr uint64_t Int128Low64(int128 v) {
+        -:   43:  return static_cast<uint64_t>(v.v_ & ~uint64_t{0});
+        -:   44:}
+        -:   45:
+        -:   46:constexpr int64_t Int128High64(int128 v) {
+        -:   47:  // Initially cast to unsigned to prevent a right shift on a negative value.
+        -:   48:  return int128_internal::BitCastToSigned(
+        -:   49:      static_cast<uint64_t>(static_cast<unsigned __int128>(v.v_) >> 64));
+        -:   50:}
+        -:   51:
+        -:   52:constexpr int128::int128(int64_t high, uint64_t low)
+        -:   53:    // Initially cast to unsigned to prevent a left shift that overflows.
+        -:   54:    : v_(int128_internal::BitCastToSigned(static_cast<unsigned __int128>(high)
+        -:   55:                                           << 64) |
+        -:   56:         low) {}
+        -:   57:
+        -:   58:
+        -:   59:constexpr int128::int128(int v) : v_{v} {}
+        -:   60:
+        -:   61:constexpr int128::int128(long v) : v_{v} {}       // NOLINT(runtime/int)
+        -:   62:
+        -:   63:constexpr int128::int128(long long v) : v_{v} {}  // NOLINT(runtime/int)
+        -:   64:
+        -:   65:constexpr int128::int128(__int128 v) : v_{v} {}
+        -:   66:
+        -:   67:constexpr int128::int128(unsigned int v) : v_{v} {}
+        -:   68:
+        -:   69:constexpr int128::int128(unsigned long v) : v_{v} {}  // NOLINT(runtime/int)
+        -:   70:
+        -:   71:// NOLINTNEXTLINE(runtime/int)
+        -:   72:constexpr int128::int128(unsigned long long v) : v_{v} {}
+        -:   73:
+        -:   74:constexpr int128::int128(unsigned __int128 v) : v_{static_cast<__int128>(v)} {}
+        -:   75:
+        -:   76:inline int128::int128(float v) {
+        -:   77:  v_ = static_cast<__int128>(v);
+        -:   78:}
+        -:   79:
+        -:   80:inline int128::int128(double v) {
+        -:   81:  v_ = static_cast<__int128>(v);
+        -:   82:}
+        -:   83:
+        -:   84:inline int128::int128(long double v) {
+        -:   85:  v_ = static_cast<__int128>(v);
+        -:   86:}
+        -:   87:
+        -:   88:constexpr int128::int128(uint128 v) : v_{static_cast<__int128>(v)} {}
+        -:   89:
+        -:   90:constexpr int128::operator bool() const { return static_cast<bool>(v_); }
+        -:   91:
+        -:   92:constexpr int128::operator char() const { return static_cast<char>(v_); }
+        -:   93:
+        -:   94:constexpr int128::operator signed char() const {
+        -:   95:  return static_cast<signed char>(v_);
+        -:   96:}
+        -:   97:
+        -:   98:constexpr int128::operator unsigned char() const {
+        -:   99:  return static_cast<unsigned char>(v_);
+        -:  100:}
+        -:  101:
+        -:  102:constexpr int128::operator char16_t() const {
+        -:  103:  return static_cast<char16_t>(v_);
+        -:  104:}
+        -:  105:
+        -:  106:constexpr int128::operator char32_t() const {
+        -:  107:  return static_cast<char32_t>(v_);
+        -:  108:}
+        -:  109:
+        -:  110:constexpr int128::operator ABSL_INTERNAL_WCHAR_T() const {
+        -:  111:  return static_cast<ABSL_INTERNAL_WCHAR_T>(v_);
+        -:  112:}
+        -:  113:
+        -:  114:constexpr int128::operator short() const {  // NOLINT(runtime/int)
+        -:  115:  return static_cast<short>(v_);            // NOLINT(runtime/int)
+        -:  116:}
+        -:  117:
+        -:  118:constexpr int128::operator unsigned short() const {  // NOLINT(runtime/int)
+        -:  119:  return static_cast<unsigned short>(v_);            // NOLINT(runtime/int)
+        -:  120:}
+        -:  121:
+        -:  122:constexpr int128::operator int() const {
+        -:  123:  return static_cast<int>(v_);
+        -:  124:}
+        -:  125:
+        -:  126:constexpr int128::operator unsigned int() const {
+        -:  127:  return static_cast<unsigned int>(v_);
+        -:  128:}
+        -:  129:
+        -:  130:constexpr int128::operator long() const {  // NOLINT(runtime/int)
+        -:  131:  return static_cast<long>(v_);            // NOLINT(runtime/int)
+        -:  132:}
+        -:  133:
+        -:  134:constexpr int128::operator unsigned long() const {  // NOLINT(runtime/int)
+        -:  135:  return static_cast<unsigned long>(v_);            // NOLINT(runtime/int)
+        -:  136:}
+        -:  137:
+        -:  138:constexpr int128::operator long long() const {  // NOLINT(runtime/int)
+        -:  139:  return static_cast<long long>(v_);            // NOLINT(runtime/int)
+        -:  140:}
+        -:  141:
+        -:  142:constexpr int128::operator unsigned long long() const {  // NOLINT(runtime/int)
+        -:  143:  return static_cast<unsigned long long>(v_);            // NOLINT(runtime/int)
+        -:  144:}
+        -:  145:
+function _ZNK4absl12lts_202308026int128cvnEv called 0 returned 0% blocks executed 0%
+    #####:  146:constexpr int128::operator __int128() const { return v_; }
+        -:  147:
+        -:  148:constexpr int128::operator unsigned __int128() const {
+        -:  149:  return static_cast<unsigned __int128>(v_);
+        -:  150:}
+        -:  151:
+        -:  152:// Clang on PowerPC sometimes produces incorrect __int128 to floating point
+        -:  153:// conversions. In that case, we do the conversion with a similar implementation
+        -:  154:// to the conversion operators in int128_no_intrinsic.inc.
+        -:  155:#if defined(__clang__) && !defined(__ppc64__)
+        -:  156:inline int128::operator float() const { return static_cast<float>(v_); }
+        -:  157:
+        -:  158:inline int128::operator double() const { return static_cast<double>(v_); }
+        -:  159:
+        -:  160:inline int128::operator long double() const {
+        -:  161:  return static_cast<long double>(v_);
+        -:  162:}
+        -:  163:
+        -:  164:#else  // Clang on PowerPC
+        -:  165:
+        -:  166:inline int128::operator float() const {
+        -:  167:  // We must convert the absolute value and then negate as needed, because
+        -:  168:  // floating point types are typically sign-magnitude. Otherwise, the
+        -:  169:  // difference between the high and low 64 bits when interpreted as two's
+        -:  170:  // complement overwhelms the precision of the mantissa.
+        -:  171:  //
+        -:  172:  // Also check to make sure we don't negate Int128Min()
+        -:  173:  return v_ < 0 && *this != Int128Min()
+        -:  174:             ? -static_cast<float>(-*this)
+        -:  175:             : static_cast<float>(Int128Low64(*this)) +
+        -:  176:                   std::ldexp(static_cast<float>(Int128High64(*this)), 64);
+        -:  177:}
+        -:  178:
+        -:  179:inline int128::operator double() const {
+        -:  180:  // See comment in int128::operator float() above.
+        -:  181:  return v_ < 0 && *this != Int128Min()
+        -:  182:             ? -static_cast<double>(-*this)
+        -:  183:             : static_cast<double>(Int128Low64(*this)) +
+        -:  184:                   std::ldexp(static_cast<double>(Int128High64(*this)), 64);
+        -:  185:}
+        -:  186:
+        -:  187:inline int128::operator long double() const {
+        -:  188:  // See comment in int128::operator float() above.
+        -:  189:  return v_ < 0 && *this != Int128Min()
+        -:  190:             ? -static_cast<long double>(-*this)
+        -:  191:             : static_cast<long double>(Int128Low64(*this)) +
+        -:  192:                   std::ldexp(static_cast<long double>(Int128High64(*this)),
+        -:  193:                              64);
+        -:  194:}
+        -:  195:#endif  // Clang on PowerPC
+        -:  196:
+        -:  197:// Comparison operators.
+        -:  198:
+        -:  199:constexpr bool operator==(int128 lhs, int128 rhs) {
+        -:  200:  return static_cast<__int128>(lhs) == static_cast<__int128>(rhs);
+        -:  201:}
+        -:  202:
+        -:  203:constexpr bool operator!=(int128 lhs, int128 rhs) {
+        -:  204:  return static_cast<__int128>(lhs) != static_cast<__int128>(rhs);
+        -:  205:}
+        -:  206:
+        -:  207:constexpr bool operator<(int128 lhs, int128 rhs) {
+        -:  208:  return static_cast<__int128>(lhs) < static_cast<__int128>(rhs);
+        -:  209:}
+        -:  210:
+        -:  211:constexpr bool operator>(int128 lhs, int128 rhs) {
+        -:  212:  return static_cast<__int128>(lhs) > static_cast<__int128>(rhs);
+        -:  213:}
+        -:  214:
+        -:  215:constexpr bool operator<=(int128 lhs, int128 rhs) {
+        -:  216:  return static_cast<__int128>(lhs) <= static_cast<__int128>(rhs);
+        -:  217:}
+        -:  218:
+function _ZN4absl12lts_20230802geENS0_6int128ES1_ called 0 returned 0% blocks executed 0%
+    #####:  219:constexpr bool operator>=(int128 lhs, int128 rhs) {
+    #####:  220:  return static_cast<__int128>(lhs) >= static_cast<__int128>(rhs);
+call    0 never executed
+call    1 never executed
+        -:  221:}
+        -:  222:
+        -:  223:// Unary operators.
+        -:  224:
+        -:  225:constexpr int128 operator-(int128 v) { return -static_cast<__int128>(v); }
+        -:  226:
+        -:  227:constexpr bool operator!(int128 v) { return !static_cast<__int128>(v); }
+        -:  228:
+        -:  229:constexpr int128 operator~(int128 val) { return ~static_cast<__int128>(val); }
+        -:  230:
+        -:  231:// Arithmetic operators.
+        -:  232:
+        -:  233:constexpr int128 operator+(int128 lhs, int128 rhs) {
+        -:  234:  return static_cast<__int128>(lhs) + static_cast<__int128>(rhs);
+        -:  235:}
+        -:  236:
+        -:  237:constexpr int128 operator-(int128 lhs, int128 rhs) {
+        -:  238:  return static_cast<__int128>(lhs) - static_cast<__int128>(rhs);
+        -:  239:}
+        -:  240:
+        -:  241:inline int128 operator*(int128 lhs, int128 rhs) {
+        -:  242:  return static_cast<__int128>(lhs) * static_cast<__int128>(rhs);
+        -:  243:}
+        -:  244:
+        -:  245:inline int128 operator/(int128 lhs, int128 rhs) {
+        -:  246:  return static_cast<__int128>(lhs) / static_cast<__int128>(rhs);
+        -:  247:}
+        -:  248:
+        -:  249:inline int128 operator%(int128 lhs, int128 rhs) {
+        -:  250:  return static_cast<__int128>(lhs) % static_cast<__int128>(rhs);
+        -:  251:}
+        -:  252:
+        -:  253:inline int128 int128::operator++(int) {
+        -:  254:  int128 tmp(*this);
+        -:  255:  ++v_;
+        -:  256:  return tmp;
+        -:  257:}
+        -:  258:
+        -:  259:inline int128 int128::operator--(int) {
+        -:  260:  int128 tmp(*this);
+        -:  261:  --v_;
+        -:  262:  return tmp;
+        -:  263:}
+        -:  264:
+        -:  265:inline int128& int128::operator++() {
+        -:  266:  ++v_;
+        -:  267:  return *this;
+        -:  268:}
+        -:  269:
+        -:  270:inline int128& int128::operator--() {
+        -:  271:  --v_;
+        -:  272:  return *this;
+        -:  273:}
+        -:  274:
+        -:  275:constexpr int128 operator|(int128 lhs, int128 rhs) {
+        -:  276:  return static_cast<__int128>(lhs) | static_cast<__int128>(rhs);
+        -:  277:}
+        -:  278:
+        -:  279:constexpr int128 operator&(int128 lhs, int128 rhs) {
+        -:  280:  return static_cast<__int128>(lhs) & static_cast<__int128>(rhs);
+        -:  281:}
+        -:  282:
+        -:  283:constexpr int128 operator^(int128 lhs, int128 rhs) {
+        -:  284:  return static_cast<__int128>(lhs) ^ static_cast<__int128>(rhs);
+        -:  285:}
+        -:  286:
+        -:  287:constexpr int128 operator<<(int128 lhs, int amount) {
+        -:  288:  return static_cast<__int128>(lhs) << amount;
+        -:  289:}
+        -:  290:
+        -:  291:constexpr int128 operator>>(int128 lhs, int amount) {
+        -:  292:  return static_cast<__int128>(lhs) >> amount;
+        -:  293:}

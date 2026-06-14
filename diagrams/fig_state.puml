@@ -1,0 +1,20 @@
+@startuml
+skinparam defaultFontName "DejaVu Sans"
+skinparam shadowing false
+title Жизненный цикл группы строк со схемой размещения PAX
+[*] --> InMemoryDirty : append / update / delete
+InMemoryDirty --> Checkpointing : CHECKPOINT
+Checkpointing --> PersistedColumnar : layout = COLUMNAR
+Checkpointing --> PersistedPaxFixed : layout = PAX_FIXED
+Checkpointing --> PersistedPaxGeneric : layout = PAX_GENERIC
+PersistedColumnar --> LoadedFromDisk : load_from_disk()
+PersistedPaxFixed --> LoadedFromDisk : load_from_disk()
+PersistedPaxGeneric --> LoadedFromDisk : load_from_disk()
+LoadedFromDisk --> FastProjectedScan : поддержанная проекция/фильтр
+LoadedFromDisk --> FallbackScan : неподдержанный случай,\nтранзакция или удаления
+LoadedFromDisk --> ReusedPointer : контрольная точка без изменений
+FastProjectedScan --> LoadedFromDisk
+FallbackScan --> LoadedFromDisk
+ReusedPointer --> LoadedFromDisk
+LoadedFromDisk --> InMemoryDirty : изменение помечает dirty
+@enduml

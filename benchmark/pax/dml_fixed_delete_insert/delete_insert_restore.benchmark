@@ -1,0 +1,49 @@
+name pax/dml/fixed_delete_insert/delete_insert_restore
+group pax/dml/fixed_delete_insert
+description Fixed-width DML benchmark: delete a range and insert it back from a seed table every run.
+runs 30
+timeout 120
+
+load
+CREATE DATABASE IF NOT EXISTS pax_dml_fixed_delete_insert;
+CREATE TABLE pax_dml_fixed_delete_insert.rows (
+    id integer,
+    group_id integer,
+    flag integer,
+    amount integer,
+    version integer,
+    filler01 integer,
+    filler02 integer,
+    filler03 integer,
+    filler04 integer,
+    filler05 integer,
+    filler06 integer
+) WITH (storage = 'disk');
+CREATE TABLE pax_dml_fixed_delete_insert.seed (
+    id integer,
+    group_id integer,
+    flag integer,
+    amount integer,
+    version integer,
+    filler01 integer,
+    filler02 integer,
+    filler03 integer,
+    filler04 integer,
+    filler05 integer,
+    filler06 integer
+) WITH (storage = 'disk');
+
+load_csv ../data/dml_fixed.tbl pax_dml_fixed_delete_insert.rows |
+load_csv ../data/dml_fixed.tbl pax_dml_fixed_delete_insert.seed |
+
+run
+DELETE FROM pax_dml_fixed_delete_insert.rows WHERE id >= 25000 AND id < 26000;
+INSERT INTO pax_dml_fixed_delete_insert.rows (id, group_id, flag, amount, version, filler01, filler02, filler03, filler04, filler05, filler06)
+SELECT id, group_id, flag, amount, version, filler01, filler02, filler03, filler04, filler05, filler06
+FROM pax_dml_fixed_delete_insert.seed
+WHERE id >= 25000 AND id < 26000;
+
+verify
+SELECT id FROM pax_dml_fixed_delete_insert.rows WHERE id >= 25000 AND id < 26000;
+
+result 1000

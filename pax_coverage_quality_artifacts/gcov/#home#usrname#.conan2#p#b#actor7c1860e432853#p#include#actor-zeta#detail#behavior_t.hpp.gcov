@@ -1,0 +1,683 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/behavior_t.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cassert>
+        -:    4:#include <memory_resource>
+        -:    5:#include <utility>
+        -:    6:
+        -:    7:#include <actor-zeta/config.hpp>
+        -:    8:#include <actor-zeta/detail/coroutine.hpp>
+        -:    9:#include <actor-zeta/detail/coro_frame_header.hpp>
+        -:   10:#include <actor-zeta/detail/state_flags.hpp>
+        -:   11:#include <actor-zeta/detail/type_traits.hpp>
+        -:   12:
+        -:   13:namespace actor_zeta {
+        -:   14:
+        -:   15:    // Forward declaration
+        -:   16:    template<typename T>
+        -:   17:    class unique_future;
+        -:   18:
+        -:   19:    namespace detail {
+        -:   20:        template<typename T>
+        -:   21:        concept has_resource_method_behavior = requires(T* ptr) {
+        -:   22:            { ptr->resource() } -> std::convertible_to<std::pmr::memory_resource*>;
+        -:   23:        };
+        -:   24:    } // namespace detail
+        -:   25:
+        -:   26:    /// @brief Coroutine type for behavior() method
+        -:   27:    /// Framework stores ONE coroutine per actor.
+        -:   28:    /// behavior() returns coroutine, framework does: current_behavior_ = self()->behavior(msg)
+        -:   29:    struct behavior_t {
+        -:   30:        struct promise_type {
+        -:   31:            std::pmr::memory_resource* resource_ = nullptr;
+        -:   32:            // Track deepest awaited future for spinning mechanism (propagated through chain)
+        -:   33:            std::atomic<std::uint8_t>* awaited_flags_ = nullptr;
+        -:   34:            std::atomic<detail::coroutine_handle<>>* awaited_continuation_ = nullptr;
+        -:   35:            // Track where our awaited state was propagated to (outer promise's pointers)
+        -:   36:            // behavior_t is usually the root, so this is often nullptr
+        -:   37:            std::atomic<std::uint8_t>** propagated_to_flags_ = nullptr;
+        -:   38:            std::atomic<detail::coroutine_handle<>>** propagated_to_cont_ = nullptr;
+        -:   39:
+function _ZN10actor_zeta10behavior_t12promise_type17get_return_objectEv called 0 returned 0% blocks executed 0%
+    #####:   40:            behavior_t get_return_object() noexcept {
+    #####:   41:                return behavior_t{detail::coroutine_handle<promise_type>::from_promise(*this)};
+call    0 never executed
+call    1 never executed
+        -:   42:            }
+        -:   43:
+        -:   44:            // immediate start (no initial suspend)
+function _ZN10actor_zeta10behavior_t12promise_type15initial_suspendEv called 0 returned 0% blocks executed 0%
+    #####:   45:            detail::suspend_never initial_suspend() noexcept { return {}; }
+        -:   46:
+        -:   47:            // Q7: Always stay suspended at final_suspend, ~behavior_t() will destroy
+        -:   48:            // No more detached_ logic - with (no cont.resume()), destroy is always safe
+function _ZN10actor_zeta10behavior_t12promise_type13final_suspendEv called 0 returned 0% blocks executed 0%
+    #####:   49:            auto final_suspend() noexcept {
+        -:   50:                struct final_awaiter {
+function _ZZN10actor_zeta10behavior_t12promise_type13final_suspendEvENK13final_awaiter11await_readyEv called 0 returned 0% blocks executed 0%
+    #####:   51:                    bool await_ready() const noexcept { return false; }
+function _ZZN10actor_zeta10behavior_t12promise_type13final_suspendEvENK13final_awaiter13await_suspendENSt7__n486116coroutine_handleIS1_EE called 0 returned 0% blocks executed 0%
+    #####:   52:                    void await_suspend(detail::coroutine_handle<promise_type>) const noexcept {
+        -:   53:                        // Stay suspended, ~behavior_t() will destroy
+    #####:   54:                    }
+function _ZZN10actor_zeta10behavior_t12promise_type13final_suspendEvENK13final_awaiter12await_resumeEv called 0 returned 0% blocks executed 0%
+    #####:   55:                    void await_resume() const noexcept {}
+        -:   56:                };
+    #####:   57:                return final_awaiter{};
+        -:   58:            }
+        -:   59:
+function _ZN10actor_zeta10behavior_t12promise_type11return_voidEv called 0 returned 0% blocks executed 0%
+    #####:   60:            void return_void() noexcept {}
+        -:   61:
+function _ZN10actor_zeta10behavior_t12promise_type19unhandled_exceptionEv called 0 returned 0% blocks executed 0%
+    #####:   62:            void unhandled_exception() noexcept {
+    #####:   63:                assert(false && "unhandled_exception() should never be called (-fno-exceptions)");
+        -:   64:                std::terminate();
+        -:   65:            }
+        -:   66:
+        -:   67:            // await_transform for unique_future<T>
+        -:   68:            // CRITICAL: The awaiter must OWN the future to prevent premature destruction.
+        -:   69:            // If we just extract the state pointer, the temporary unique_future is destroyed
+        -:   70:            // right after await_transform returns, setting future_released flag.
+        -:   71:            template<typename T>
+function _ZN10actor_zeta10behavior_t12promise_type15await_transformIvEEDaONS_13unique_futureIT_EE called 0 returned 0% blocks executed 0%
+    #####:   72:            auto await_transform(unique_future<T>&& future) noexcept {
+        -:   73:                // Propagate deepest awaited state for spinning mechanism
+    #####:   74:                propagate_awaited_state(future);
+call    0 never executed
+        -:   75:
+        -:   76:                struct owning_awaiter {
+        -:   77:                    unique_future<T> owned_;
+        -:   78:                    std::atomic<std::uint8_t>** flags_ptr_;
+        -:   79:                    std::atomic<detail::coroutine_handle<>>** cont_ptr_;
+        -:   80:                    std::atomic<std::uint8_t>** outer_flags_ptr_;
+        -:   81:                    std::atomic<detail::coroutine_handle<>>** outer_cont_ptr_;
+        -:   82:
+function _ZZN10actor_zeta10behavior_t12promise_type15await_transformIvEEDaONS_13unique_futureIT_EEENK14owning_awaiter11await_readyEv called 0 returned 0% blocks executed 0%
+    #####:   83:                    bool await_ready() const noexcept {
+    #####:   84:                        return owned_.internal_state()->has_result();
+call    0 never executed
+call    1 never executed
+        -:   85:                    }
+        -:   86:
+function _ZZN10actor_zeta10behavior_t12promise_type15await_transformIvEEDaONS_13unique_futureIT_EEEN14owning_awaiter13await_suspendENSt7__n486116coroutine_handleIvEE called 0 returned 0% blocks executed 0%
+    #####:   87:                    detail::coroutine_handle<> await_suspend(detail::coroutine_handle<> h) noexcept {
+    #####:   88:                        auto* state = owned_.internal_state();
+call    0 never executed
+    #####:   89:                        detail::coroutine_handle<> expected = nullptr;
+    #####:   90:                        if (state->continuation_.compare_exchange_strong(
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:   91:                                expected, h,
+        -:   92:                                std::memory_order_acq_rel,
+        -:   93:                                std::memory_order_acquire)) {
+    #####:   94:                            if (state->flags_.load(std::memory_order_acquire)
+call    0 never executed
+    #####:   95:                                    & detail::state_flags::result_set) {
+branch  0 never executed
+branch  1 never executed
+    #####:   96:                                auto cont = state->continuation_.exchange(
+call    0 never executed
+call    1 never executed
+        -:   97:                                    nullptr, std::memory_order_acquire);
+    #####:   98:                                if (cont) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:   99:                                    return cont;
+        -:  100:                                }
+    #####:  101:                                return detail::noop_coroutine();
+call    0 never executed
+        -:  102:                            }
+    #####:  103:                            return detail::noop_coroutine();
+call    0 never executed
+        -:  104:                        } else {
+    #####:  105:                            assert(false && "double co_await on unique_future is undefined behavior");
+call    0 never executed
+        -:  106:                            return h;
+        -:  107:                        }
+        -:  108:                    }
+        -:  109:
+function _ZZN10actor_zeta10behavior_t12promise_type15await_transformIvEEDaONS_13unique_futureIT_EEEN14owning_awaiter12await_resumeEv called 0 returned 0% blocks executed 0%
+    #####:  110:                    auto await_resume() {
+        -:  111:                        // Clear awaited state since we're done waiting
+    #####:  112:                        if (flags_ptr_) *flags_ptr_ = nullptr;
+branch  0 never executed
+branch  1 never executed
+    #####:  113:                        if (cont_ptr_) *cont_ptr_ = nullptr;
+branch  0 never executed
+branch  1 never executed
+        -:  114:                        // Also clear outer promise's copy (if any) BEFORE state is freed
+    #####:  115:                        if (outer_flags_ptr_) *outer_flags_ptr_ = nullptr;
+branch  0 never executed
+branch  1 never executed
+    #####:  116:                        if (outer_cont_ptr_) *outer_cont_ptr_ = nullptr;
+branch  0 never executed
+branch  1 never executed
+        -:  117:
+    #####:  118:                        auto* state = owned_.internal_state();
+call    0 never executed
+    #####:  119:                        assert(!state->has_error() && "future completed with error");
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+        -:  120:                        if constexpr (std::is_void_v<T>) {
+    #####:  121:                            state->take_value();
+call    0 never executed
+        -:  122:                        } else {
+        -:  123:                            return state->take_value();
+        -:  124:                        }
+    #####:  125:                    }
+        -:  126:                };
+    #####:  127:                return owning_awaiter{std::move(future), &awaited_flags_, &awaited_continuation_,
+    #####:  128:                                       propagated_to_flags_, propagated_to_cont_};
+call    0 never executed
+call    1 never executed
+        -:  129:            }
+        -:  130:
+        -:  131:            // await_transform for pair<bool, unique_future<T>> from send()
+        -:  132:            template<typename T>
+        -:  133:            auto await_transform(std::pair<bool, unique_future<T>>&& p) noexcept;
+        -:  134:
+        -:  135:            // === PMR allocation (same pattern as unique_future) ===
+        -:  136:
+        -:  137:            // Default constructor (should not be used in practice)
+        -:  138:            promise_type() noexcept
+        -:  139:                : resource_(nullptr) {}
+        -:  140:
+        -:  141:            // Constructor extracting resource from first argument (this* of Actor)
+        -:  142:            template<typename First, typename... Args>
+function _ZN10actor_zeta10behavior_t12promise_typeC2IRRN8services4disk14manager_disk_tEJRPNS_7mailbox7messageEEEEOT_DpOT0_ called 1053 returned 100% blocks executed 100%
+     1053:  143:            promise_type(First&& first, Args&&...) noexcept
+     1053:  144:                : resource_(extract_resource_or_null(std::forward<std::remove_reference_t<First>>(first))) {}
+call    0 returned 1053
+call    1 returned 1053
+        -:  145:
+        -:  146:            template<typename... Args>
+function _ZN10actor_zeta10behavior_t12promise_typenwIJRN8services4disk14manager_disk_tEPNS_7mailbox7messageEEEEPvmDpRKT_ called 1053 returned 100% blocks executed 100%
+     1053:  147:            static void* operator new(std::size_t size, const Args&... args) {
+     1053:  148:                auto* res = extract_resource_or_abort(args...);
+call    0 returned 1053
+     1053:  149:                return detail::allocate_coro_frame(res, size);
+call    0 returned 1053
+        -:  150:            }
+        -:  151:
+        -:  152:            template<typename... Args>
+        -:  153:            static void operator delete(void* ptr, std::size_t size, const Args&...) noexcept {
+        -:  154:                detail::deallocate_coro_frame(ptr, size);
+        -:  155:            }
+        -:  156:
+function _ZN10actor_zeta10behavior_t12promise_typedlEPvm called 0 returned 0% blocks executed 0%
+    #####:  157:            static void operator delete(void* ptr, std::size_t size) noexcept {
+    #####:  158:                detail::deallocate_coro_frame(ptr, size);
+call    0 never executed
+    #####:  159:            }
+        -:  160:
+        -:  161:            static void operator delete(void* ptr) noexcept {
+        -:  162:                detail::deallocate_coro_frame_unsized(ptr);
+        -:  163:            }
+        -:  164:
+        -:  165:        private:
+        -:  166:            // Propagate deepest awaited state from inner coroutine (for spinning mechanism)
+        -:  167:            template<typename T>
+function _ZN10actor_zeta10behavior_t12promise_type23propagate_awaited_stateIvEEvRNS_13unique_futureIT_EE called 0 returned 0% blocks executed 0%
+    #####:  168:            void propagate_awaited_state(unique_future<T>& future) noexcept {
+        -:  169:                // If result is already set, coroutine may have been destroyed via final_suspend.
+        -:  170:                // No need to track awaited state — await_ready() will return true.
+    #####:  171:                if (future.internal_state()->has_result()) {
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+    #####:  172:                    awaited_flags_ = nullptr;
+    #####:  173:                    awaited_continuation_ = nullptr;
+        -:  174:                    // Also update outer promise if we propagated to it
+    #####:  175:                    update_propagated_outer();
+call    0 never executed
+    #####:  176:                    return;
+        -:  177:                }
+        -:  178:
+    #####:  179:                auto inner_handle = future.coroutine_handle();
+call    0 never executed
+    #####:  180:                if (inner_handle) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  181:                    // Method coroutine — check if it has deeper awaited state
+    #####:  182:                    auto& inner_promise = inner_handle.promise();
+call    0 never executed
+        -:  183:
+        -:  184:                    // Set up back-reference for direct field updates
+    #####:  185:                    inner_promise.propagated_to_flags_ = &awaited_flags_;
+    #####:  186:                    inner_promise.propagated_to_cont_ = &awaited_continuation_;
+        -:  187:
+        -:  188:                    // behavior_t IS the root. Set up type-erased outer promise pointer
+        -:  189:                    // so inner can call our update_propagated_outer() recursively.
+    #####:  190:                    inner_promise.outer_promise_raw_ = this;
+    #####:  191:                    inner_promise.outer_update_fn_ = &call_update_propagated_outer;
+        -:  192:
+    #####:  193:                    if (inner_promise.awaited_flags_) {
+branch  0 never executed
+branch  1 never executed
+        -:  194:                        // Inner coroutine is waiting for something deeper — propagate
+    #####:  195:                        awaited_flags_ = inner_promise.awaited_flags_;
+    #####:  196:                        awaited_continuation_ = inner_promise.awaited_continuation_;
+        -:  197:                    } else {
+        -:  198:                        // Inner coroutine not waiting — this future is the deepest level
+    #####:  199:                        awaited_flags_ = &future.internal_state()->flags_;
+call    0 never executed
+    #####:  200:                        awaited_continuation_ = &future.internal_state()->continuation_;
+call    0 never executed
+        -:  201:                    }
+        -:  202:                } else {
+        -:  203:                    // Cross-actor future (from promise.get_future()) — this is the deepest level
+    #####:  204:                    awaited_flags_ = &future.internal_state()->flags_;
+call    0 never executed
+    #####:  205:                    awaited_continuation_ = &future.internal_state()->continuation_;
+call    0 never executed
+        -:  206:                }
+        -:  207:
+        -:  208:                // Update outer promise with our new awaited state
+    #####:  209:                update_propagated_outer();
+call    0 never executed
+        -:  210:            }
+        -:  211:
+        -:  212:            // Static helper to call update_propagated_outer() on this promise type
+function _ZN10actor_zeta10behavior_t12promise_type28call_update_propagated_outerEPv called 0 returned 0% blocks executed 0%
+    #####:  213:            static void call_update_propagated_outer(void* promise) noexcept {
+    #####:  214:                static_cast<promise_type*>(promise)->update_propagated_outer();
+call    0 never executed
+    #####:  215:            }
+        -:  216:
+        -:  217:            // Update outer promise's copy of our awaited state
+function _ZN10actor_zeta10behavior_t12promise_type23update_propagated_outerEv called 0 returned 0% blocks executed 0%
+    #####:  218:            void update_propagated_outer() noexcept {
+    #####:  219:                if (propagated_to_flags_) {
+branch  0 never executed
+branch  1 never executed
+    #####:  220:                    *propagated_to_flags_ = awaited_flags_;
+        -:  221:                }
+    #####:  222:                if (propagated_to_cont_) {
+branch  0 never executed
+branch  1 never executed
+    #####:  223:                    *propagated_to_cont_ = awaited_continuation_;
+        -:  224:                }
+        -:  225:                // behavior_t IS the root, so no outer to propagate to
+    #####:  226:            }
+        -:  227:
+        -:  228:            template<typename U>
+    2106*:  229:            static std::pmr::memory_resource* try_get_resource(U* ptr) noexcept {
+        -:  230:                if constexpr (detail::has_resource_method_behavior<U>) {
+     2106:  231:                    return ptr->resource();
+        -:  232:                } else {
+    #####:  233:                    return nullptr;
+        -:  234:                }
+        -:  235:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type16try_get_resourceINS_7mailbox7messageEEEPNSt3pmr15memory_resourceEPT_:
+function _ZN10actor_zeta10behavior_t12promise_type16try_get_resourceINS_7mailbox7messageEEEPNSt3pmr15memory_resourceEPT_ called 0 returned 0% blocks executed 0%
+    #####:  229:            static std::pmr::memory_resource* try_get_resource(U* ptr) noexcept {
+        -:  230:                if constexpr (detail::has_resource_method_behavior<U>) {
+        -:  231:                    return ptr->resource();
+        -:  232:                } else {
+    #####:  233:                    return nullptr;
+        -:  234:                }
+        -:  235:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type16try_get_resourceIN8services4disk14manager_disk_tEEEPNSt3pmr15memory_resourceEPT_:
+function _ZN10actor_zeta10behavior_t12promise_type16try_get_resourceIN8services4disk14manager_disk_tEEEPNSt3pmr15memory_resourceEPT_ called 2106 returned 100% blocks executed 100%
+     2106:  229:            static std::pmr::memory_resource* try_get_resource(U* ptr) noexcept {
+        -:  230:                if constexpr (detail::has_resource_method_behavior<U>) {
+     2106:  231:                    return ptr->resource();
+call    0 returned 2106
+        -:  232:                } else {
+        -:  233:                    return nullptr;
+        -:  234:                }
+        -:  235:            }
+------------------
+        -:  236:
+        -:  237:            template<typename U>
+    2106*:  238:            static std::pmr::memory_resource* extract_resource_impl(U&& arg) noexcept {
+        -:  239:                using decayed = std::decay_t<U>;
+        -:  240:                if constexpr (std::is_pointer_v<decayed>) {
+        -:  241:                    using ptr_type = std::remove_reference_t<U>;
+    #####:  242:                    return try_get_resource(static_cast<ptr_type>(arg));
+        -:  243:                } else {
+     2106:  244:                    return try_get_resource(&arg);
+        -:  245:                }
+        -:  246:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type21extract_resource_implIRKPNS_7mailbox7messageEEEPNSt3pmr15memory_resourceEOT_:
+function _ZN10actor_zeta10behavior_t12promise_type21extract_resource_implIRKPNS_7mailbox7messageEEEPNSt3pmr15memory_resourceEOT_ called 0 returned 0% blocks executed 0%
+    #####:  238:            static std::pmr::memory_resource* extract_resource_impl(U&& arg) noexcept {
+        -:  239:                using decayed = std::decay_t<U>;
+        -:  240:                if constexpr (std::is_pointer_v<decayed>) {
+        -:  241:                    using ptr_type = std::remove_reference_t<U>;
+    #####:  242:                    return try_get_resource(static_cast<ptr_type>(arg));
+call    0 never executed
+        -:  243:                } else {
+        -:  244:                    return try_get_resource(&arg);
+        -:  245:                }
+        -:  246:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type21extract_resource_implIRN8services4disk14manager_disk_tEEEPNSt3pmr15memory_resourceEOT_:
+function _ZN10actor_zeta10behavior_t12promise_type21extract_resource_implIRN8services4disk14manager_disk_tEEEPNSt3pmr15memory_resourceEOT_ called 2106 returned 100% blocks executed 100%
+     2106:  238:            static std::pmr::memory_resource* extract_resource_impl(U&& arg) noexcept {
+        -:  239:                using decayed = std::decay_t<U>;
+        -:  240:                if constexpr (std::is_pointer_v<decayed>) {
+        -:  241:                    using ptr_type = std::remove_reference_t<U>;
+        -:  242:                    return try_get_resource(static_cast<ptr_type>(arg));
+        -:  243:                } else {
+     2106:  244:                    return try_get_resource(&arg);
+call    0 returned 2106
+        -:  245:                }
+        -:  246:            }
+------------------
+        -:  247:
+        -:  248:            static std::pmr::memory_resource* extract_resource_impl(std::pmr::memory_resource* res) noexcept {
+        -:  249:                return res;
+        -:  250:            }
+        -:  251:
+        -:  252:            static std::pmr::memory_resource* extract_resource_from_args() noexcept {
+        -:  253:                return nullptr;
+        -:  254:            }
+        -:  255:
+        -:  256:            template<typename First, typename... Rest>
+    2106*:  257:            static std::pmr::memory_resource* extract_resource_from_args(First&& first, Rest&&... rest) noexcept {
+    2106*:  258:                auto res = extract_resource_impl(std::forward<First>(first));
+    2106*:  259:                if (res != nullptr)
+    2106*:  260:                    return res;
+        -:  261:                if constexpr (sizeof...(Rest) > 0) {
+    #####:  262:                    return extract_resource_from_args(std::forward<Rest>(rest)...);
+        -:  263:                }
+    #####:  264:                return nullptr;
+        -:  265:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRKPNS_7mailbox7messageEJEEEPNSt3pmr15memory_resourceEOT_DpOT0_:
+function _ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRKPNS_7mailbox7messageEJEEEPNSt3pmr15memory_resourceEOT_DpOT0_ called 0 returned 0% blocks executed 0%
+    #####:  257:            static std::pmr::memory_resource* extract_resource_from_args(First&& first, Rest&&... rest) noexcept {
+    #####:  258:                auto res = extract_resource_impl(std::forward<First>(first));
+call    0 never executed
+call    1 never executed
+    #####:  259:                if (res != nullptr)
+branch  0 never executed
+branch  1 never executed
+    #####:  260:                    return res;
+        -:  261:                if constexpr (sizeof...(Rest) > 0) {
+        -:  262:                    return extract_resource_from_args(std::forward<Rest>(rest)...);
+        -:  263:                }
+    #####:  264:                return nullptr;
+        -:  265:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRN8services4disk14manager_disk_tEJEEEPNSt3pmr15memory_resourceEOT_DpOT0_:
+function _ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRN8services4disk14manager_disk_tEJEEEPNSt3pmr15memory_resourceEOT_DpOT0_ called 1053 returned 100% blocks executed 83%
+     1053:  257:            static std::pmr::memory_resource* extract_resource_from_args(First&& first, Rest&&... rest) noexcept {
+     1053:  258:                auto res = extract_resource_impl(std::forward<First>(first));
+call    0 returned 1053
+call    1 returned 1053
+     1053:  259:                if (res != nullptr)
+branch  0 taken 1053 (fallthrough)
+branch  1 taken 0
+     1053:  260:                    return res;
+        -:  261:                if constexpr (sizeof...(Rest) > 0) {
+        -:  262:                    return extract_resource_from_args(std::forward<Rest>(rest)...);
+        -:  263:                }
+    #####:  264:                return nullptr;
+        -:  265:            }
+------------------
+_ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRN8services4disk14manager_disk_tEJRKPNS_7mailbox7messageEEEEPNSt3pmr15memory_resourceEOT_DpOT0_:
+function _ZN10actor_zeta10behavior_t12promise_type26extract_resource_from_argsIRN8services4disk14manager_disk_tEJRKPNS_7mailbox7messageEEEEPNSt3pmr15memory_resourceEOT_DpOT0_ called 1053 returned 100% blocks executed 71%
+     1053:  257:            static std::pmr::memory_resource* extract_resource_from_args(First&& first, Rest&&... rest) noexcept {
+     1053:  258:                auto res = extract_resource_impl(std::forward<First>(first));
+call    0 returned 1053
+call    1 returned 1053
+     1053:  259:                if (res != nullptr)
+branch  0 taken 1053 (fallthrough)
+branch  1 taken 0
+     1053:  260:                    return res;
+        -:  261:                if constexpr (sizeof...(Rest) > 0) {
+    #####:  262:                    return extract_resource_from_args(std::forward<Rest>(rest)...);
+call    0 never executed
+call    1 never executed
+        -:  263:                }
+        -:  264:                return nullptr;
+        -:  265:            }
+------------------
+        -:  266:
+        -:  267:            template<typename First, typename... Rest>
+function _ZN10actor_zeta10behavior_t12promise_type24extract_resource_or_nullIRN8services4disk14manager_disk_tEJEEEPNSt3pmr15memory_resourceEOT_DpOT0_ called 1053 returned 100% blocks executed 100%
+     1053:  268:            static std::pmr::memory_resource* extract_resource_or_null(First&& first, Rest&&... rest) noexcept {
+     1053:  269:                return extract_resource_from_args(std::forward<First>(first), std::forward<Rest>(rest)...);
+call    0 returned 1053
+call    1 returned 1053
+        -:  270:            }
+        -:  271:
+        -:  272:            [[noreturn]] static std::pmr::memory_resource* extract_resource_or_abort() noexcept {
+        -:  273:                assert(false && "Coroutine must be defined inline (GCC doesn't pass 'this' for out-of-line methods)");
+        -:  274:                std::abort();
+        -:  275:            }
+        -:  276:
+        -:  277:            template<typename First, typename... Rest>
+function _ZN10actor_zeta10behavior_t12promise_type25extract_resource_or_abortIRN8services4disk14manager_disk_tEJRKPNS_7mailbox7messageEEEEPNSt3pmr15memory_resourceEOT_DpOT0_ called 1053 returned 100% blocks executed 78%
+     1053:  278:            RETURNS_NONNULL static std::pmr::memory_resource* extract_resource_or_abort(First&& first, Rest&&... rest) noexcept {
+     1053:  279:                auto* res = extract_resource_from_args(std::forward<First>(first), std::forward<Rest>(rest)...);
+call    0 returned 1053
+call    1 returned 1053
+call    2 returned 1053
+    1053*:  280:                assert(res != nullptr && "Coroutine must be actor member function with resource() method");
+branch  0 taken 0 (fallthrough)
+branch  1 taken 1053
+call    2 never executed
+     1053:  281:                if (!res) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 1053
+    #####:  282:                    std::abort();
+call    0 never executed
+        -:  283:                }
+     1053:  284:                return res;
+        -:  285:            }
+        -:  286:        };
+        -:  287:
+        -:  288:        detail::coroutine_handle<promise_type> handle_;
+        -:  289:
+function _ZN10actor_zeta10behavior_tC2Ev called 0 returned 0% blocks executed 0%
+    #####:  290:        behavior_t() noexcept
+    #####:  291:            : handle_{} {}
+call    0 never executed
+        -:  292:
+function _ZN10actor_zeta10behavior_tC2ENSt7__n486116coroutine_handleINS0_12promise_typeEEE called 0 returned 0% blocks executed 0%
+    #####:  293:        explicit behavior_t(detail::coroutine_handle<promise_type> h) noexcept
+    #####:  294:            : handle_(h) {}
+        -:  295:
+        -:  296:        behavior_t(behavior_t&& o) noexcept
+        -:  297:            : handle_(std::exchange(o.handle_, {})) {}
+        -:  298:
+        -:  299:        // Q7: Always destroy - with Q6 (no cont.resume()), destroy is always safe
+        -:  300:        // because coroutine is either done or suspended (never running on another thread)
+function _ZN10actor_zeta10behavior_taSEOS0_ called 0 returned 0% blocks executed 0%
+    #####:  301:        behavior_t& operator=(behavior_t&& o) noexcept {
+    #####:  302:            if (this != &o) {
+branch  0 never executed
+branch  1 never executed
+    #####:  303:                if (handle_) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  304:                    handle_.destroy();  // Always safe - no race with cont.resume()
+call    0 never executed
+        -:  305:                }
+    #####:  306:                handle_ = std::exchange(o.handle_, {});
+call    0 never executed
+call    1 never executed
+        -:  307:            }
+    #####:  308:            return *this;
+        -:  309:        }
+        -:  310:
+        -:  311:        // Q7: Always destroy - safe because producer doesn't call cont.resume()
+function _ZN10actor_zeta10behavior_tD2Ev called 0 returned 0% blocks executed 0%
+    #####:  312:        ~behavior_t() {
+    #####:  313:            if (handle_) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+    #####:  314:                handle_.destroy();
+call    0 never executed
+        -:  315:            }
+    #####:  316:        }
+        -:  317:
+        -:  318:        behavior_t(const behavior_t&) = delete;
+        -:  319:        behavior_t& operator=(const behavior_t&) = delete;
+        -:  320:
+        -:  321:        [[nodiscard]] bool done() const noexcept {
+        -:  322:            return !handle_ || handle_.done();
+        -:  323:        }
+        -:  324:
+        -:  325:        explicit operator bool() const noexcept {
+        -:  326:            return handle_ != nullptr;
+        -:  327:        }
+        -:  328:
+        -:  329:        /// @brief Check if behavior is suspended on co_await (waiting for async result)
+function _ZNK10actor_zeta10behavior_t7is_busyEv called 0 returned 0% blocks executed 0%
+    #####:  330:        [[nodiscard]] bool is_busy() const noexcept {
+    #####:  331:            return handle_ && !handle_.done() && handle_.promise().awaited_flags_ != nullptr;
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+call    6 never executed
+branch  7 never executed
+branch  8 never executed
+        -:  332:        }
+        -:  333:
+        -:  334:        /// @brief Q8: Check if awaited future is ready (promise_released)
+function _ZNK10actor_zeta10behavior_t16is_awaited_readyEv called 0 returned 0% blocks executed 0%
+    #####:  335:        [[nodiscard]] bool is_awaited_ready() const noexcept {
+    #####:  336:            if (!handle_ || handle_.done()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+branch  6 never executed
+branch  7 never executed
+    #####:  337:                return false;
+        -:  338:            }
+    #####:  339:            auto* flags = handle_.promise().awaited_flags_;
+call    0 never executed
+    #####:  340:            if (!flags) {
+branch  0 never executed
+branch  1 never executed
+    #####:  341:                return false;
+        -:  342:            }
+    #####:  343:            return flags->load(std::memory_order_acquire) & detail::state_flags::promise_released;
+call    0 never executed
+        -:  344:        }
+        -:  345:
+        -:  346:        /// @brief Resume the coroutine (call from resume_impl when awaited future is ready)
+        -:  347:        void resume() noexcept {
+        -:  348:            assert(handle_ && !handle_.done() && "resume() on invalid or done behavior");
+        -:  349:            handle_.resume();
+        -:  350:        }
+        -:  351:
+        -:  352:        /// @brief Take the deepest awaited continuation for resuming
+        -:  353:        /// @return The continuation handle, or null if none
+function _ZN10actor_zeta10behavior_t25take_awaited_continuationEv called 0 returned 0% blocks executed 0%
+    #####:  354:        [[nodiscard]] detail::coroutine_handle<> take_awaited_continuation() noexcept {
+    #####:  355:            if (!handle_ || handle_.done()) {
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+branch  6 never executed
+branch  7 never executed
+    #####:  356:                return nullptr;
+call    0 never executed
+        -:  357:            }
+    #####:  358:            auto* cont_ptr = handle_.promise().awaited_continuation_;
+call    0 never executed
+    #####:  359:            if (!cont_ptr) {
+branch  0 never executed
+branch  1 never executed
+    #####:  360:                return nullptr;
+call    0 never executed
+        -:  361:            }
+    #####:  362:            return cont_ptr->exchange(nullptr, std::memory_order_acq_rel);
+call    0 never executed
+call    1 never executed
+        -:  363:        }
+        -:  364:    };
+        -:  365:
+        -:  366:    // Deferred implementation of await_transform for pair (needs unique_future definition)
+        -:  367:    // CRITICAL: Must own the future to prevent premature destruction (see owning_awaiter above)
+        -:  368:    template<typename T>
+        -:  369:    auto behavior_t::promise_type::await_transform(std::pair<bool, unique_future<T>>&& p) noexcept {
+        -:  370:        // Propagate deepest awaited state for spinning mechanism
+        -:  371:        propagate_awaited_state(p.second);
+        -:  372:
+        -:  373:        struct owning_pair_awaiter {
+        -:  374:            bool needs_sched_;
+        -:  375:            unique_future<T> owned_;
+        -:  376:            std::atomic<std::uint8_t>** flags_ptr_;
+        -:  377:            std::atomic<detail::coroutine_handle<>>** cont_ptr_;
+        -:  378:            std::atomic<std::uint8_t>** outer_flags_ptr_;
+        -:  379:            std::atomic<detail::coroutine_handle<>>** outer_cont_ptr_;
+        -:  380:
+        -:  381:            bool await_ready() const noexcept {
+        -:  382:                return owned_.internal_state()->has_result();
+        -:  383:            }
+        -:  384:
+        -:  385:            detail::coroutine_handle<> await_suspend(detail::coroutine_handle<> h) noexcept {
+        -:  386:                auto* state = owned_.internal_state();
+        -:  387:                detail::coroutine_handle<> expected = nullptr;
+        -:  388:                if (state->continuation_.compare_exchange_strong(
+        -:  389:                        expected, h,
+        -:  390:                        std::memory_order_acq_rel,
+        -:  391:                        std::memory_order_acquire)) {
+        -:  392:                    if (state->flags_.load(std::memory_order_acquire)
+        -:  393:                            & detail::state_flags::result_set) {
+        -:  394:                        auto cont = state->continuation_.exchange(
+        -:  395:                            nullptr, std::memory_order_acquire);
+        -:  396:                        if (cont) {
+        -:  397:                            return cont;
+        -:  398:                        }
+        -:  399:                        return detail::noop_coroutine();
+        -:  400:                    }
+        -:  401:                    return detail::noop_coroutine();
+        -:  402:                } else {
+        -:  403:                    assert(false && "double co_await on unique_future is undefined behavior");
+        -:  404:                    return h;
+        -:  405:                }
+        -:  406:            }
+        -:  407:
+        -:  408:            auto await_resume() {
+        -:  409:                // Clear awaited state since we're done waiting
+        -:  410:                if (flags_ptr_) *flags_ptr_ = nullptr;
+        -:  411:                if (cont_ptr_) *cont_ptr_ = nullptr;
+        -:  412:                // Also clear outer promise's copy (if any) BEFORE state is freed
+        -:  413:                if (outer_flags_ptr_) *outer_flags_ptr_ = nullptr;
+        -:  414:                if (outer_cont_ptr_) *outer_cont_ptr_ = nullptr;
+        -:  415:
+        -:  416:                auto* state = owned_.internal_state();
+        -:  417:                assert(!state->has_error() && "future completed with error");
+        -:  418:                if constexpr (std::is_void_v<T>) {
+        -:  419:                    state->take_value();
+        -:  420:                    return needs_sched_;
+        -:  421:                } else {
+        -:  422:                    return std::make_pair(needs_sched_, state->take_value());
+        -:  423:                }
+        -:  424:            }
+        -:  425:        };
+        -:  426:        return owning_pair_awaiter{p.first, std::move(p.second), &awaited_flags_, &awaited_continuation_, propagated_to_flags_, propagated_to_cont_};
+        -:  427:    }
+        -:  428:
+        -:  429:} // namespace actor_zeta

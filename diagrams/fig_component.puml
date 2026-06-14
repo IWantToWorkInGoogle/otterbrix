@@ -1,0 +1,21 @@
+@startuml
+!include <C4/C4_Component>
+skinparam defaultFontName "DejaVu Sans"
+title Компонентная диаграмма дискового слоя OtterBrix (нотация C4)
+System_Ext(sql, "SQL / диспетчер запросов", "формирует чтение, фильтрацию, DML и запрос контрольной точки")
+Container_Boundary(disk, "Дисковый слой OtterBrix") {
+  Component(mgr, "manager_disk", "services/disk", "сохранение и загрузка контрольной точки, политика размещения")
+  Component(tstor, "table_storage_t", "components/table", "жизненный цикл дисковой таблицы")
+  Component(dtab, "data_table_t", "components/table", "определения столбцов, набор групп строк")
+  Component(rg, "row_group_t", "components/table", "выбор схемы: COLUMNAR / PAX_FIXED / PAX_GENERIC")
+  Component(meta, "metadata_writer / metadata_reader", "components/table/storage", "сериализация раздела схемы размещения")
+  Component(blk, "block_manager", "single_file + partial", "физические блоки")
+}
+Rel(sql, mgr, "CHECKPOINT / запрос")
+Rel(mgr, tstor, "checkpoint / load")
+Rel(tstor, dtab, "сохранение и загрузка")
+Rel(tstor, meta, "раздел метаданных")
+Rel(dtab, rg, "набор групп строк")
+Rel(rg, meta, "row_group_pointer_t")
+Rel(rg, blk, "запись данных")
+@enduml

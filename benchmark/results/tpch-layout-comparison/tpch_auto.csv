@@ -1,0 +1,9 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,verified,row_count,column_count,result_hash,error_message
+tpch/q1,tpch,auto,disk,warm,true,false,Release,3,193.074,255.512,233.160,250.894,OK,4,10,fnv64:b03c69122b4c3b50,""
+tpch/q10,tpch,auto,disk,warm,true,false,Release,3,17001.398,22723.452,19907.909,19998.876,OK,399,8,fnv64:a87ee88211a9feb0,""
+tpch/q12,tpch,auto,disk,warm,true,false,Release,3,4154.938,4800.517,4422.339,4311.563,OK,2,3,fnv64:247c290efe34c550,""
+tpch/q14,tpch,auto,disk,warm,true,false,Release,3,2471.716,4502.015,3487.737,3489.480,OK,1,1,fnv64:0e657dc79d653fa7,""
+tpch/q19,tpch,auto,disk,warm,true,false,Release,3,3287.374,5585.209,4436.467,4436.819,OK,1,1,fnv64:d0c70b12760c64ba,""
+tpch/q3,tpch,auto,disk,warm,true,false,Release,3,5055.691,7131.347,6115.234,6158.665,OK,138,4,fnv64:6162907ee2911f2e,""
+tpch/q5,tpch,auto,disk,warm,true,false,Release,3,5769.374,8238.715,7164.903,7486.620,OK,5,2,fnv64:4865db191f8adc76,""
+tpch/q6,tpch,auto,disk,warm,true,false,Release,3,97.879,105.322,102.730,104.988,OK,1,1,fnv64:36a3f675343b9d73,""

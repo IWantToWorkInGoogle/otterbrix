@@ -1,0 +1,9 @@
+name,runs,auto_status,columnar_status,auto_min_ms,auto_avg_ms,auto_median_ms,columnar_min_ms,columnar_avg_ms,columnar_median_ms,auto_vs_columnar_median_pct,winner_by_median,row_count,column_count,result_hash_match,result_hash
+tpch/q1,3,OK,OK,193.074,233.160,250.894,197.497,231.789,244.884,+2.45,columnar,4,10,yes,fnv64:b03c69122b4c3b50
+tpch/q3,3,OK,OK,5055.691,6115.234,6158.665,4946.890,6924.431,7486.538,-17.74,auto,138,4,yes,fnv64:6162907ee2911f2e
+tpch/q5,3,OK,OK,5769.374,7164.903,7486.620,5829.140,7200.695,7679.087,-2.51,auto,5,2,yes,fnv64:4865db191f8adc76
+tpch/q6,3,OK,OK,97.879,102.730,104.988,104.393,107.758,109.116,-3.78,auto,1,1,yes,fnv64:36a3f675343b9d73
+tpch/q10,3,OK,OK,17001.398,19907.909,19998.876,16717.220,19069.910,19441.774,+2.87,columnar,399,8,yes,fnv64:a87ee88211a9feb0
+tpch/q12,3,OK,OK,4154.938,4422.339,4311.563,4495.214,4581.950,4545.397,-5.14,auto,2,3,yes,fnv64:247c290efe34c550
+tpch/q14,3,OK,OK,2471.716,3487.737,3489.480,2258.449,3126.473,2532.323,+37.80,columnar,1,1,yes,fnv64:0e657dc79d653fa7
+tpch/q19,3,OK,OK,3287.374,4436.467,4436.819,3475.682,4538.729,4457.854,-0.47,auto,1,1,yes,fnv64:d0c70b12760c64ba

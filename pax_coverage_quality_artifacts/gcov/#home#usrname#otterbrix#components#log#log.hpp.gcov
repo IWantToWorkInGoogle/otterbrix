@@ -1,0 +1,134 @@
+        -:    0:Source:/home/usrname/otterbrix/components/log/log.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <spdlog/async_logger.h>
+        -:    4:#include <string>
+        -:    5:
+        -:    6:class log_t final {
+        -:    7:public:
+        -:    8:    enum class level : char
+        -:    9:    {
+        -:   10:        trace = spdlog::level::trace,
+        -:   11:        debug = spdlog::level::debug,
+        -:   12:        info = spdlog::level::info,
+        -:   13:        warn = spdlog::level::warn,
+        -:   14:        err = spdlog::level::err,
+        -:   15:        critical = spdlog::level::critical,
+        -:   16:        off = spdlog::level::off,
+        -:   17:        level_nums
+        -:   18:    };
+        -:   19:
+        -:   20:    log_t() = default;
+        -:   21:    log_t(std::shared_ptr<spdlog::async_logger>);
+        -:   22:    log_t(std::shared_ptr<spdlog::logger>);
+function _ZN5log_tD2Ev called 0 returned 0% blocks executed 0%
+    #####:   23:    ~log_t() = default;
+call    0 never executed
+        -:   24:    auto clone() const noexcept -> log_t;
+        -:   25:    auto set_level(level l) -> void;
+        -:   26:    auto get_level() const -> log_t::level;
+        -:   27:    auto context(std::shared_ptr<spdlog::async_logger> logger) noexcept -> void;
+        -:   28:    auto is_valid() noexcept -> bool;
+        -:   29:
+function _ZNK5log_tptEv called 4662 returned 100% blocks executed 100%
+     4662:   30:    inline spdlog::logger* operator->() const noexcept { return logger_.get(); }
+call    0 returned 4662
+        -:   31:
+        -:   32:private:
+        -:   33:    std::shared_ptr<spdlog::logger> logger_;
+        -:   34:};
+        -:   35:
+        -:   36:template<typename S, typename... Args>
+        -:   37:auto info(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   38:    log->info(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   39:}
+        -:   40:
+        -:   41:template<typename S, typename... Args>
+        -:   42:auto debug(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   43:    log->debug(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   44:}
+        -:   45:
+        -:   46:template<typename S, typename... Args>
+        -:   47:auto warn(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   48:    log->warn(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   49:}
+        -:   50:
+        -:   51:template<typename S, typename... Args>
+        -:   52:auto error(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   53:    log->error(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   54:}
+        -:   55:
+        -:   56:template<typename S, typename... Args>
+        -:   57:auto critical(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   58:    log->critical(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   59:}
+        -:   60:
+        -:   61:template<typename S, typename... Args>
+        -:   62:auto trace(log_t& log, const S& format_str, Args&&... args) -> void {
+        -:   63:    log->trace(fmt::format(fmt::runtime(format_str), std::forward<Args>(args)...));
+        -:   64:}
+        -:   65:
+        -:   66:template<typename S>
+        -:   67:auto info(log_t& log, const S& format_str) -> void {
+        -:   68:    log->info(format_str);
+        -:   69:}
+        -:   70:
+        -:   71:template<typename S>
+        -:   72:auto debug(log_t& log, const S& format_str) -> void {
+        -:   73:    log->debug(format_str);
+        -:   74:}
+        -:   75:
+        -:   76:template<typename S>
+        -:   77:auto warn(log_t& log, const S& format_str) -> void {
+        -:   78:    log->warn(format_str);
+        -:   79:}
+        -:   80:
+        -:   81:template<typename S>
+        -:   82:auto error(log_t& log, const S& format_str) -> void {
+        -:   83:    log->error(format_str);
+        -:   84:}
+        -:   85:
+        -:   86:template<typename S>
+        -:   87:auto critical(log_t& log, const S& format_str) -> void {
+        -:   88:    log->critical(format_str);
+        -:   89:}
+        -:   90:
+        -:   91:template<typename S>
+      794:   92:auto trace(log_t& log, const S& format_str) -> void {
+      794:   93:    log->trace(format_str);
+      794:   94:}
+------------------
+_Z5traceIA22_cEvR5log_tRKT_:
+function _Z5traceIA22_cEvR5log_tRKT_ called 114 returned 100% blocks executed 100%
+      114:   92:auto trace(log_t& log, const S& format_str) -> void {
+      114:   93:    log->trace(format_str);
+call    0 returned 114
+call    1 returned 114
+      114:   94:}
+------------------
+_Z5traceIA20_cEvR5log_tRKT_:
+function _Z5traceIA20_cEvR5log_tRKT_ called 340 returned 100% blocks executed 100%
+      340:   92:auto trace(log_t& log, const S& format_str) -> void {
+      340:   93:    log->trace(format_str);
+call    0 returned 340
+call    1 returned 340
+      340:   94:}
+------------------
+_Z5traceIA19_cEvR5log_tRKT_:
+function _Z5traceIA19_cEvR5log_tRKT_ called 340 returned 100% blocks executed 100%
+      340:   92:auto trace(log_t& log, const S& format_str) -> void {
+      340:   93:    log->trace(format_str);
+call    0 returned 340
+call    1 returned 340
+      340:   94:}
+------------------
+        -:   95:
+        -:   96:auto get_logger(const std::string&) -> log_t;
+        -:   97:auto get_logger() -> log_t;
+        -:   98:auto initialization_logger(std::shared_ptr<spdlog::logger>) -> void;
+        -:   99:auto initialization_logger(std::string_view name, std::string prefix) -> log_t;
+        -:  100:auto drop_logger(const std::string&) -> void;
+        -:  101:auto drop_all_loggers() -> void;

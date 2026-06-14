@@ -1,0 +1,233 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/mailbox/make_message.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:// clang-format off
+        -:    4:#include <actor-zeta/mailbox/message.hpp>
+        -:    5:#include <actor-zeta/detail/future.hpp>
+        -:    6:#include <actor-zeta/detail/shared_state.hpp>
+        -:    7:#include <actor-zeta/detail/generator.hpp>
+        -:    8:// clang-format on
+        -:    9:
+        -:   10:#include <utility>
+        -:   11:
+        -:   12:namespace actor_zeta::detail {
+        -:   13:
+        -:   14:    template<typename Name>
+        -:   15:    concept is_message_id = std::is_same_v<std::decay_t<Name>, mailbox::message_id>;
+        -:   16:
+        -:   17:    template<typename Name>
+        -:   18:    concept is_convertible_to_message_id =
+        -:   19:        !is_message_id<Name> &&
+        -:   20:        (std::is_enum_v<std::decay_t<Name>> || std::is_integral_v<std::decay_t<Name>>);
+        -:   21:
+        -:   22:    template<typename Name>
+        -:   23:    concept valid_message_name =
+        -:   24:        is_message_id<Name> || is_convertible_to_message_id<Name>;
+        -:   25:
+        -:   26:    template<typename Name>
+        -:   27:        requires is_message_id<Name>
+function _ZN10actor_zeta6detail13to_message_idIRmEEmOT_ called 0 returned 0% blocks executed 0%
+    #####:   28:    mailbox::message_id to_message_id(Name&& name) {
+    #####:   29:        return std::forward<Name>(name);
+call    0 never executed
+        -:   30:    }
+        -:   31:
+        -:   32:    template<typename Name>
+        -:   33:        requires is_convertible_to_message_id<Name>
+        -:   34:    mailbox::message_id to_message_id(Name&& name) {
+        -:   35:        return mailbox::make_message_id(static_cast<uint64_t>(name));
+        -:   36:    }
+        -:   37:
+        -:   38:    template<typename Name>
+        -:   39:    struct is_valid_name_type {
+        -:   40:        typedef typename std::decay<Name>::type decayed_type;
+        -:   41:        static const bool value = valid_message_name<Name>;
+        -:   42:    };
+        -:   43:
+        -:   44:    template<typename Expected, typename Provided>
+        -:   45:    concept convertible_arg =
+        -:   46:        std::is_same_v<std::decay_t<Expected>, std::decay_t<Provided>> ||
+        -:   47:        std::is_convertible_v<std::decay_t<Provided>, std::decay_t<Expected>>;
+        -:   48:
+        -:   49:    template<typename Expected, typename Provided>
+        -:   50:    inline constexpr bool is_convertible_arg_v = convertible_arg<Expected, Provided>;
+        -:   51:
+        -:   52:    template<typename... Args>
+        -:   53:    concept all_valid_rtt = (valid_rtt_type<Args> && ...);
+        -:   54:
+        -:   55:    template<typename... Args>
+        -:   56:    inline constexpr bool all_valid_rtt_types_v = all_valid_rtt<Args...>;
+        -:   57:
+        -:   58:    namespace detail_args {
+        -:   59:        template<typename ExpectedList, typename ProvidedList, typename IndexSeq>
+        -:   60:        struct args_compatible_impl;
+        -:   61:
+        -:   62:        template<typename... Expected, typename... Provided, std::size_t... Is>
+        -:   63:        struct args_compatible_impl<
+        -:   64:            type_traits::type_list<Expected...>,
+        -:   65:            type_traits::type_list<Provided...>,
+        -:   66:            std::index_sequence<Is...>> {
+        -:   67:            static constexpr bool value =
+        -:   68:                (convertible_arg<
+        -:   69:                    type_traits::type_list_at_t<type_traits::type_list<Expected...>, Is>,
+        -:   70:                    type_traits::type_list_at_t<type_traits::type_list<Provided...>, Is>> && ...);
+        -:   71:        };
+        -:   72:    } // namespace detail_args
+        -:   73:
+        -:   74:    template<typename ExpectedList, typename ProvidedList>
+        -:   75:    concept compatible_args = requires {
+        -:   76:        requires (type_traits::type_list_size_v<ExpectedList> ==
+        -:   77:                  type_traits::type_list_size_v<ProvidedList>);
+        -:   78:    } && detail_args::args_compatible_impl<
+        -:   79:            ExpectedList, ProvidedList,
+        -:   80:            std::make_index_sequence<type_traits::type_list_size_v<ExpectedList>>>::value;
+        -:   81:
+        -:   82:    template<typename ExpectedList, typename ProvidedList>
+        -:   83:    inline constexpr bool args_compatible_v = compatible_args<ExpectedList, ProvidedList>;
+        -:   84:
+        -:   85:    template<typename... Args>
+        -:   86:    concept all_args_storable = all_valid_rtt<std::decay_t<Args>...>;
+        -:   87:
+        -:   88:    template<typename... Args>
+        -:   89:    inline constexpr bool all_args_storable_v = all_args_storable<Args...>;
+        -:   90:
+        -:   91:    // Creates message + shared_state, returns pair<message_ptr, unique_future<R>>
+        -:   92:    template<typename R = void, typename Name>
+        -:   93:        requires valid_message_name<Name>
+        -:   94:    std::pair<mailbox::message_ptr, actor_zeta::unique_future<R>>
+        -:   95:    make_message(
+        -:   96:        std::pmr::memory_resource* resource,
+        -:   97:        Name&& name) {
+        -:   98:        static_assert(!std::is_reference_v<R>, "Result type R must not be a reference");
+        -:   99:        assert(resource);
+        -:  100:
+        -:  101:        // Create shared_state for the result
+        -:  102:        auto* state = allocate_shared_state<R>(resource);
+        -:  103:
+        -:  104:        // Create message
+        -:  105:        auto msg = mailbox::pmr_make_message(resource, resource,
+        -:  106:                                             to_message_id(std::forward<Name>(name)));
+        -:  107:
+        -:  108:        // Initialize the future slot in the message
+        -:  109:        msg->template init_future_slot<R>(state);
+        -:  110:
+        -:  111:        // Create future from the shared_state
+        -:  112:        auto future = unique_future<R>(state);
+        -:  113:
+        -:  114:        return {std::move(msg), std::move(future)};
+        -:  115:    }
+        -:  116:
+        -:  117:    template<typename R = void, typename Name, typename... Args>
+        -:  118:        requires(valid_message_name<Name> && all_valid_rtt_types_v<std::decay_t<Args>...>)
+        -:  119:    std::pair<mailbox::message_ptr, actor_zeta::unique_future<R>>
+function _ZN10actor_zeta6detail12make_messageISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS5_EEERmJRS2_INS3_5table15storage_index_tESaISC_EESA_RPKNSB_14table_filter_tERS2_ImSaImEERKbRNSB_16transaction_dataEEEESt4pairISt10unique_ptrINS_7mailbox7messageENST_15message_deleterEENS_13unique_futureIT_EEEPNS6_15memory_resourceEOT0_DpOT1_ called 0 returned 0% blocks executed 0%
+    #####:  120:    make_message(
+        -:  121:        std::pmr::memory_resource* resource,
+        -:  122:        Name&& name,
+        -:  123:        Args&&... args) {
+        -:  124:        static_assert(!std::is_reference_v<R>, "Result type R must not be a reference");
+    #####:  125:        assert(resource);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  126:
+        -:  127:        // Create shared_state for the result
+    #####:  128:        auto* state = allocate_shared_state<R>(resource);
+call    0 never executed
+branch  1 never executed
+branch  2 never executed
+        -:  129:
+        -:  130:        // Create message with body
+    #####:  131:        auto msg = mailbox::pmr_make_message(resource, resource,
+    #####:  132:                                             to_message_id(std::forward<Name>(name)),
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+    #####:  133:                                             rtt(resource, std::forward<Args>(args)...));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+branch  7 never executed
+branch  8 never executed
+        -:  134:
+        -:  135:        // Initialize the future slot in the message
+    #####:  136:        msg->template init_future_slot<R>(state);
+call    0 never executed
+call    1 never executed
+        -:  137:
+        -:  138:        // Create future from the shared_state
+    #####:  139:        auto future = unique_future<R>(state);
+call    0 never executed
+        -:  140:
+    #####:  141:        return {std::move(msg), std::move(future)};
+call    0 never executed
+call    1 never executed
+call    2 never executed
+    #####:  142:    }
+call    0 never executed
+call    1 never executed
+        -:  143:
+        -:  144:    template<typename T>
+        -:  145:    generator_state<T>* allocate_generator_state(std::pmr::memory_resource* resource) {
+        -:  146:        void* mem = resource->allocate(sizeof(generator_state<T>), alignof(generator_state<T>));
+        -:  147:        return new (mem) generator_state<T>(resource);
+        -:  148:    }
+        -:  149:
+        -:  150:    // Creates message + generator_state, returns pair<message_ptr, generator<T>>
+        -:  151:    template<typename T, typename Name>
+        -:  152:        requires valid_message_name<Name>
+        -:  153:    std::pair<mailbox::message_ptr, actor_zeta::generator<T>>
+        -:  154:    make_generator_message(
+        -:  155:        std::pmr::memory_resource* resource,
+        -:  156:        Name&& name) {
+        -:  157:        assert(resource);
+        -:  158:
+        -:  159:        // Create generator state
+        -:  160:        auto* state = allocate_generator_state<T>(resource);
+        -:  161:
+        -:  162:        // Create message
+        -:  163:        auto msg = mailbox::pmr_make_message(resource, resource,
+        -:  164:                                             to_message_id(std::forward<Name>(name)));
+        -:  165:
+        -:  166:        // Initialize the generator slot in the message
+        -:  167:        msg->template init_generator_slot<T>(state);
+        -:  168:
+        -:  169:        // Create generator from the state
+        -:  170:        return {std::move(msg), generator<T>(state)};
+        -:  171:    }
+        -:  172:
+        -:  173:    template<typename T, typename Name, typename... Args>
+        -:  174:        requires(valid_message_name<Name> && all_valid_rtt_types_v<std::decay_t<Args>...>)
+        -:  175:    std::pair<mailbox::message_ptr, actor_zeta::generator<T>>
+        -:  176:    make_generator_message(
+        -:  177:        std::pmr::memory_resource* resource,
+        -:  178:        Name&& name,
+        -:  179:        Args&&... args) {
+        -:  180:        assert(resource);
+        -:  181:
+        -:  182:        // Create generator state
+        -:  183:        auto* state = allocate_generator_state<T>(resource);
+        -:  184:
+        -:  185:        // Create message with body
+        -:  186:        auto msg = mailbox::pmr_make_message(resource, resource,
+        -:  187:                                             to_message_id(std::forward<Name>(name)),
+        -:  188:                                             rtt(resource, std::forward<Args>(args)...));
+        -:  189:
+        -:  190:        // Initialize the generator slot in the message
+        -:  191:        msg->template init_generator_slot<T>(state);
+        -:  192:
+        -:  193:        // Create generator from the state
+        -:  194:        return {std::move(msg), generator<T>(state)};
+        -:  195:    }
+        -:  196:
+        -:  197:} // namespace actor_zeta::detail

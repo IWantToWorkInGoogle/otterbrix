@@ -1,0 +1,24 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/ignore_unused.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:namespace actor_zeta { namespace detail {
+        -:    4:
+        -:    5:    template<typename... args>
+    #####:    6:    constexpr void ignore_unused(args const&...) {}
+------------------
+_ZN10actor_zeta6detail13ignore_unusedIJMN10components7storage6detail22parallel_scan_worker_tEFNS_13unique_futureISt6vectorINS2_6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS9_EEEEES7_INS2_5table15storage_index_tESaISG_EEmPKNSF_14table_filter_tES7_ImSaImEEbNSF_16transaction_dataEEPS5_mEEEvDpRKT_:
+function _ZN10actor_zeta6detail13ignore_unusedIJMN10components7storage6detail22parallel_scan_worker_tEFNS_13unique_futureISt6vectorINS2_6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS9_EEEEES7_INS2_5table15storage_index_tESaISG_EEmPKNSF_14table_filter_tES7_ImSaImEEbNSF_16transaction_dataEEPS5_mEEEvDpRKT_ called 0 returned 0% blocks executed 0%
+    #####:    6:    constexpr void ignore_unused(args const&...) {}
+------------------
+_ZN10actor_zeta6detail13ignore_unusedIJNS0_14enqueue_resultEEEEvDpRKT_:
+function _ZN10actor_zeta6detail13ignore_unusedIJNS0_14enqueue_resultEEEEvDpRKT_ called 0 returned 0% blocks executed 0%
+    #####:    6:    constexpr void ignore_unused(args const&...) {}
+------------------
+        -:    7:
+        -:    8:    template<typename... args>
+        -:    9:    constexpr void ignore_unused() {}
+        -:   10:
+        -:   11:}} // namespace actor_zeta::detail

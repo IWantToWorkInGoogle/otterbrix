@@ -1,0 +1,127 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/single_file_block_manager.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cstdint>
+        -:    4:#include <cstring>
+        -:    5:#include <memory>
+        -:    6:#include <mutex>
+        -:    7:#include <set>
+        -:    8:
+        -:    9:#include "block_manager.hpp"
+        -:   10:#include "buffer_manager.hpp"
+        -:   11:
+        -:   12:namespace core::filesystem {
+        -:   13:    class local_file_system_t;
+        -:   14:    struct file_handle_t;
+        -:   15:} // namespace core::filesystem
+        -:   16:
+        -:   17:namespace components::table::storage {
+        -:   18:
+        -:   19:    static constexpr uint64_t BLOCK_START = 3 * SECTOR_SIZE; // 12288
+        -:   20:
+        -:   21:    struct main_header_t {
+        -:   22:        static constexpr uint32_t MAGIC_NUMBER = 0x5842544F; // "OTBX" little-endian
+        -:   23:        static constexpr uint32_t CURRENT_VERSION = 1;
+        -:   24:
+        -:   25:        uint32_t magic;
+        -:   26:        uint32_t version;
+        -:   27:        uint64_t flags;
+        -:   28:        uint8_t padding[SECTOR_SIZE - sizeof(uint32_t) - sizeof(uint32_t) - sizeof(uint64_t)];
+        -:   29:
+        -:   30:        void initialize() {
+        -:   31:            std::memset(this, 0, sizeof(*this));
+        -:   32:            magic = MAGIC_NUMBER;
+        -:   33:            version = CURRENT_VERSION;
+        -:   34:            flags = 0;
+        -:   35:        }
+        -:   36:
+        -:   37:        bool validate() const { return magic == MAGIC_NUMBER && version <= CURRENT_VERSION; }
+        -:   38:    };
+        -:   39:    static_assert(sizeof(main_header_t) == SECTOR_SIZE, "main_header_t must be SECTOR_SIZE");
+        -:   40:
+        -:   41:    struct database_header_t {
+        -:   42:        uint64_t iteration;
+        -:   43:        uint64_t meta_block;
+        -:   44:        uint64_t free_list;
+        -:   45:        uint64_t block_count;
+        -:   46:        uint64_t block_alloc_size;
+        -:   47:        uint64_t checksum;
+        -:   48:        uint8_t padding[SECTOR_SIZE - 6 * sizeof(uint64_t)];
+        -:   49:
+function _ZN10components5table7storage17database_header_t10initializeEv called 2625 returned 100% blocks executed 100%
+     2625:   50:        void initialize() {
+     2625:   51:            std::memset(this, 0, sizeof(*this));
+     2625:   52:            iteration = 0;
+     2625:   53:            meta_block = INVALID_INDEX;
+     2625:   54:            free_list = INVALID_INDEX;
+     2625:   55:            block_count = 0;
+     2625:   56:            block_alloc_size = DEFAULT_BLOCK_ALLOC_SIZE;
+     2625:   57:            checksum = 0;
+     2625:   58:        }
+        -:   59:    };
+        -:   60:    static_assert(sizeof(database_header_t) == SECTOR_SIZE, "database_header_t must be SECTOR_SIZE");
+        -:   61:
+        -:   62:    class single_file_block_manager_t : public block_manager_t {
+        -:   63:    public:
+        -:   64:        single_file_block_manager_t(buffer_manager_t& buffer_manager,
+        -:   65:                                    core::filesystem::local_file_system_t& fs,
+        -:   66:                                    const std::string& path,
+        -:   67:                                    uint64_t block_alloc_size = DEFAULT_BLOCK_ALLOC_SIZE);
+        -:   68:        ~single_file_block_manager_t() override;
+        -:   69:
+        -:   70:        void create_new_database();
+        -:   71:        void load_existing_database();
+        -:   72:
+        -:   73:        std::unique_ptr<block_t> convert_block(uint64_t block_id, file_buffer_t& source_buffer) override;
+        -:   74:        std::unique_ptr<block_t> create_block(uint64_t block_id, file_buffer_t* source_buffer) override;
+        -:   75:
+        -:   76:        uint64_t free_block_id() override;
+        -:   77:        uint64_t peek_free_block_id() override;
+        -:   78:        bool is_root_block(meta_block_pointer_t root) override;
+        -:   79:        void mark_as_free(uint64_t block_id) override;
+        -:   80:        void mark_as_used(uint64_t block_id) override;
+        -:   81:        void mark_as_modified(uint64_t block_id) override;
+        -:   82:        void increase_block_ref_count(uint64_t block_id) override;
+        -:   83:        uint64_t meta_block() override;
+function _ZN10components5table7storage27single_file_block_manager_t14set_meta_blockEm called 1410 returned 100% blocks executed 100%
+     1410:   84:        void set_meta_block(uint64_t block) { meta_block_ = block; }
+        -:   85:        void read(block_t& block) override;
+        -:   86:        void read_blocks(file_buffer_t& buffer, uint64_t start_block, uint64_t block_count) override;
+        -:   87:        void write(file_buffer_t& block, uint64_t block_id) override;
+        -:   88:
+        -:   89:        uint64_t total_blocks() override;
+        -:   90:        uint64_t free_blocks() override;
+        -:   91:        bool in_memory() override { return false; }
+        -:   92:        void file_sync() override;
+        -:   93:        void truncate() override;
+        -:   94:
+        -:   95:        void write_header(const database_header_t& header);
+        -:   96:
+        -:   97:        meta_block_pointer_t serialize_free_list();
+        -:   98:        void deserialize_free_list(meta_block_pointer_t pointer);
+        -:   99:
+        -:  100:        core::filesystem::file_handle_t& handle() const { return *handle_; }
+        -:  101:
+        -:  102:    private:
+        -:  103:        uint64_t block_location(uint64_t block_id) const;
+        -:  104:        void checksum_and_write(file_buffer_t& buffer, uint64_t block_id);
+        -:  105:        bool verify_checksum(file_buffer_t& buffer);
+        -:  106:        void write_header_slot(const database_header_t& header, uint64_t slot);
+        -:  107:
+        -:  108:        core::filesystem::local_file_system_t& fs_;
+        -:  109:        std::string path_;
+        -:  110:        std::unique_ptr<core::filesystem::file_handle_t> handle_;
+        -:  111:
+        -:  112:        std::mutex allocation_lock_;
+        -:  113:        std::set<uint64_t> free_list_;
+        -:  114:        std::set<uint64_t> used_blocks_;
+        -:  115:        std::set<uint64_t> modified_blocks_;
+        -:  116:        uint64_t max_block_{0};
+        -:  117:        uint64_t iteration_{0};
+        -:  118:        uint64_t meta_block_{INVALID_INDEX};
+        -:  119:    };
+        -:  120:
+        -:  121:} // namespace components::table::storage

@@ -1,0 +1,986 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/rtt.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <memory_resource>
+        -:    4:#include <actor-zeta/detail/type_list.hpp>
+        -:    5:#include <actor-zeta/detail/type_traits.hpp>
+        -:    6:
+        -:    7:#include <cassert>
+        -:    8:#include <cstddef>
+        -:    9:#include <memory>
+        -:   10:#include <type_traits>
+        -:   11:#include <utility>
+        -:   12:
+        -:   13:namespace actor_zeta { namespace detail {
+        -:   14:
+        -:   15:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:   16:
+        -:   17:    namespace rtt_test {
+        -:   18:
+        -:   19:        static size_t default_ctor_ = 0;
+        -:   20:        static size_t move_ctor_ = 0;
+        -:   21:        static size_t templated_ctor_ = 0;
+        -:   22:        static size_t dtor_ = 0;
+        -:   23:
+        -:   24:        static size_t move_operator_ = 0;
+        -:   25:
+        -:   26:        inline void clear() {
+        -:   27:            default_ctor_ = 0;
+        -:   28:            move_ctor_ = 0;
+        -:   29:            templated_ctor_ = 0;
+        -:   30:            dtor_ = 0;
+        -:   31:            move_operator_ = 0;
+        -:   32:        }
+        -:   33:
+        -:   34:    } // namespace rtt_test
+        -:   35:
+        -:   36:#endif
+        -:   37:
+function _ZN10actor_zeta6detail8align_upEmm called 0 returned 0% blocks executed 0%
+    #####:   38:    constexpr std::size_t align_up(std::size_t n, std::size_t align) noexcept {
+    #####:   39:        return (n + align - 1) & ~(align - 1);
+        -:   40:    }
+        -:   41:
+function _ZN10actor_zeta6detail14check_resourceEPNSt3pmr15memory_resourceE called 0 returned 0% blocks executed 0%
+    #####:   42:    inline std::pmr::memory_resource* check_resource(std::pmr::memory_resource* r) noexcept {
+    #####:   43:        assert(r && "memory_resource must not be nullptr");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:   44:        return r;
+        -:   45:    }
+        -:   46:
+        -:   47:    template<std::size_t N>
+        -:   48:    constexpr std::size_t getSize() {
+        -:   49:        return N;
+        -:   50:    }
+        -:   51:
+        -:   52:    template<std::size_t N, class Head, class... Args>
+        -:   53:    constexpr std::size_t getSize() {
+        -:   54:        return getSize<align_up(N, alignof(Head)) + sizeof(Head), Args...>();
+        -:   55:    }
+        -:   56:
+        -:   57:    template<typename T>
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyIN10components5table16transaction_dataEEEvPv:
+function _ZN10actor_zeta6detail7destroyIN10components5table16transaction_dataEEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyIbEEvPv:
+function _ZN10actor_zeta6detail7destroyIbEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyISt6vectorImSaImEEEEvPv:
+function _ZN10actor_zeta6detail7destroyISt6vectorImSaImEEEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+call    0 never executed
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyIPKN10components5table14table_filter_tEEEvPv:
+function _ZN10actor_zeta6detail7destroyIPKN10components5table14table_filter_tEEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyImEEvPv:
+function _ZN10actor_zeta6detail7destroyImEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+    #####:   60:    }
+------------------
+_ZN10actor_zeta6detail7destroyISt6vectorIN10components5table15storage_index_tESaIS5_EEEEvPv:
+function _ZN10actor_zeta6detail7destroyISt6vectorIN10components5table15storage_index_tESaIS5_EEEEvPv called 0 returned 0% blocks executed 0%
+    #####:   58:    void destroy(void* object) noexcept {
+    #####:   59:        static_cast<T*>(object)->~T();
+call    0 never executed
+    #####:   60:    }
+------------------
+        -:   61:
+        -:   62:    class rtt final {
+        -:   63:        using destroyer_t = void (*)(void*);
+        -:   64:
+        -:   65:        struct objects_t {
+        -:   66:            std::size_t offset;
+        -:   67:            destroyer_t destroyer;
+        -:   68:        };
+        -:   69:
+        -:   70:        std::pmr::memory_resource* memory_resource_ = nullptr;
+        -:   71:
+        -:   72:        std::size_t capacity_ = 0;
+        -:   73:        std::size_t volume_ = 0;
+        -:   74:
+        -:   75:        void* allocation_ = nullptr;
+        -:   76:        char* data_ = nullptr;
+        -:   77:
+        -:   78:        objects_t* objects_ = nullptr;
+        -:   79:        std::size_t objects_idx_ = 0;
+        -:   80:
+function _ZN10actor_zeta6detail3rtt5clearEv called 0 returned 0% blocks executed 0%
+    #####:   81:        void clear() noexcept {
+    #####:   82:            auto tmp = data_;
+        -:   83:            // Destroy in reverse order (LIFO)
+    #####:   84:            for (std::size_t i = objects_idx_; i-- > 0; ) {
+branch  0 never executed
+branch  1 never executed
+    #####:   85:                objects_[i].destroyer(tmp + objects_[i].offset);
+call    0 never executed
+        -:   86:            }
+        -:   87:
+    #####:   88:            if (allocation_) {
+branch  0 never executed
+branch  1 never executed
+    #####:   89:                std::size_t aligned_capacity = align_up(capacity_, alignof(objects_t));
+call    0 never executed
+    #####:   90:                std::size_t allocated_size = aligned_capacity + objects_idx_ * sizeof(objects_t);
+    #####:   91:                memory_resource_->deallocate(allocation_, allocated_size);
+call    0 never executed
+        -:   92:            }
+        -:   93:
+    #####:   94:            volume_ = 0;
+    #####:   95:            objects_idx_ = 0;
+    #####:   96:            allocation_ = nullptr;
+    #####:   97:            data_ = nullptr;
+    #####:   98:            objects_ = nullptr;
+    #####:   99:            capacity_ = 0;
+    #####:  100:        }
+        -:  101:
+        -:  102:        template<typename T>
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignIN10components5table16transaction_dataEEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignIN10components5table16transaction_dataEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignIbEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignIbEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignISt6vectorImSaImEEEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignISt6vectorImSaImEEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignIPKN10components5table14table_filter_tEEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignIPKN10components5table14table_filter_tEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignImEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignImEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+_ZN10actor_zeta6detail3rtt12try_to_alignISt6vectorIN10components5table15storage_index_tESaIS6_EEEEPcv:
+function _ZN10actor_zeta6detail3rtt12try_to_alignISt6vectorIN10components5table15storage_index_tESaIS6_EEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  103:        char* try_to_align() {
+    #####:  104:            auto space_left = capacity_ - volume_;
+    #####:  105:            void* creation_place = data_ + volume_;
+    #####:  106:            auto aligned_place = std::align(alignof(T), sizeof(T), creation_place, space_left);
+call    0 never executed
+    #####:  107:            return static_cast<char*>(aligned_place);
+        -:  108:        }
+------------------
+        -:  109:
+        -:  110:        template<typename T>
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignIN10components5table16transaction_dataEEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignIN10components5table16transaction_dataEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignIbEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignIbEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignISt6vectorImSaImEEEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignISt6vectorImSaImEEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignIPKN10components5table14table_filter_tEEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignIPKN10components5table14table_filter_tEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignImEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignImEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+_ZN10actor_zeta6detail3rtt11force_alignISt6vectorIN10components5table15storage_index_tESaIS6_EEEEPcv:
+function _ZN10actor_zeta6detail3rtt11force_alignISt6vectorIN10components5table15storage_index_tESaIS6_EEEEPcv called 0 returned 0% blocks executed 0%
+    #####:  111:        [[nodiscard]] char* force_align() {
+    #####:  112:            char* result = try_to_align<T>();
+call    0 never executed
+    #####:  113:            assert(result && "force_align: insufficient capacity");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  114:            return result ? result : (std::abort(), nullptr);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  115:        }
+------------------
+        -:  116:
+        -:  117:        template<typename T>
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRN10components5table16transaction_dataEEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRN10components5table16transaction_dataEEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRKbEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRKbEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRSt6vectorImSaImEEEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRSt6vectorImSaImEEEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRPKN10components5table14table_filter_tEEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRPKN10components5table14table_filter_tEEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRmEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRmEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+_ZN10actor_zeta6detail3rtt20push_back_no_reallocIRSt6vectorIN10components5table15storage_index_tESaIS6_EEEEvOT_:
+function _ZN10actor_zeta6detail3rtt20push_back_no_reallocIRSt6vectorIN10components5table15storage_index_tESaIS6_EEEEvOT_ called 0 returned 0% blocks executed 0%
+    #####:  118:        void push_back_no_realloc(T&& object) {
+        -:  119:            using raw_type = actor_zeta::type_traits::decay_t<T>;
+    #####:  120:            auto creation_place = force_align<raw_type>();
+call    0 never executed
+    #####:  121:            new (creation_place) raw_type(std::forward<T>(object));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed
+call    5 never executed
+    #####:  122:            const auto new_offset = static_cast<std::size_t>(creation_place - data_);
+    #####:  123:            objects_[objects_idx_++] = objects_t{new_offset, &destroy<raw_type>};
+    #####:  124:            volume_ = new_offset + sizeof(raw_type);
+    #####:  125:        }
+------------------
+        -:  126:
+function _ZNK10actor_zeta6detail3rtt6offsetEm called 0 returned 0% blocks executed 0%
+    #####:  127:        std::size_t offset(std::size_t index) const {
+    #####:  128:            assert(index < objects_idx_ && "rtt::offset(): index out of bounds");
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  129:            return objects_[index].offset;
+        -:  130:        }
+        -:  131:
+        -:  132:        template<typename T>
+        -:  133:        const T& get_by_offset(std::size_t offset) const {
+        -:  134:            return *static_cast<const T*>(static_cast<const void*>(data_ + offset));
+        -:  135:        }
+        -:  136:
+        -:  137:        template<typename T>
+    2829*:  138:        T& get_by_offset(std::size_t offset) {
+    2829*:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt10unique_ptrIN10components5table14table_filter_tESt14default_deleteIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt10unique_ptrIN10components5table14table_filter_tESt14default_deleteIS6_EEEERT_m called 4 returned 100% blocks executed 100%
+        4:  138:        T& get_by_offset(std::size_t offset) {
+        4:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5table15storage_index_tESaIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5table15storage_index_tESaIS6_EEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetImEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetImEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIPKN10components5table14table_filter_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIPKN10components5table14table_filter_tEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorImSaImEEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorImSaImEEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIbEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIbEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN10components5table16transaction_dataEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN10components5table16transaction_dataEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN10components7session12session_id_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN10components7session12session_id_tEEERT_m called 159 returned 100% blocks executed 100%
+      159:  138:        T& get_by_offset(std::size_t offset) {
+      159:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN10components19execution_context_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN10components19execution_context_tEEERT_m called 828 returned 100% blocks executed 100%
+      828:  138:        T& get_by_offset(std::size_t offset) {
+      828:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIjEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIjEERT_m called 838 returned 100% blocks executed 100%
+      838:  138:        T& get_by_offset(std::size_t offset) {
+      838:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5table19column_definition_tESaIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5table19column_definition_tESaIS6_EEEERT_m called 3 returned 100% blocks executed 100%
+        3:  138:        T& get_by_offset(std::size_t offset) {
+        3:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN13configuration18disk_layout_policyEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN13configuration18disk_layout_policyEEERT_m called 3 returned 100% blocks executed 100%
+        3:  138:        T& get_by_offset(std::size_t offset) {
+        3:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt3setINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4lessIS9_ESaIS9_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt3setINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4lessIS9_ESaIS9_EEEERT_m called 4 returned 100% blocks executed 100%
+        4:  138:        T& get_by_offset(std::size_t offset) {
+        4:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIiEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIiEERT_m called 2 returned 100% blocks executed 100%
+        2:  138:        T& get_by_offset(std::size_t offset) {
+        2:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIlEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIlEERT_m called 104 returned 100% blocks executed 100%
+      104:  138:        T& get_by_offset(std::size_t offset) {
+      104:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN10components6vector8vector_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN10components6vector8vector_tEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  138:        T& get_by_offset(std::size_t offset) {
+    #####:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEEERT_m called 124 returned 100% blocks executed 100%
+      124:  138:        T& get_by_offset(std::size_t offset) {
+      124:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components25pg_catalog_append_range_tESaIS5_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components25pg_catalog_append_range_tESaIS5_EEEERT_m called 198 returned 100% blocks executed 100%
+      198:  138:        T& get_by_offset(std::size_t offset) {
+      198:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt3setIjSt4lessIjESaIjEEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt3setIjSt4lessIjESaIjEEEERT_m called 31 returned 100% blocks executed 100%
+       31:  138:        T& get_by_offset(std::size_t offset) {
+       31:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEERT_m called 84 returned 100% blocks executed 100%
+       84:  138:        T& get_by_offset(std::size_t offset) {
+       84:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetIN10components6vector12data_chunk_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetIN10components6vector12data_chunk_tEEERT_m called 363 returned 100% blocks executed 100%
+      363:  138:        T& get_by_offset(std::size_t offset) {
+      363:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEEERT_m called 42 returned 100% blocks executed 100%
+       42:  138:        T& get_by_offset(std::size_t offset) {
+       42:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+_ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEEEERT_m:
+function _ZN10actor_zeta6detail3rtt13get_by_offsetISt6vectorIN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEEEERT_m called 42 returned 100% blocks executed 100%
+       42:  138:        T& get_by_offset(std::size_t offset) {
+       42:  139:            return *static_cast<T*>(static_cast<void*>(data_ + offset));
+        -:  140:        }
+------------------
+        -:  141:
+        -:  142:    public:
+        -:  143:        template<typename... Args>
+function _ZN10actor_zeta6detail3rttC2IJRSt6vectorIN10components5table15storage_index_tESaIS6_EERmRPKNS5_14table_filter_tERS3_ImSaImEERKbRNS5_16transaction_dataEEEEPNSt3pmr15memory_resourceEDpOT_ called 0 returned 0% blocks executed 0%
+    #####:  144:        explicit rtt(std::pmr::memory_resource* resource, Args&&... args)
+    #####:  145:            : memory_resource_(check_resource(resource))
+call    0 never executed
+    #####:  146:            , capacity_(0)
+    #####:  147:            , volume_(0)
+    #####:  148:            , allocation_(nullptr)
+    #####:  149:            , data_(nullptr)
+    #####:  150:            , objects_(nullptr)
+    #####:  151:            , objects_idx_(0) {
+        -:  152:
+        -:  153:            if constexpr (sizeof...(Args) == 0) {
+        -:  154:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  155:                rtt_test::templated_ctor_++;
+        -:  156:#endif
+        -:  157:                return;
+        -:  158:            }
+        -:  159:
+    #####:  160:            constexpr std::size_t sz = getSize<0, Args...>();
+    #####:  161:            constexpr std::size_t aligned_capacity = align_up(sz, alignof(objects_t));
+    #####:  162:            constexpr std::size_t total_size = aligned_capacity + sizeof...(Args) * sizeof(objects_t);
+        -:  163:
+    #####:  164:            capacity_ = sz;
+    #####:  165:            allocation_ = memory_resource_->allocate(total_size);
+call    0 never executed
+    #####:  166:            assert(allocation_);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  167:            data_ = static_cast<char*>(allocation_);
+    #####:  168:            assert(data_);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+    #####:  169:            objects_ = static_cast<objects_t*>(static_cast<void*>(data_ + aligned_capacity));
+    #####:  170:            assert(objects_);
+branch  0 never executed
+branch  1 never executed
+call    2 never executed
+        -:  171:
+    #####:  172:            (push_back_no_realloc(std::forward<Args>(args)), ...);
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+call    8 never executed
+call    9 never executed
+call   10 never executed
+call   11 never executed
+        -:  173:
+        -:  174:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  175:            rtt_test::templated_ctor_++;
+        -:  176:#endif
+    #####:  177:        }
+        -:  178:
+        -:  179:        rtt(std::pmr::memory_resource* resource)
+        -:  180:            : memory_resource_(check_resource(resource))
+        -:  181:            , capacity_(0)
+        -:  182:            , volume_(0)
+        -:  183:            , allocation_(nullptr)
+        -:  184:            , data_(nullptr)
+        -:  185:            , objects_(nullptr)
+        -:  186:            , objects_idx_(0) {
+        -:  187:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  188:            rtt_test::default_ctor_++;
+        -:  189:#endif
+        -:  190:        }
+        -:  191:
+        -:  192:        rtt() = delete;
+        -:  193:
+        -:  194:        rtt(rtt&& other) noexcept
+        -:  195:            : memory_resource_(other.memory_resource_)
+        -:  196:            , capacity_(other.capacity_)
+        -:  197:            , volume_(other.volume_)
+        -:  198:            , allocation_(other.allocation_)
+        -:  199:            , data_(other.data_)
+        -:  200:            , objects_(other.objects_)
+        -:  201:            , objects_idx_(other.objects_idx_) {
+        -:  202:            other.memory_resource_ = nullptr;
+        -:  203:            other.capacity_ = 0;
+        -:  204:            other.volume_ = 0;
+        -:  205:            other.allocation_ = nullptr;
+        -:  206:            other.data_ = nullptr;
+        -:  207:            other.objects_ = nullptr;
+        -:  208:            other.objects_idx_ = 0;
+        -:  209:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  210:            rtt_test::move_ctor_++;
+        -:  211:#endif
+        -:  212:        }
+        -:  213:
+        -:  214:        rtt(std::allocator_arg_t, std::pmr::memory_resource* resource, rtt&& other) noexcept
+        -:  215:            : memory_resource_(check_resource(resource))
+        -:  216:            , capacity_(0)
+        -:  217:            , volume_(0)
+        -:  218:            , allocation_(nullptr)
+        -:  219:            , data_(nullptr)
+        -:  220:            , objects_(nullptr)
+        -:  221:            , objects_idx_(0) {
+        -:  222:            // Only same-arena move is supported
+        -:  223:            assert(resource == other.memory_resource_ && "Cross-arena RTT migration is not supported");
+        -:  224:
+        -:  225:            capacity_ = other.capacity_;
+        -:  226:            volume_ = other.volume_;
+        -:  227:            allocation_ = other.allocation_;
+        -:  228:            data_ = other.data_;
+        -:  229:            objects_ = other.objects_;
+        -:  230:            objects_idx_ = other.objects_idx_;
+        -:  231:
+        -:  232:            other.memory_resource_ = nullptr;
+        -:  233:            other.capacity_ = 0;
+        -:  234:            other.volume_ = 0;
+        -:  235:            other.allocation_ = nullptr;
+        -:  236:            other.data_ = nullptr;
+        -:  237:            other.objects_ = nullptr;
+        -:  238:            other.objects_idx_ = 0;
+        -:  239:
+        -:  240:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  241:            rtt_test::move_ctor_++;
+        -:  242:#endif
+        -:  243:        }
+        -:  244:        rtt(const rtt& other) = delete;
+        -:  245:        rtt(rtt& other) = delete;
+function _ZN10actor_zeta6detail3rttD2Ev called 0 returned 0% blocks executed 0%
+    #####:  246:        ~rtt() {
+    #####:  247:            clear();
+call    0 never executed
+        -:  248:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  249:            rtt_test::dtor_++;
+        -:  250:#endif
+    #####:  251:        }
+        -:  252:
+        -:  253:        rtt& operator=(rtt&& other) noexcept {
+        -:  254:            if (this == &other) return *this;
+        -:  255:
+        -:  256:            assert((memory_resource_ == other.memory_resource_ || memory_resource_ == nullptr)
+        -:  257:                   && "Cross-arena RTT move assignment is not supported");
+        -:  258:
+        -:  259:            clear();
+        -:  260:
+        -:  261:            memory_resource_ = other.memory_resource_;
+        -:  262:            capacity_ = other.capacity_;
+        -:  263:            volume_ = other.volume_;
+        -:  264:            allocation_ = other.allocation_;
+        -:  265:            data_ = other.data_;
+        -:  266:            objects_ = other.objects_;
+        -:  267:            objects_idx_ = other.objects_idx_;
+        -:  268:
+        -:  269:            other.memory_resource_ = nullptr;
+        -:  270:            other.capacity_ = 0;
+        -:  271:            other.volume_ = 0;
+        -:  272:            other.allocation_ = nullptr;
+        -:  273:            other.data_ = nullptr;
+        -:  274:            other.objects_ = nullptr;
+        -:  275:            other.objects_idx_ = 0;
+        -:  276:
+        -:  277:#ifdef __ENABLE_TESTS_MEASUREMENTS__
+        -:  278:            rtt_test::move_operator_++;
+        -:  279:#endif
+        -:  280:
+        -:  281:            return *this;
+        -:  282:        }
+        -:  283:
+        -:  284:        rtt& operator=(const rtt& other) = delete;
+        -:  285:        rtt& operator=(rtt& other) = delete;
+        -:  286:
+        -:  287:        template<typename T>
+        -:  288:        const T& get(std::size_t index) const {
+        -:  289:            return get_by_offset<T>(offset(index));
+        -:  290:        }
+        -:  291:
+        -:  292:        template<typename T>
+    2829*:  293:        T& get(std::size_t index) {
+    2829*:  294:            return get_by_offset<T>(offset(index));
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt10unique_ptrIN10components5table14table_filter_tESt14default_deleteIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt10unique_ptrIN10components5table14table_filter_tESt14default_deleteIS6_EEEERT_m called 4 returned 100% blocks executed 100%
+        4:  293:        T& get(std::size_t index) {
+        4:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 4
+call    1 returned 4
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5table15storage_index_tESaIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5table15storage_index_tESaIS6_EEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getImEERT_m:
+function _ZN10actor_zeta6detail3rtt3getImEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIPKN10components5table14table_filter_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIPKN10components5table14table_filter_tEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorImSaImEEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorImSaImEEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIbEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIbEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN10components5table16transaction_dataEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN10components5table16transaction_dataEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN10components7session12session_id_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN10components7session12session_id_tEEERT_m called 159 returned 100% blocks executed 100%
+      159:  293:        T& get(std::size_t index) {
+      159:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 159
+call    1 returned 159
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN10components19execution_context_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN10components19execution_context_tEEERT_m called 828 returned 100% blocks executed 100%
+      828:  293:        T& get(std::size_t index) {
+      828:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 828
+call    1 returned 828
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIjEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIjEERT_m called 838 returned 100% blocks executed 100%
+      838:  293:        T& get(std::size_t index) {
+      838:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 838
+call    1 returned 838
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5table19column_definition_tESaIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5table19column_definition_tESaIS6_EEEERT_m called 3 returned 100% blocks executed 100%
+        3:  293:        T& get(std::size_t index) {
+        3:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 3
+call    1 returned 3
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN13configuration18disk_layout_policyEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN13configuration18disk_layout_policyEEERT_m called 3 returned 100% blocks executed 100%
+        3:  293:        T& get(std::size_t index) {
+        3:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 3
+call    1 returned 3
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt3setINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4lessIS9_ESaIS9_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt3setINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4lessIS9_ESaIS9_EEEERT_m called 4 returned 100% blocks executed 100%
+        4:  293:        T& get(std::size_t index) {
+        4:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 4
+call    1 returned 4
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIiEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIiEERT_m called 2 returned 100% blocks executed 100%
+        2:  293:        T& get(std::size_t index) {
+        2:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 2
+call    1 returned 2
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIlEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIlEERT_m called 104 returned 100% blocks executed 100%
+      104:  293:        T& get(std::size_t index) {
+      104:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 104
+call    1 returned 104
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN10components6vector8vector_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN10components6vector8vector_tEEERT_m called 0 returned 0% blocks executed 0%
+    #####:  293:        T& get(std::size_t index) {
+    #####:  294:            return get_by_offset<T>(offset(index));
+call    0 never executed
+call    1 never executed
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt10unique_ptrIN10components6vector12data_chunk_tESt14default_deleteIS6_EEEERT_m called 124 returned 100% blocks executed 100%
+      124:  293:        T& get(std::size_t index) {
+      124:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 124
+call    1 returned 124
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorIN10components25pg_catalog_append_range_tESaIS5_EEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorIN10components25pg_catalog_append_range_tESaIS5_EEEERT_m called 198 returned 100% blocks executed 100%
+      198:  293:        T& get(std::size_t index) {
+      198:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 198
+call    1 returned 198
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt3setIjSt4lessIjESaIjEEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt3setIjSt4lessIjESaIjEEEERT_m called 31 returned 100% blocks executed 100%
+       31:  293:        T& get(std::size_t index) {
+       31:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 31
+call    1 returned 31
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEERT_m called 84 returned 100% blocks executed 100%
+       84:  293:        T& get(std::size_t index) {
+       84:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 84
+call    1 returned 84
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getIN10components6vector12data_chunk_tEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getIN10components6vector12data_chunk_tEEERT_m called 363 returned 100% blocks executed 100%
+      363:  293:        T& get(std::size_t index) {
+      363:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 363
+call    1 returned 363
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENSt3pmr21polymorphic_allocatorIS9_EEEEERT_m called 42 returned 100% blocks executed 100%
+       42:  293:        T& get(std::size_t index) {
+       42:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 42
+call    1 returned 42
+        -:  295:        }
+------------------
+_ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEEEERT_m:
+function _ZN10actor_zeta6detail3rtt3getISt6vectorIN10components5types15logical_value_tENSt3pmr21polymorphic_allocatorIS6_EEEEERT_m called 42 returned 100% blocks executed 100%
+       42:  293:        T& get(std::size_t index) {
+       42:  294:            return get_by_offset<T>(offset(index));
+call    0 returned 42
+call    1 returned 42
+        -:  295:        }
+------------------
+        -:  296:
+function _ZNK10actor_zeta6detail3rtt4sizeEv called 0 returned 0% blocks executed 0%
+    #####:  297:        std::size_t size() const noexcept {
+    #####:  298:            return objects_idx_;
+        -:  299:        }
+        -:  300:
+        -:  301:        std::size_t volume() const noexcept {
+        -:  302:            return volume_;
+        -:  303:        }
+        -:  304:
+        -:  305:        std::size_t capacity() const noexcept {
+        -:  306:            return capacity_;
+        -:  307:        }
+        -:  308:
+        -:  309:        bool empty() const noexcept {
+        -:  310:            return objects_idx_ == 0;
+        -:  311:        }
+        -:  312:
+        -:  313:        std::pmr::memory_resource* memory_resource() const noexcept {
+        -:  314:            return memory_resource_;
+        -:  315:        }
+        -:  316:    };
+        -:  317:
+        -:  318:    template<std::size_t I, class List>
+    2979*:  319:    auto get(rtt& r) -> typename type_traits::type_list_at_t<List, I> {
+        -:  320:        using requested_type = typename type_traits::type_list_at_t<List, I>;
+        -:  321:        using decay_type = typename type_traits::decay_t<requested_type>;
+        -:  322:
+        -:  323:        if constexpr (std::is_lvalue_reference_v<requested_type>) {
+        -:  324:            return r.get<decay_type>(I);
+        -:  325:        } else {
+    2979*:  326:            return std::move(r.get<decay_type>(I));
+        -:  327:        }
+        -:  328:    }
+        -:  329:
+        -:  330:}} // namespace actor_zeta::detail

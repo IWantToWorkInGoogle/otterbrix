@@ -1,0 +1,99 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/mailbox/default_mailbox.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <actor-zeta/detail/queue/lifo_inbox.hpp>
+        -:    4:#include <actor-zeta/detail/queue/linked_list.hpp>
+        -:    5:#include <actor-zeta/mailbox/message.hpp>
+        -:    6:
+        -:    7:namespace actor_zeta { namespace mailbox {
+        -:    8:
+        -:    9:    class default_mailbox_impl {
+        -:   10:    public:
+        -:   11:        default_mailbox_impl() = default;
+        -:   12:        ~default_mailbox_impl();
+        -:   13:        default_mailbox_impl(const default_mailbox_impl&) = delete;
+        -:   14:        default_mailbox_impl& operator=(const default_mailbox_impl&) = delete;
+        -:   15:
+        -:   16:        actor_zeta::detail::enqueue_result push_back_impl(message_ptr);
+        -:   17:        void push_front_impl(message_ptr);
+        -:   18:        message_ptr pop_front_impl();
+        -:   19:        bool closed_impl() const noexcept;
+        -:   20:        bool blocked_impl() const noexcept;
+        -:   21:        bool try_block_impl();
+        -:   22:        bool try_unblock_impl();
+        -:   23:        size_t close_impl();
+        -:   24:        size_t size_impl();
+        -:   25:        message* peek_impl(message_id id);
+        -:   26:
+        -:   27:    private:
+        -:   28:        size_t cached() const noexcept;
+        -:   29:        bool fetch_more();
+        -:   30:        actor_zeta::detail::linked_list<message> urgent_queue_;
+        -:   31:        actor_zeta::detail::linked_list<message> normal_queue_;
+        -:   32:        alignas(CACHE_LINE_SIZE) actor_zeta::detail::lifo_inbox<message> inbox_;
+        -:   33:    };
+        -:   34:
+        -:   35:    template<class T>
+        -:   36:    class mailbox_t final : protected T {
+        -:   37:    public:
+        -:   38:        mailbox_t() = default;
+        -:   39:
+        -:   40:        ~mailbox_t() = default;
+        -:   41:
+function _ZN10actor_zeta7mailbox9mailbox_tINS0_20default_mailbox_implEE9push_backESt10unique_ptrINS0_7messageENS0_15message_deleterEE called 0 returned 0% blocks executed 0%
+    #####:   42:        actor_zeta::detail::enqueue_result push_back(mailbox::message_ptr ptr) {
+    #####:   43:            return self()->push_back_impl(std::move(ptr));
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+branch  4 never executed
+branch  5 never executed
+call    6 never executed
+call    7 never executed
+        -:   44:        }
+        -:   45:        void push_front(mailbox::message* ptr) {
+        -:   46:            return self()->push_front_impl(ptr);
+        -:   47:        }
+        -:   48:        mailbox::message_ptr pop_front() {
+        -:   49:            return self()->pop_front_impl();
+        -:   50:        }
+        -:   51:        bool closed() const noexcept {
+        -:   52:            return self()->closed_impl();
+        -:   53:        }
+        -:   54:        bool blocked() const noexcept {
+        -:   55:            return self()->blocked_impl();
+        -:   56:        }
+        -:   57:        bool try_block() {
+        -:   58:            return self()->try_block_impl();
+        -:   59:        }
+        -:   60:        bool try_unblock() {
+        -:   61:            return self()->try_unblock_impl();
+        -:   62:        }
+        -:   63:        size_t close() {
+        -:   64:            return self()->close_impl();
+        -:   65:        }
+        -:   66:        size_t size() {
+        -:   67:            return self()->size_impl();
+        -:   68:        }
+        -:   69:        bool empty() {
+        -:   70:            return size() == 0;
+        -:   71:        }
+        -:   72:
+        -:   73:    private:
+function _ZN10actor_zeta7mailbox9mailbox_tINS0_20default_mailbox_implEE4selfEv called 0 returned 0% blocks executed 0%
+    #####:   74:        auto self() noexcept -> T* {
+    #####:   75:            return static_cast<T*>(this);
+        -:   76:        }
+        -:   77:
+        -:   78:        auto self() const noexcept -> const T* {
+        -:   79:            return static_cast<const T*>(this);
+        -:   80:        }
+        -:   81:    };
+        -:   82:
+        -:   83:    using default_mailbox = actor_zeta::mailbox::mailbox_t<default_mailbox_impl>;
+        -:   84:
+        -:   85:}} // namespace actor_zeta::mailbox

@@ -1,0 +1,56 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/detail/coroutine.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <actor-zeta/config.hpp>
+        -:    4:
+        -:    5:#if HAVE_EXPERIMENTAL_COROUTINES
+        -:    6:#include <experimental/coroutine>
+        -:    7:
+        -:    8:namespace actor_zeta {
+        -:    9:namespace detail {
+        -:   10:
+        -:   11:    template<typename Promise = void>
+        -:   12:    using coroutine_handle = std::experimental::coroutine_handle<Promise>;
+        -:   13:
+        -:   14:    template<typename... Ts>
+        -:   15:    using coroutine_traits = std::experimental::coroutine_traits<Ts...>;
+        -:   16:
+        -:   17:    using suspend_always = std::experimental::suspend_always;
+        -:   18:    using suspend_never = std::experimental::suspend_never;
+        -:   19:
+        -:   20:    inline coroutine_handle<> noop_coroutine() noexcept {
+        -:   21:        return {}; // experimental lacks noop_coroutine
+        -:   22:    }
+        -:   23:
+        -:   24:}
+        -:   25:} // namespace actor_zeta::detail
+        -:   26:
+        -:   27:#else
+        -:   28:#include <coroutine>
+        -:   29:
+        -:   30:namespace actor_zeta {
+        -:   31:namespace detail {
+        -:   32:
+        -:   33:    template<typename Promise = void>
+        -:   34:    using coroutine_handle = std::coroutine_handle<Promise>;
+        -:   35:
+        -:   36:    template<typename... Ts>
+        -:   37:    using coroutine_traits = std::coroutine_traits<Ts...>;
+        -:   38:
+        -:   39:    using suspend_always = std::suspend_always;
+        -:   40:    using suspend_never = std::suspend_never;
+        -:   41:
+function _ZN10actor_zeta6detail14noop_coroutineEv called 0 returned 0% blocks executed 0%
+    #####:   42:    inline coroutine_handle<> noop_coroutine() noexcept {
+    #####:   43:        return std::noop_coroutine();
+call    0 never executed
+call    1 never executed
+        -:   44:    }
+        -:   45:
+        -:   46:}
+        -:   47:} // namespace actor_zeta::detail
+        -:   48:
+        -:   49:#endif // HAVE_EXPERIMENTAL_COROUTINES

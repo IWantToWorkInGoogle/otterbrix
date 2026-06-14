@@ -1,0 +1,219 @@
+        -:    0:Source:/home/usrname/.conan2/p/b/actor7c1860e432853/p/include/actor-zeta/mailbox/message.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <memory_resource>
+        -:    4:
+        -:    5:#include <actor-zeta/actor/forwards.hpp>
+        -:    6:#include <actor-zeta/detail/forwards.hpp>
+        -:    7:#include <actor-zeta/detail/queue/singly_linked.hpp>
+        -:    8:#include <actor-zeta/detail/rtt.hpp>
+        -:    9:#include <actor-zeta/mailbox/forwards.hpp>
+        -:   10:#include <actor-zeta/mailbox/id.hpp>
+        -:   11:
+        -:   12:// Forward declarations for new shared_state
+        -:   13:namespace actor_zeta::detail {
+        -:   14:    template<typename T> struct shared_state;
+        -:   15:}
+        -:   16:
+        -:   17:namespace actor_zeta {
+        -:   18:    template<typename T> class promise;
+        -:   19:    template<typename T> class generator;
+        -:   20:}
+        -:   21:
+        -:   22:namespace actor_zeta { namespace mailbox {
+        -:   23:
+        -:   24:    class message final : public actor_zeta::detail::singly_linked<message> {
+        -:   25:    public:
+        -:   26:        message() = delete;
+        -:   27:        message(const message&) = delete;
+        -:   28:        message& operator=(const message&) = delete;
+        -:   29:        message(message&& other) noexcept;
+        -:   30:        message& operator=(message&& other) noexcept;
+        -:   31:
+        -:   32:        explicit message(std::pmr::memory_resource* /* resource */);
+        -:   33:        message(std::pmr::memory_resource* /* resource */, message_id /*name*/);
+        -:   34:        message(std::pmr::memory_resource* /* resource */, message_id /*name*/, actor_zeta::detail::rtt&& /*body*/);
+        -:   35:
+        -:   36:        // Allocator-extended move constructor (PMR migration)
+        -:   37:        message(std::allocator_arg_t, std::pmr::memory_resource* resource, message&& other) noexcept;
+        -:   38:
+        -:   39:        ~message() noexcept;
+        -:   40:        message* prev;
+        -:   41:        auto command() const noexcept -> message_id;
+        -:   42:
+        -:   43:        auto body() -> actor_zeta::detail::rtt&;
+        -:   44:        operator bool();
+        -:   45:        void swap(message& other) noexcept;
+        -:   46:        bool is_high_priority() const;
+        -:   47:
+        -:   48:        // === Unified type-erased result slot API ===
+        -:   49:
+        -:   50:        // Initialize future slot with shared_state
+        -:   51:        template<typename T>
+function _ZN10actor_zeta7mailbox7message16init_future_slotISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEEEvPNS_6detail12shared_stateIT_EE called 0 returned 0% blocks executed 0%
+    #####:   52:        void init_future_slot(::actor_zeta::detail::shared_state<T>* state) noexcept {
+    #####:   53:            result_slot_ = state;
+function _ZZN10actor_zeta7mailbox7message16init_future_slotISt6vectorIN10components6vector12data_chunk_tENSt3pmr21polymorphic_allocatorIS6_EEEEEvPNS_6detail12shared_stateIT_EEENKUlPvE_clESG_ called 0 returned 0% blocks executed 0%
+    #####:   54:            cleanup_fn_ = [](void* p) {
+call    0 never executed
+    #####:   55:                auto* s = static_cast<::actor_zeta::detail::shared_state<T>*>(p);
+    #####:   56:                s->set_error(std::make_error_code(std::errc::operation_canceled));
+call    0 never executed
+call    1 never executed
+        -:   57:                // Cleanup doesn't resume continuations - just release the promise side.
+        -:   58:                // The return value indicates if deallocation happened, but we don't
+        -:   59:                // need to take any action in either case.
+    #####:   60:                [[maybe_unused]] bool deallocated = s->release_promise();
+call    0 never executed
+        -:   61:            };
+    #####:   62:        }
+        -:   63:
+        -:   64:        // Initialize generator slot with generator_state
+        -:   65:        template<typename T>
+        -:   66:        void init_generator_slot(::actor_zeta::detail::generator_state<T>* state) noexcept {
+        -:   67:            result_slot_ = state;
+        -:   68:            // Generator state uses refcount, add ref for message
+        -:   69:            state->add_ref();
+        -:   70:            cleanup_fn_ = [](void* p) {
+        -:   71:                auto* s = static_cast<::actor_zeta::detail::generator_state<T>*>(p);
+        -:   72:                s->release();  // decrement refcount
+        -:   73:            };
+        -:   74:        }
+        -:   75:
+        -:   76:        // Get promise view for dispatch (returns promise that doesn't own the state)
+        -:   77:        template<typename T>
+        -:   78:        [[nodiscard]] actor_zeta::promise<T> get_result_promise() const noexcept;
+        -:   79:
+        -:   80:        // Get generator state for dispatch
+        -:   81:        template<typename T>
+        -:   82:        [[nodiscard]] ::actor_zeta::detail::generator_state<T>* get_generator_state() const noexcept {
+        -:   83:            return static_cast<::actor_zeta::detail::generator_state<T>*>(result_slot_);
+        -:   84:        }
+        -:   85:
+        -:   86:        // Transfer ownership from message to dispatch coroutine
+        -:   87:        // After this call, ~message() will NOT call cleanup_fn_
+function _ZN10actor_zeta7mailbox7message18transfer_ownershipEv called 0 returned 0% blocks executed 0%
+    #####:   88:        void transfer_ownership() noexcept {
+    #####:   89:            ownership_transferred_ = true;
+    #####:   90:        }
+        -:   91:
+        -:   92:        // Check if slot is initialized
+        -:   93:        [[nodiscard]] bool has_result_slot() const noexcept {
+        -:   94:            return result_slot_ != nullptr;
+        -:   95:        }
+        -:   96:
+        -:   97:    private:
+        -:   98:        message_id command_;
+        -:   99:        actor_zeta::detail::rtt body_;
+        -:  100:
+        -:  101:        // === Unified result slot ===
+        -:  102:        void* result_slot_ = nullptr;
+        -:  103:        void (*cleanup_fn_)(void*) = nullptr;
+        -:  104:        bool ownership_transferred_ = false;
+        -:  105:    };
+        -:  106:
+        -:  107:    static_assert(std::is_move_constructible_v<message>);
+        -:  108:    static_assert(!std::is_copy_constructible_v<message>);
+        -:  109:
+        -:  110:    namespace detail {
+        -:  111:
+        -:  112:        constexpr std::size_t align_up(std::size_t n, std::size_t a) {
+        -:  113:            return (n + (a - 1)) & ~(a - 1);
+        -:  114:        }
+        -:  115:
+        -:  116:        constexpr std::size_t kAllocAlign =
+        -:  117:            alignof(std::max_align_t) < alignof(message)
+        -:  118:                ? alignof(message)
+        -:  119:                : alignof(std::max_align_t);
+        -:  120:
+        -:  121:        struct BlockHdr {
+        -:  122:            std::pmr::memory_resource* r;
+        -:  123:            std::size_t total;
+        -:  124:        };
+        -:  125:
+        -:  126:        constexpr std::size_t kFront = align_up(sizeof(BlockHdr), alignof(message));
+        -:  127:
+function _ZN10actor_zeta7mailbox6detail16hdr_from_messageEPv called 0 returned 0% blocks executed 0%
+    #####:  128:        inline BlockHdr* hdr_from_message(void* pmsg) {
+    #####:  129:            unsigned char* base = static_cast<unsigned char*>(pmsg) - kFront;
+    #####:  130:            return reinterpret_cast<BlockHdr*>(base);
+        -:  131:        }
+        -:  132:
+function _ZN10actor_zeta7mailbox6detail17base_from_messageEPv called 0 returned 0% blocks executed 0%
+    #####:  133:        inline void* base_from_message(void* pmsg) {
+    #####:  134:            return static_cast<unsigned char*>(pmsg) - kFront;
+        -:  135:        }
+        -:  136:
+        -:  137:    } // namespace detail
+        -:  138:
+        -:  139:    // Implementation of message_deleter::operator() (declared in forwards.hpp)
+function _ZNK10actor_zeta7mailbox15message_deleterclEPNS0_7messageE called 0 returned 0% blocks executed 0%
+    #####:  140:    inline void message_deleter::operator()(message* p) const noexcept {
+    #####:  141:        if (!p)
+branch  0 never executed
+branch  1 never executed
+    #####:  142:            return;
+    #####:  143:        detail::BlockHdr* hdr = detail::hdr_from_message(p);
+call    0 never executed
+    #####:  144:        p->~message();
+call    0 never executed
+    #####:  145:        hdr->r->deallocate(detail::base_from_message(p), hdr->total, detail::kAllocAlign);
+call    0 never executed
+call    1 never executed
+        -:  146:    }
+        -:  147:
+        -:  148:    static_assert(std::is_empty_v<message_deleter>, "EBO expected");
+        -:  149:
+        -:  150:    // Factory function for heap-allocated messages with PMR
+        -:  151:    template<class... Args>
+function _ZN10actor_zeta7mailbox16pmr_make_messageIJRPNSt3pmr15memory_resourceEmNS_6detail3rttEEEESt10unique_ptrINS0_7messageENS0_15message_deleterEES4_DpOT_ called 0 returned 0% blocks executed 0%
+    #####:  152:    message_ptr pmr_make_message(std::pmr::memory_resource* resource, Args&&... args) {
+    #####:  153:        constexpr std::size_t front = detail::kFront;
+    #####:  154:        constexpr std::size_t msg_size = sizeof(message);
+    #####:  155:        const std::size_t total = front + msg_size;
+        -:  156:
+    #####:  157:        void* raw = resource->allocate(total, detail::kAllocAlign);
+call    0 never executed
+    #####:  158:        unsigned char* base = static_cast<unsigned char*>(raw);
+        -:  159:
+    #####:  160:        detail::BlockHdr* hdr = reinterpret_cast<detail::BlockHdr*>(base);
+    #####:  161:        hdr->r = resource;
+    #####:  162:        hdr->total = total;
+        -:  163:
+    #####:  164:        void* msg_place = base + front;
+    #####:  165:        message* msg = new (msg_place) message(std::forward<Args>(args)...);
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+branch  5 never executed
+branch  6 never executed
+call    7 never executed
+        -:  166:
+    #####:  167:        return message_ptr(msg, message_deleter{});
+call    0 never executed
+        -:  168:    }
+        -:  169:
+        -:  170:}} // namespace actor_zeta::mailbox
+        -:  171:
+        -:  172:inline void swap(actor_zeta::mailbox::message& lhs, actor_zeta::mailbox::message& rhs) noexcept {
+        -:  173:    lhs.swap(rhs);
+        -:  174:}
+        -:  175:
+        -:  176:// Include future.hpp for promise<T> full definition (needed for get_result_promise template)
+        -:  177:#include <actor-zeta/detail/future.hpp>
+        -:  178:
+        -:  179:// Template method implementation (must be in header for template instantiation)
+        -:  180:namespace actor_zeta { namespace mailbox {
+        -:  181:
+        -:  182:template<typename T>
+    1183*:  183:actor_zeta::promise<T> message::get_result_promise() const noexcept {
+    1183*:  184:    auto* state = static_cast<::actor_zeta::detail::shared_state<T>*>(result_slot_);
+    1183*:  185:    return actor_zeta::promise<T>(state);
+        -:  186:}
+        -:  187:
+        -:  188:}} // namespace actor_zeta::mailbox

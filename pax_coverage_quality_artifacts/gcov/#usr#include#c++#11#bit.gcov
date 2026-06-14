@@ -1,0 +1,417 @@
+        -:    0:Source:/usr/include/c++/11/bit
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/row_group.cpp.gcda
+        -:    0:Runs:261
+        -:    1:// <bit> -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2018-2021 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file include/bit
+        -:   26: *  This is a Standard C++ Library header.
+        -:   27: */
+        -:   28:
+        -:   29:#ifndef _GLIBCXX_BIT
+        -:   30:#define _GLIBCXX_BIT 1
+        -:   31:
+        -:   32:#pragma GCC system_header
+        -:   33:
+        -:   34:#if __cplusplus >= 201402L
+        -:   35:
+        -:   36:#include <type_traits>
+        -:   37:
+        -:   38:#if _GLIBCXX_HOSTED
+        -:   39:# include <ext/numeric_traits.h>
+        -:   40:#else
+        -:   41:# include <limits>
+        -:   42:/// @cond undocumented
+        -:   43:namespace __gnu_cxx
+        -:   44:{
+        -:   45:  template<typename _Tp>
+        -:   46:    struct __int_traits
+        -:   47:    {
+        -:   48:      static constexpr int __digits = std::numeric_limits<_Tp>::digits;
+        -:   49:      static constexpr _Tp __max = std::numeric_limits<_Tp>::max();
+        -:   50:    };
+        -:   51:}
+        -:   52:/// @endcond
+        -:   53:#endif
+        -:   54:
+        -:   55:namespace std _GLIBCXX_VISIBILITY(default)
+        -:   56:{
+        -:   57:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   58:
+        -:   59:  /**
+        -:   60:   * @defgroup bit_manip Bit manipulation
+        -:   61:   * @ingroup numerics
+        -:   62:   *
+        -:   63:   * Utilities for examining and manipulating individual bits.
+        -:   64:   *
+        -:   65:   * @{
+        -:   66:   */
+        -:   67:
+        -:   68:#if __cplusplus > 201703l && __has_builtin(__builtin_bit_cast)
+        -:   69:#define __cpp_lib_bit_cast 201806L
+        -:   70:
+        -:   71:  /// Create a value of type `To` from the bits of `from`.
+        -:   72:  template<typename _To, typename _From>
+        -:   73:    [[nodiscard]]
+        -:   74:    constexpr _To
+      12*:   75:    bit_cast(const _From& __from) noexcept
+        -:   76:#ifdef __cpp_concepts
+        -:   77:    requires (sizeof(_To) == sizeof(_From))
+        -:   78:      && __is_trivially_copyable(_To) && __is_trivially_copyable(_From)
+        -:   79:#endif
+        -:   80:    {
+      12*:   81:      return __builtin_bit_cast(_To, __from);
+        -:   82:    }
+        -:   83:#endif
+        -:   84:
+        -:   85:  /// @cond undoc
+        -:   86:
+        -:   87:  template<typename _Tp>
+        -:   88:    constexpr _Tp
+        -:   89:    __rotl(_Tp __x, int __s) noexcept
+        -:   90:    {
+        -:   91:      constexpr auto _Nd = __gnu_cxx::__int_traits<_Tp>::__digits;
+        -:   92:      if _GLIBCXX17_CONSTEXPR ((_Nd & (_Nd - 1)) == 0)
+        -:   93:	{
+        -:   94:	  // Variant for power of two _Nd which the compiler can
+        -:   95:	  // easily pattern match.
+        -:   96:	  constexpr unsigned __uNd = _Nd;
+        -:   97:	  const unsigned __r = __s;
+        -:   98:	  return (__x << (__r % __uNd)) | (__x >> ((-__r) % __uNd));
+        -:   99:	}
+        -:  100:      const int __r = __s % _Nd;
+        -:  101:      if (__r == 0)
+        -:  102:	return __x;
+        -:  103:      else if (__r > 0)
+        -:  104:	return (__x << __r) | (__x >> ((_Nd - __r) % _Nd));
+        -:  105:      else
+        -:  106:	return (__x >> -__r) | (__x << ((_Nd + __r) % _Nd)); // rotr(x, -r)
+        -:  107:    }
+        -:  108:
+        -:  109:  template<typename _Tp>
+        -:  110:    constexpr _Tp
+        -:  111:    __rotr(_Tp __x, int __s) noexcept
+        -:  112:    {
+        -:  113:      constexpr auto _Nd = __gnu_cxx::__int_traits<_Tp>::__digits;
+        -:  114:      if _GLIBCXX17_CONSTEXPR ((_Nd & (_Nd - 1)) == 0)
+        -:  115:	{
+        -:  116:	  // Variant for power of two _Nd which the compiler can
+        -:  117:	  // easily pattern match.
+        -:  118:	  constexpr unsigned __uNd = _Nd;
+        -:  119:	  const unsigned __r = __s;
+        -:  120:	  return (__x >> (__r % __uNd)) | (__x << ((-__r) % __uNd));
+        -:  121:	}
+        -:  122:      const int __r = __s % _Nd;
+        -:  123:      if (__r == 0)
+        -:  124:	return __x;
+        -:  125:      else if (__r > 0)
+        -:  126:	return (__x >> __r) | (__x << ((_Nd - __r) % _Nd));
+        -:  127:      else
+        -:  128:	return (__x << -__r) | (__x >> ((_Nd + __r) % _Nd)); // rotl(x, -r)
+        -:  129:    }
+        -:  130:
+        -:  131:  template<typename _Tp>
+        -:  132:    constexpr int
+        -:  133:    __countl_zero(_Tp __x) noexcept
+        -:  134:    {
+        -:  135:      using __gnu_cxx::__int_traits;
+        -:  136:      constexpr auto _Nd = __int_traits<_Tp>::__digits;
+        -:  137:
+        -:  138:      if (__x == 0)
+        -:  139:        return _Nd;
+        -:  140:
+        -:  141:      constexpr auto _Nd_ull = __int_traits<unsigned long long>::__digits;
+        -:  142:      constexpr auto _Nd_ul = __int_traits<unsigned long>::__digits;
+        -:  143:      constexpr auto _Nd_u = __int_traits<unsigned>::__digits;
+        -:  144:
+        -:  145:      if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_u)
+        -:  146:	{
+        -:  147:	  constexpr int __diff = _Nd_u - _Nd;
+        -:  148:	  return __builtin_clz(__x) - __diff;
+        -:  149:	}
+        -:  150:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ul)
+        -:  151:	{
+        -:  152:	  constexpr int __diff = _Nd_ul - _Nd;
+        -:  153:	  return __builtin_clzl(__x) - __diff;
+        -:  154:	}
+        -:  155:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ull)
+        -:  156:	{
+        -:  157:	  constexpr int __diff = _Nd_ull - _Nd;
+        -:  158:	  return __builtin_clzll(__x) - __diff;
+        -:  159:	}
+        -:  160:      else // (_Nd > _Nd_ull)
+        -:  161:	{
+        -:  162:	  static_assert(_Nd <= (2 * _Nd_ull),
+        -:  163:			"Maximum supported integer size is 128-bit");
+        -:  164:
+        -:  165:	  unsigned long long __high = __x >> _Nd_ull;
+        -:  166:	  if (__high != 0)
+        -:  167:	    {
+        -:  168:	      constexpr int __diff = (2 * _Nd_ull) - _Nd;
+        -:  169:	      return __builtin_clzll(__high) - __diff;
+        -:  170:	    }
+        -:  171:	  constexpr auto __max_ull = __int_traits<unsigned long long>::__max;
+        -:  172:	  unsigned long long __low = __x & __max_ull;
+        -:  173:	  return (_Nd - _Nd_ull) + __builtin_clzll(__low);
+        -:  174:	}
+        -:  175:    }
+        -:  176:
+        -:  177:  template<typename _Tp>
+        -:  178:    constexpr int
+        -:  179:    __countl_one(_Tp __x) noexcept
+        -:  180:    {
+        -:  181:      return std::__countl_zero<_Tp>((_Tp)~__x);
+        -:  182:    }
+        -:  183:
+        -:  184:  template<typename _Tp>
+        -:  185:    constexpr int
+        -:  186:    __countr_zero(_Tp __x) noexcept
+        -:  187:    {
+        -:  188:      using __gnu_cxx::__int_traits;
+        -:  189:      constexpr auto _Nd = __int_traits<_Tp>::__digits;
+        -:  190:
+        -:  191:      if (__x == 0)
+        -:  192:        return _Nd;
+        -:  193:
+        -:  194:      constexpr auto _Nd_ull = __int_traits<unsigned long long>::__digits;
+        -:  195:      constexpr auto _Nd_ul = __int_traits<unsigned long>::__digits;
+        -:  196:      constexpr auto _Nd_u = __int_traits<unsigned>::__digits;
+        -:  197:
+        -:  198:      if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_u)
+        -:  199:	return __builtin_ctz(__x);
+        -:  200:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ul)
+        -:  201:	return __builtin_ctzl(__x);
+        -:  202:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ull)
+        -:  203:	return __builtin_ctzll(__x);
+        -:  204:      else // (_Nd > _Nd_ull)
+        -:  205:	{
+        -:  206:	  static_assert(_Nd <= (2 * _Nd_ull),
+        -:  207:			"Maximum supported integer size is 128-bit");
+        -:  208:
+        -:  209:	  constexpr auto __max_ull = __int_traits<unsigned long long>::__max;
+        -:  210:	  unsigned long long __low = __x & __max_ull;
+        -:  211:	  if (__low != 0)
+        -:  212:	    return __builtin_ctzll(__low);
+        -:  213:	  unsigned long long __high = __x >> _Nd_ull;
+        -:  214:	  return __builtin_ctzll(__high) + _Nd_ull;
+        -:  215:	}
+        -:  216:    }
+        -:  217:
+        -:  218:  template<typename _Tp>
+        -:  219:    constexpr int
+        -:  220:    __countr_one(_Tp __x) noexcept
+        -:  221:    {
+        -:  222:      return std::__countr_zero((_Tp)~__x);
+        -:  223:    }
+        -:  224:
+        -:  225:  template<typename _Tp>
+        -:  226:    constexpr int
+        -:  227:    __popcount(_Tp __x) noexcept
+        -:  228:    {
+        -:  229:      using __gnu_cxx::__int_traits;
+        -:  230:      constexpr auto _Nd = __int_traits<_Tp>::__digits;
+        -:  231:
+        -:  232:      constexpr auto _Nd_ull = __int_traits<unsigned long long>::__digits;
+        -:  233:      constexpr auto _Nd_ul = __int_traits<unsigned long>::__digits;
+        -:  234:      constexpr auto _Nd_u = __int_traits<unsigned>::__digits;
+        -:  235:
+        -:  236:      if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_u)
+        -:  237:	return __builtin_popcount(__x);
+        -:  238:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ul)
+        -:  239:	return __builtin_popcountl(__x);
+        -:  240:      else if _GLIBCXX17_CONSTEXPR (_Nd <= _Nd_ull)
+        -:  241:	return __builtin_popcountll(__x);
+        -:  242:      else // (_Nd > _Nd_ull)
+        -:  243:	{
+        -:  244:	  static_assert(_Nd <= (2 * _Nd_ull),
+        -:  245:			"Maximum supported integer size is 128-bit");
+        -:  246:
+        -:  247:	  constexpr auto __max_ull = __int_traits<unsigned long long>::__max;
+        -:  248:	  unsigned long long __low = __x & __max_ull;
+        -:  249:	  unsigned long long __high = __x >> _Nd_ull;
+        -:  250:	  return __builtin_popcountll(__low) + __builtin_popcountll(__high);
+        -:  251:	}
+        -:  252:    }
+        -:  253:
+        -:  254:  template<typename _Tp>
+        -:  255:    constexpr bool
+        -:  256:    __has_single_bit(_Tp __x) noexcept
+        -:  257:    { return std::__popcount(__x) == 1; }
+        -:  258:
+        -:  259:  template<typename _Tp>
+        -:  260:    constexpr _Tp
+        -:  261:    __bit_ceil(_Tp __x) noexcept
+        -:  262:    {
+        -:  263:      using __gnu_cxx::__int_traits;
+        -:  264:      constexpr auto _Nd = __int_traits<_Tp>::__digits;
+        -:  265:      if (__x == 0 || __x == 1)
+        -:  266:        return 1;
+        -:  267:      auto __shift_exponent = _Nd - std::__countl_zero((_Tp)(__x - 1u));
+        -:  268:      // If the shift exponent equals _Nd then the correct result is not
+        -:  269:      // representable as a value of _Tp, and so the result is undefined.
+        -:  270:      // Want that undefined behaviour to be detected in constant expressions,
+        -:  271:      // by UBSan, and by debug assertions.
+        -:  272:#ifdef _GLIBCXX_HAVE_BUILTIN_IS_CONSTANT_EVALUATED
+        -:  273:      if (!__builtin_is_constant_evaluated())
+        -:  274:	{
+        -:  275:	  __glibcxx_assert( __shift_exponent != __int_traits<_Tp>::__digits );
+        -:  276:	}
+        -:  277:#endif
+        -:  278:      using __promoted_type = decltype(__x << 1);
+        -:  279:      if _GLIBCXX17_CONSTEXPR (!is_same<__promoted_type, _Tp>::value)
+        -:  280:	{
+        -:  281:	  // If __x undergoes integral promotion then shifting by _Nd is
+        -:  282:	  // not undefined. In order to make the shift undefined, so that
+        -:  283:	  // it is diagnosed in constant expressions and by UBsan, we also
+        -:  284:	  // need to "promote" the shift exponent to be too large for the
+        -:  285:	  // promoted type.
+        -:  286:	  const int __extra_exp = sizeof(__promoted_type) / sizeof(_Tp) / 2;
+        -:  287:	  __shift_exponent |= (__shift_exponent & _Nd) << __extra_exp;
+        -:  288:	}
+        -:  289:      return (_Tp)1u << __shift_exponent;
+        -:  290:    }
+        -:  291:
+        -:  292:  template<typename _Tp>
+        -:  293:    constexpr _Tp
+        -:  294:    __bit_floor(_Tp __x) noexcept
+        -:  295:    {
+        -:  296:      constexpr auto _Nd = __gnu_cxx::__int_traits<_Tp>::__digits;
+        -:  297:      if (__x == 0)
+        -:  298:        return 0;
+        -:  299:      return (_Tp)1u << (_Nd - std::__countl_zero((_Tp)(__x >> 1)));
+        -:  300:    }
+        -:  301:
+        -:  302:  template<typename _Tp>
+        -:  303:    constexpr _Tp
+        -:  304:    __bit_width(_Tp __x) noexcept
+        -:  305:    {
+        -:  306:      constexpr auto _Nd = __gnu_cxx::__int_traits<_Tp>::__digits;
+        -:  307:      return _Nd - std::__countl_zero(__x);
+        -:  308:    }
+        -:  309:
+        -:  310:  /// @endcond
+        -:  311:
+        -:  312:#if __cplusplus > 201703L
+        -:  313:
+        -:  314:#define __cpp_lib_bitops 201907L
+        -:  315:
+        -:  316:  /// @cond undoc
+        -:  317:  template<typename _Tp, typename _Up = _Tp>
+        -:  318:    using _If_is_unsigned_integer
+        -:  319:      = enable_if_t<__is_unsigned_integer<_Tp>::value, _Up>;
+        -:  320:  /// @endcond
+        -:  321:
+        -:  322:  // [bit.rot], rotating
+        -:  323:
+        -:  324:  /// Rotate `x` to the left by `s` bits.
+        -:  325:  template<typename _Tp>
+        -:  326:    [[nodiscard]] constexpr _If_is_unsigned_integer<_Tp>
+        -:  327:    rotl(_Tp __x, int __s) noexcept
+        -:  328:    { return std::__rotl(__x, __s); }
+        -:  329:
+        -:  330:  /// Rotate `x` to the right by `s` bits.
+        -:  331:  template<typename _Tp>
+        -:  332:    [[nodiscard]] constexpr _If_is_unsigned_integer<_Tp>
+        -:  333:    rotr(_Tp __x, int __s) noexcept
+        -:  334:    { return std::__rotr(__x, __s); }
+        -:  335:
+        -:  336:  // [bit.count], counting
+        -:  337:
+        -:  338:  /// The number of contiguous zero bits, starting from the highest bit.
+        -:  339:  template<typename _Tp>
+        -:  340:    constexpr _If_is_unsigned_integer<_Tp, int>
+        -:  341:    countl_zero(_Tp __x) noexcept
+        -:  342:    { return std::__countl_zero(__x); }
+        -:  343:
+        -:  344:  /// The number of contiguous one bits, starting from the highest bit.
+        -:  345:  template<typename _Tp>
+        -:  346:    constexpr _If_is_unsigned_integer<_Tp, int>
+        -:  347:    countl_one(_Tp __x) noexcept
+        -:  348:    { return std::__countl_one(__x); }
+        -:  349:
+        -:  350:  /// The number of contiguous zero bits, starting from the lowest bit.
+        -:  351:  template<typename _Tp>
+        -:  352:    constexpr _If_is_unsigned_integer<_Tp, int>
+        -:  353:    countr_zero(_Tp __x) noexcept
+        -:  354:    { return std::__countr_zero(__x); }
+        -:  355:
+        -:  356:  /// The number of contiguous one bits, starting from the lowest bit.
+        -:  357:  template<typename _Tp>
+        -:  358:    constexpr _If_is_unsigned_integer<_Tp, int>
+        -:  359:    countr_one(_Tp __x) noexcept
+        -:  360:    { return std::__countr_one(__x); }
+        -:  361:
+        -:  362:  /// The number of bits set in `x`.
+        -:  363:  template<typename _Tp>
+        -:  364:    constexpr _If_is_unsigned_integer<_Tp, int>
+        -:  365:    popcount(_Tp __x) noexcept
+        -:  366:    { return std::__popcount(__x); }
+        -:  367:
+        -:  368:  // [bit.pow.two], integral powers of 2
+        -:  369:
+        -:  370:#define __cpp_lib_int_pow2 202002L
+        -:  371:
+        -:  372:  /// True if `x` is a power of two, false otherwise.
+        -:  373:  template<typename _Tp>
+        -:  374:    constexpr _If_is_unsigned_integer<_Tp, bool>
+        -:  375:    has_single_bit(_Tp __x) noexcept
+        -:  376:    { return std::__has_single_bit(__x); }
+        -:  377:
+        -:  378:  /// The smallest power-of-two not less than `x`.
+        -:  379:  template<typename _Tp>
+        -:  380:    constexpr _If_is_unsigned_integer<_Tp>
+        -:  381:    bit_ceil(_Tp __x) noexcept
+        -:  382:    { return std::__bit_ceil(__x); }
+        -:  383:
+        -:  384:  /// The largest power-of-two not greater than `x`.
+        -:  385:  template<typename _Tp>
+        -:  386:    constexpr _If_is_unsigned_integer<_Tp>
+        -:  387:    bit_floor(_Tp __x) noexcept
+        -:  388:    { return std::__bit_floor(__x); }
+        -:  389:
+        -:  390:  /// The smallest integer greater than the base-2 logarithm of `x`.
+        -:  391:  template<typename _Tp>
+        -:  392:    constexpr _If_is_unsigned_integer<_Tp>
+        -:  393:    bit_width(_Tp __x) noexcept
+        -:  394:    { return std::__bit_width(__x); }
+        -:  395:
+        -:  396:#define __cpp_lib_endian 201907L
+        -:  397:
+        -:  398:  /// Byte order
+        -:  399:  enum class endian
+        -:  400:  {
+        -:  401:    little = __ORDER_LITTLE_ENDIAN__,
+        -:  402:    big    = __ORDER_BIG_ENDIAN__,
+        -:  403:    native = __BYTE_ORDER__
+        -:  404:  };
+        -:  405:#endif // C++2a
+        -:  406:
+        -:  407:  /// @}
+        -:  408:
+        -:  409:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  410:} // namespace std
+        -:  411:
+        -:  412:#endif // C++14
+        -:  413:#endif // _GLIBCXX_BIT

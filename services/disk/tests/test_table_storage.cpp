@@ -153,7 +153,6 @@ namespace {
             , manager(actor_zeta::spawn<manager_disk_t>(&resource, &scheduler, &scheduler, config, log)) {
             std::filesystem::remove_all(config.path);
             std::filesystem::create_directories(config.path);
-            manager->set_run_fn([this] { scheduler.run(10000); });
         }
 
         ~disk_manager_fixture_t() {

@@ -1,0 +1,1 @@
+ctest --test-dir build-release --output-on-failure -j$(nproc)

@@ -1,0 +1,95 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/metadata_reader.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cstdint>
+        -:    4:#include <cstring>
+        -:    5:#include <string>
+        -:    6:#include <type_traits>
+        -:    7:
+        -:    8:#include "metadata_manager.hpp"
+        -:    9:
+        -:   10:namespace components::table::storage {
+        -:   11:
+        -:   12:    class metadata_reader_t {
+        -:   13:    public:
+        -:   14:        metadata_reader_t(metadata_manager_t& manager, meta_block_pointer_t start);
+        -:   15:
+        -:   16:        void read_data(std::byte* data, uint64_t size);
+        -:   17:
+        -:   18:        template<typename T>
+    19460:   19:        requires std::is_trivially_copyable_v<T> T read() {
+        -:   20:            T value;
+    19460:   21:            read_data(reinterpret_cast<std::byte*>(&value), sizeof(T));
+    19460:   22:            return value;
+        -:   23:        }
+------------------
+_ZN10components5table7storage17metadata_reader_t4readIhEET_v:
+function _ZN10components5table7storage17metadata_reader_t4readIhEET_v called 10372 returned 100% blocks executed 100%
+    10372:   19:        requires std::is_trivially_copyable_v<T> T read() {
+        -:   20:            T value;
+    10372:   21:            read_data(reinterpret_cast<std::byte*>(&value), sizeof(T));
+call    0 returned 10372
+branch  1 taken 10372 (fallthrough)
+branch  2 taken 0 (throw)
+    10372:   22:            return value;
+        -:   23:        }
+------------------
+_ZN10components5table7storage17metadata_reader_t4readIjEET_v:
+function _ZN10components5table7storage17metadata_reader_t4readIjEET_v called 9088 returned 100% blocks executed 100%
+     9088:   19:        requires std::is_trivially_copyable_v<T> T read() {
+        -:   20:            T value;
+     9088:   21:            read_data(reinterpret_cast<std::byte*>(&value), sizeof(T));
+call    0 returned 9088
+branch  1 taken 9088 (fallthrough)
+branch  2 taken 0 (throw)
+     9088:   22:            return value;
+        -:   23:        }
+------------------
+        -:   24:
+function _ZN10components5table7storage17metadata_reader_t11read_stringB5cxx11Ev called 2237 returned 100% blocks executed 72%
+     2237:   25:        std::string read_string() {
+     2237:   26:            auto len = read<uint32_t>();
+call    0 returned 2237
+branch  1 taken 2237 (fallthrough)
+branch  2 taken 0 (throw)
+     2237:   27:            if (len == 0) {
+branch  0 taken 173 (fallthrough)
+branch  1 taken 2064
+      173:   28:                return {};
+call    0 returned 173
+        -:   29:            }
+     2064:   30:            std::string result(len, '\0');
+call    0 returned 2064
+call    1 returned 2064
+branch  2 taken 2064 (fallthrough)
+branch  3 taken 0 (throw)
+     2064:   31:            read_data(reinterpret_cast<std::byte*>(result.data()), len);
+call    0 returned 2064
+call    1 returned 2064
+branch  2 taken 2064 (fallthrough)
+branch  3 taken 0 (throw)
+     2064:   32:            return result;
+call    0 returned 2064
+     2064:   33:        }
+call    0 returned 2064
+call    1 never executed
+        -:   34:
+        -:   35:        bool finished() const { return finished_; }
+        -:   36:
+        -:   37:    private:
+        -:   38:        void follow_chain();
+        -:   39:
+        -:   40:        metadata_manager_t& manager_;
+        -:   41:        meta_block_pointer_t current_pointer_;
+        -:   42:        std::byte* current_data_{nullptr};
+        -:   43:        uint64_t current_offset_{0};
+        -:   44:        uint64_t sub_block_size_{0};
+        -:   45:        bool finished_{false};
+        -:   46:
+        -:   47:        static constexpr uint64_t SUB_BLOCK_HEADER_SIZE = sizeof(uint64_t) + sizeof(uint32_t);
+        -:   48:    };
+        -:   49:
+        -:   50:} // namespace components::table::storage

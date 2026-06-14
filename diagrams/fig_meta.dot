@@ -1,0 +1,55 @@
+digraph meta {
+  rankdir=TB; bgcolor="white"; nodesep=0.4; ranksep=0.55; splines=true;
+  node [shape=plaintext, fontname="DejaVu Sans", fontsize=11];
+  edge [color="#5b6b7a", penwidth=1.1, arrowsize=0.8, fontname="DejaVu Sans", fontsize=9];
+
+  // class node helper via HTML tables: title bar + attributes
+  data_table  [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dbe9fb"><b>data_table_t</b></td></tr></table>>];
+  collection  [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dbe9fb"><b>collection_t</b></td></tr></table>>];
+  block_mgr   [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#e6e8eb"><b>block_manager_t</b></td></tr><tr><td align="left">layout_policy()</td></tr></table>>];
+  column_data [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#e6e8eb"><b>column_data_t</b></td></tr><tr><td align="left">checkpoint()<br/>scan_committed_range()</td></tr></table>>];
+
+  row_group [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6">
+     <tr><td bgcolor="#fbdde0"><b>row_group_t</b></td></tr>
+     <tr><td align="left">layout_kind_<br/>pax_fixed_layout_<br/>pax_generic_layout_</td></tr>
+     <tr><td align="left">write_to_disk()<br/>create_from_pointer()</td></tr></table>>];
+
+  rg_ptr [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6">
+     <tr><td bgcolor="#fdf3cf"><b>row_group_pointer_t</b></td></tr>
+     <tr><td align="left">row_start<br/>tuple_count<br/>layout_kind<br/>columnar_data_pointers<br/>pax_fixed_layout<br/>pax_generic_layout</td></tr></table>>];
+
+  kind [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6">
+     <tr><td bgcolor="#f8d7c4"><b>«enum» row_group_layout_kind</b></td></tr>
+     <tr><td align="left">COLUMNAR<br/>PAX_FIXED<br/>PAX_GENERIC</td></tr></table>>];
+
+  fix_layout [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_fixed_row_group_layout_t</b></td></tr><tr><td align="left">version<br/>rows_per_page<br/>pages</td></tr></table>>];
+  gen_layout [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_generic_row_group_layout_t</b></td></tr><tr><td align="left">version<br/>rows_per_page<br/>pages</td></tr></table>>];
+
+  fix_page [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_fixed_page_t</b></td></tr><tr><td align="left">row_offset_in_group<br/>tuple_count<br/>slices</td></tr></table>>];
+  gen_page [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_generic_page_t</b></td></tr><tr><td align="left">row_offset_in_group<br/>tuple_count<br/>slices</td></tr></table>>];
+
+  fix_slice [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_fixed_slice_t</b></td></tr><tr><td align="left">column_index<br/>column_type<br/>data_pointer<br/>validity_kind<br/>validity_data_pointer</td></tr></table>>];
+  gen_slice [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#dcefe1"><b>pax_generic_slice_t</b></td></tr><tr><td align="left">column_index<br/>slice_kind<br/>codec_kind<br/>field_path<br/>payload</td></tr></table>>];
+
+  dptr [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="6"><tr><td bgcolor="#fdf3cf"><b>data_pointer_t</b></td></tr><tr><td align="left">row_start<br/>tuple_count<br/>block_pointer<br/>compression<br/>segment_size</td></tr></table>>];
+
+  // composition (diamond at the whole/tail end)
+  edge [dir=both, arrowtail=diamond, arrowhead=none];
+  data_table -> collection;
+  collection -> row_group;
+  fix_layout -> fix_page;
+  gen_layout -> gen_page;
+  fix_page -> fix_slice;
+  gen_page -> gen_slice;
+
+  // associations (plain)
+  edge [dir=forward, arrowtail=none, arrowhead=vee];
+  row_group -> column_data;
+  row_group -> block_mgr;
+  row_group -> rg_ptr;
+  rg_ptr -> kind;
+  rg_ptr -> fix_layout;
+  rg_ptr -> gen_layout;
+  fix_slice -> dptr;
+  gen_slice -> dptr;
+}

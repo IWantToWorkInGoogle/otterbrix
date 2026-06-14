@@ -1,0 +1,903 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/data_pointer.cpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/storage/data_pointer.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/storage/data_pointer.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#include "data_pointer.hpp"
+        -:    2:
+        -:    3:#include <memory_resource>
+        -:    4:#include <stdexcept>
+        -:    5:
+        -:    6:#include "metadata_reader.hpp"
+        -:    7:#include "metadata_writer.hpp"
+        -:    8:
+        -:    9:namespace components::table::storage {
+        -:   10:
+function _ZNK10components5table7storage14data_pointer_t9serializeERNS1_17metadata_writer_tE called 14303 returned 100% blocks executed 100%
+    14303:   11:    void data_pointer_t::serialize(metadata_writer_t& writer) const {
+    14303:   12:        writer.write<uint64_t>(row_start);
+call    0 returned 14303
+    14303:   13:        writer.write<uint64_t>(tuple_count);
+call    0 returned 14303
+    14303:   14:        writer.write<uint64_t>(block_pointer.block_id);
+call    0 returned 14303
+    14303:   15:        writer.write<uint32_t>(block_pointer.offset);
+call    0 returned 14303
+    14303:   16:        writer.write<uint8_t>(static_cast<uint8_t>(compression));
+call    0 returned 14303
+branch  1 taken 14303 (fallthrough)
+branch  2 taken 0 (throw)
+    14303:   17:        writer.write<uint64_t>(segment_size);
+call    0 returned 14303
+    14303:   18:    }
+        -:   19:
+function _ZN10components5table7storage14data_pointer_t11deserializeERNS1_17metadata_reader_tE called 12174 returned 100% blocks executed 100%
+    12174:   20:    data_pointer_t data_pointer_t::deserialize(metadata_reader_t& reader) {
+    12174:   21:        data_pointer_t result;
+call    0 returned 12174
+    12174:   22:        result.row_start = reader.read<uint64_t>();
+call    0 returned 12174
+    12174:   23:        result.tuple_count = reader.read<uint64_t>();
+call    0 returned 12174
+    12174:   24:        result.block_pointer.block_id = reader.read<uint64_t>();
+call    0 returned 12174
+    12174:   25:        result.block_pointer.offset = reader.read<uint32_t>();
+call    0 returned 12174
+    12174:   26:        result.compression = static_cast<compression::compression_type>(reader.read<uint8_t>());
+call    0 returned 12174
+    12174:   27:        result.segment_size = reader.read<uint64_t>();
+call    0 returned 12174
+    12174:   28:        return result;
+        -:   29:    }
+        -:   30:
+function _ZNK10components5table7storage17pax_fixed_slice_t9serializeERNS1_17metadata_writer_tEt called 3449 returned 100% blocks executed 65%
+     3449:   31:    void pax_fixed_slice_t::serialize(metadata_writer_t& writer, uint16_t version) const {
+     3449:   32:        writer.write<uint32_t>(column_index);
+call    0 returned 3449
+     3449:   33:        writer.write<uint8_t>(static_cast<uint8_t>(column_type));
+call    0 returned 3449
+branch  1 taken 3449 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 never executed
+     3449:   34:        data_pointer.serialize(writer);
+call    0 returned 3449
+     3449:   35:        if (version >= 2) {
+branch  0 taken 3444 (fallthrough)
+branch  1 taken 5
+     3444:   36:            writer.write<uint8_t>(static_cast<uint8_t>(validity_kind));
+call    0 returned 3444
+branch  1 taken 3444 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 never executed
+     3444:   37:            switch (validity_kind) {
+branch  0 taken 1365
+branch  1 taken 2079
+branch  2 taken 0
+     1365:   38:                case pax_fixed_validity_kind::ALL_VALID:
+        -:   39:                case pax_fixed_validity_kind::ALL_INVALID:
+     1365:   40:                    break;
+     2079:   41:                case pax_fixed_validity_kind::BITMASK:
+        -:   42:                case pax_fixed_validity_kind::RLE:
+     2079:   43:                    if (!validity_data_pointer.has_value()) {
+call    0 returned 2079
+branch  1 taken 0 (fallthrough)
+branch  2 taken 2079
+    #####:   44:                        throw std::logic_error("missing pax_fixed validity pointer");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   45:                    }
+     2079:   46:                    validity_data_pointer->serialize(writer);
+call    0 returned 2079
+call    1 returned 2079
+     2079:   47:                    break;
+    #####:   48:                default:
+    #####:   49:                    throw std::logic_error("unknown pax_fixed validity kind");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   50:            }
+        -:   51:        }
+     3449:   52:        if (version >= 4) {
+branch  0 taken 3438 (fallthrough)
+branch  1 taken 11
+    3438*:   53:            writer.write<uint8_t>(statistics.has_value() ? 1 : 0);
+call    0 returned 3438
+branch  1 taken 3438 (fallthrough)
+branch  2 taken 0
+call    3 returned 3438
+branch  4 taken 3438 (fallthrough)
+branch  5 taken 0 (throw)
+     3438:   54:            if (statistics.has_value()) {
+call    0 returned 3438
+branch  1 taken 3438 (fallthrough)
+branch  2 taken 0
+     3438:   55:                statistics->serialize(writer);
+call    0 returned 3438
+call    1 returned 3438
+        -:   56:            }
+        -:   57:        }
+     3449:   58:    }
+        -:   59:
+function _ZN10components5table7storage17pax_fixed_slice_t11deserializeERNS1_17metadata_reader_tEt called 3498 returned 100% blocks executed 80%
+     3498:   60:    pax_fixed_slice_t pax_fixed_slice_t::deserialize(metadata_reader_t& reader, uint16_t version) {
+     3498:   61:        pax_fixed_slice_t result;
+call    0 returned 3498
+     3498:   62:        result.column_index = reader.read<uint32_t>();
+call    0 returned 3498
+branch  1 taken 3498 (fallthrough)
+branch  2 taken 0 (throw)
+     3498:   63:        result.column_type = static_cast<pax_fixed_column_type>(reader.read<uint8_t>());
+call    0 returned 3498
+branch  1 taken 3498 (fallthrough)
+branch  2 taken 0 (throw)
+     3498:   64:        result.data_pointer = data_pointer_t::deserialize(reader);
+call    0 returned 3498
+branch  1 taken 3498 (fallthrough)
+branch  2 taken 0 (throw)
+     3498:   65:        if (version >= 2) {
+branch  0 taken 3489 (fallthrough)
+branch  1 taken 9
+     3489:   66:            result.validity_kind = static_cast<pax_fixed_validity_kind>(reader.read<uint8_t>());
+call    0 returned 3489
+branch  1 taken 3489 (fallthrough)
+branch  2 taken 0 (throw)
+     3489:   67:            switch (result.validity_kind) {
+branch  0 taken 1392
+branch  1 taken 2097
+branch  2 taken 0
+     1392:   68:                case pax_fixed_validity_kind::ALL_VALID:
+        -:   69:                case pax_fixed_validity_kind::ALL_INVALID:
+     1392:   70:                    break;
+     2097:   71:                case pax_fixed_validity_kind::BITMASK:
+        -:   72:                case pax_fixed_validity_kind::RLE:
+     2097:   73:                    result.validity_data_pointer = data_pointer_t::deserialize(reader);
+call    0 returned 2097
+branch  1 taken 2097 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 2097
+     2097:   74:                    break;
+    #####:   75:                default:
+    #####:   76:                    throw std::logic_error("unknown pax_fixed validity kind");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:   77:            }
+        -:   78:        } else {
+        9:   79:            result.validity_kind = pax_fixed_validity_kind::ALL_VALID;
+        9:   80:            result.validity_data_pointer.reset();
+call    0 returned 9
+        -:   81:        }
+     3498:   82:        if (version >= 4) {
+branch  0 taken 3479 (fallthrough)
+branch  1 taken 19
+     3479:   83:            const bool has_statistics = reader.read<uint8_t>() != 0;
+call    0 returned 3479
+branch  1 taken 3479 (fallthrough)
+branch  2 taken 0 (throw)
+     3479:   84:            if (has_statistics) {
+branch  0 taken 3479 (fallthrough)
+branch  1 taken 0
+     3479:   85:                result.statistics = base_statistics_t::deserialize(std::pmr::get_default_resource(), reader);
+call    0 returned 3479
+call    1 returned 3479
+branch  2 taken 3479 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 3479
+call    5 returned 3479
+        -:   86:            }
+        -:   87:        }
+     3498:   88:        return result;
+    =====:   89:    }
+call    0 never executed
+        -:   90:
+function _ZNK10components5table7storage16pax_fixed_page_t9serializeERNS1_17metadata_writer_tEt called 1397 returned 100% blocks executed 93%
+     1397:   91:    void pax_fixed_page_t::serialize(metadata_writer_t& writer, uint16_t version) const {
+     1397:   92:        writer.write<uint32_t>(row_offset_in_group);
+call    0 returned 1397
+     1397:   93:        writer.write<uint32_t>(tuple_count);
+call    0 returned 1397
+     1397:   94:        writer.write<uint32_t>(static_cast<uint32_t>(slices.size()));
+call    0 returned 1397
+call    1 returned 1397
+branch  2 taken 1397 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     4846:   95:        for (const auto& slice : slices) {
+call    0 returned 1397
+call    1 returned 1397
+call    2 returned 3449
+call    3 returned 3449
+call    4 returned 4846
+branch  5 taken 3449
+branch  6 taken 1397 (fallthrough)
+     3449:   96:            slice.serialize(writer, version);
+call    0 returned 3449
+branch  1 taken 3449 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   97:        }
+     1397:   98:    }
+        -:   99:
+function _ZN10components5table7storage16pax_fixed_page_t11deserializeERNS1_17metadata_reader_tEt called 1407 returned 100% blocks executed 94%
+     1407:  100:    pax_fixed_page_t pax_fixed_page_t::deserialize(metadata_reader_t& reader, uint16_t version) {
+     1407:  101:        pax_fixed_page_t result;
+call    0 returned 1407
+     1407:  102:        result.row_offset_in_group = reader.read<uint32_t>();
+call    0 returned 1407
+branch  1 taken 1407 (fallthrough)
+branch  2 taken 0 (throw)
+     1407:  103:        result.tuple_count = reader.read<uint32_t>();
+call    0 returned 1407
+branch  1 taken 1407 (fallthrough)
+branch  2 taken 0 (throw)
+     1407:  104:        auto slice_count = reader.read<uint32_t>();
+call    0 returned 1407
+branch  1 taken 1407 (fallthrough)
+branch  2 taken 0 (throw)
+     1407:  105:        result.slices.resize(slice_count);
+call    0 returned 1407
+branch  1 taken 1407 (fallthrough)
+branch  2 taken 0 (throw)
+     4905:  106:        for (uint32_t i = 0; i < slice_count; i++) {
+branch  0 taken 3498
+branch  1 taken 1407 (fallthrough)
+     3498:  107:            result.slices[i] = pax_fixed_slice_t::deserialize(reader, version);
+call    0 returned 3498
+branch  1 taken 3498 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 3498
+call    4 returned 3498
+call    5 returned 3498
+        -:  108:        }
+     1407:  109:        return result;
+    =====:  110:    }
+call    0 never executed
+        -:  111:
+function _ZNK10components5table7storage28pax_fixed_row_group_layout_t9serializeERNS1_17metadata_writer_tE called 447 returned 100% blocks executed 93%
+      447:  112:    void pax_fixed_row_group_layout_t::serialize(metadata_writer_t& writer) const {
+      447:  113:        writer.write<uint16_t>(version);
+call    0 returned 447
+      447:  114:        writer.write<uint16_t>(rows_per_page);
+call    0 returned 447
+      447:  115:        writer.write<uint32_t>(static_cast<uint32_t>(pages.size()));
+call    0 returned 447
+call    1 returned 447
+branch  2 taken 447 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     1844:  116:        for (const auto& page : pages) {
+call    0 returned 447
+call    1 returned 447
+call    2 returned 1397
+call    3 returned 1397
+call    4 returned 1844
+branch  5 taken 1397
+branch  6 taken 447 (fallthrough)
+     1397:  117:            page.serialize(writer, version);
+call    0 returned 1397
+branch  1 taken 1397 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  118:        }
+      447:  119:    }
+        -:  120:
+function _ZN10components5table7storage28pax_fixed_row_group_layout_t11deserializeERNS1_17metadata_reader_tE called 449 returned 100% blocks executed 94%
+      449:  121:    pax_fixed_row_group_layout_t pax_fixed_row_group_layout_t::deserialize(metadata_reader_t& reader) {
+      449:  122:        pax_fixed_row_group_layout_t result;
+call    0 returned 449
+      449:  123:        result.version = reader.read<uint16_t>();
+call    0 returned 449
+branch  1 taken 449 (fallthrough)
+branch  2 taken 0 (throw)
+      449:  124:        result.rows_per_page = reader.read<uint16_t>();
+call    0 returned 449
+branch  1 taken 449 (fallthrough)
+branch  2 taken 0 (throw)
+      449:  125:        auto page_count = reader.read<uint32_t>();
+call    0 returned 449
+branch  1 taken 449 (fallthrough)
+branch  2 taken 0 (throw)
+      449:  126:        result.pages.resize(page_count);
+call    0 returned 449
+branch  1 taken 449 (fallthrough)
+branch  2 taken 0 (throw)
+     1856:  127:        for (uint32_t i = 0; i < page_count; i++) {
+branch  0 taken 1407
+branch  1 taken 449 (fallthrough)
+     1407:  128:            result.pages[i] = pax_fixed_page_t::deserialize(reader, result.version);
+call    0 returned 1407
+branch  1 taken 1407 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1407
+call    4 returned 1407
+call    5 returned 1407
+        -:  129:        }
+      449:  130:        return result;
+    =====:  131:    }
+call    0 never executed
+        -:  132:
+function _ZNK10components5table7storage19pax_block_payload_t9serializeERNS1_17metadata_writer_tE called 3034 returned 100% blocks executed 92%
+     3034:  133:    void pax_block_payload_t::serialize(metadata_writer_t& writer) const {
+     3034:  134:        main_pointer.serialize(writer);
+call    0 returned 3034
+     3034:  135:        writer.write<uint32_t>(static_cast<uint32_t>(extra_block_ids.size()));
+call    0 returned 3034
+call    1 returned 3034
+branch  2 taken 3034 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     3043:  136:        for (auto block_id : extra_block_ids) {
+call    0 returned 3034
+call    1 returned 3034
+call    2 returned 9
+call    3 returned 9
+call    4 returned 3043
+branch  5 taken 9
+branch  6 taken 3034 (fallthrough)
+        9:  137:            writer.write<uint32_t>(block_id);
+call    0 returned 9
+branch  1 taken 9 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  138:        }
+     3034:  139:    }
+        -:  140:
+function _ZN10components5table7storage19pax_block_payload_t11deserializeERNS1_17metadata_reader_tE called 1580 returned 100% blocks executed 92%
+     1580:  141:    pax_block_payload_t pax_block_payload_t::deserialize(metadata_reader_t& reader) {
+     1580:  142:        pax_block_payload_t result;
+call    0 returned 1580
+     1580:  143:        result.main_pointer = data_pointer_t::deserialize(reader);
+call    0 returned 1580
+branch  1 taken 1580 (fallthrough)
+branch  2 taken 0 (throw)
+     1580:  144:        auto block_count = reader.read<uint32_t>();
+call    0 returned 1580
+branch  1 taken 1580 (fallthrough)
+branch  2 taken 0 (throw)
+     1580:  145:        result.extra_block_ids.resize(block_count);
+call    0 returned 1580
+branch  1 taken 1580 (fallthrough)
+branch  2 taken 0 (throw)
+     1592:  146:        for (uint32_t i = 0; i < block_count; i++) {
+branch  0 taken 12
+branch  1 taken 1580 (fallthrough)
+       12:  147:            result.extra_block_ids[i] = reader.read<uint32_t>();
+call    0 returned 12
+branch  1 taken 12 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 12
+        -:  148:        }
+     1580:  149:        return result;
+    =====:  150:    }
+call    0 never executed
+        -:  151:
+function _ZNK10components5table7storage19pax_generic_slice_t9serializeERNS1_17metadata_writer_tEt called 5309 returned 100% blocks executed 70%
+     5309:  152:    void pax_generic_slice_t::serialize(metadata_writer_t& writer, uint16_t version) const {
+     5309:  153:        writer.write<uint32_t>(column_index);
+call    0 returned 5309
+     5309:  154:        writer.write<uint8_t>(static_cast<uint8_t>(slice_kind));
+call    0 returned 5309
+branch  1 taken 5309 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 never executed
+     5309:  155:        writer.write<uint8_t>(static_cast<uint8_t>(codec_kind));
+call    0 returned 5309
+branch  1 taken 5309 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 never executed
+     5309:  156:        if (version >= 2) {
+branch  0 taken 5305 (fallthrough)
+branch  1 taken 4
+     5305:  157:            writer.write<uint16_t>(static_cast<uint16_t>(field_path.size()));
+call    0 returned 5305
+call    1 returned 5305
+branch  2 taken 5305 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     5358:  158:            for (auto path_entry : field_path) {
+call    0 returned 5305
+call    1 returned 5305
+call    2 returned 53
+call    3 returned 53
+call    4 returned 5358
+branch  5 taken 53
+branch  6 taken 5305 (fallthrough)
+       53:  159:                writer.write<uint16_t>(path_entry);
+call    0 returned 53
+branch  1 taken 53 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  160:            }
+     5305:  161:            if (slice_kind == pax_generic_slice_kind::FIXED_VALUES) {
+branch  0 taken 1322 (fallthrough)
+branch  1 taken 3983
+     1322:  162:                writer.write<uint8_t>(static_cast<uint8_t>(fixed_logical_type));
+call    0 returned 1322
+branch  1 taken 1322 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 never executed
+        -:  163:            }
+        -:  164:        }
+        -:  165:
+     5309:  166:        switch (codec_kind) {
+branch  0 taken 3034
+branch  1 taken 2275
+branch  2 taken 0
+     3034:  167:            case pax_generic_codec_kind::STRING_SEGMENT:
+        -:  168:            case pax_generic_codec_kind::VALIDITY_BITMASK:
+        -:  169:            case pax_generic_codec_kind::FIXED_PLAIN:
+     3034:  170:                if (!payload.has_value()) {
+call    0 returned 3034
+branch  1 taken 0 (fallthrough)
+branch  2 taken 3034
+    #####:  171:                    throw std::logic_error("missing pax_generic payload");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  172:                }
+     3034:  173:                payload->serialize(writer);
+call    0 returned 3034
+call    1 returned 3034
+     3034:  174:                break;
+     2275:  175:            case pax_generic_codec_kind::VALIDITY_ALL_VALID:
+        -:  176:            case pax_generic_codec_kind::VALIDITY_ALL_INVALID:
+     2275:  177:                break;
+    #####:  178:            default:
+    #####:  179:                throw std::logic_error("unknown pax_generic codec kind");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  180:        }
+     5309:  181:        if (version >= 4) {
+branch  0 taken 5252 (fallthrough)
+branch  1 taken 57
+     5252:  182:            writer.write<uint8_t>(statistics.has_value() ? 1 : 0);
+call    0 returned 5252
+branch  1 taken 2626 (fallthrough)
+branch  2 taken 2626
+call    3 returned 5252
+branch  4 taken 5252 (fallthrough)
+branch  5 taken 0 (throw)
+     5252:  183:            if (statistics.has_value()) {
+call    0 returned 5252
+branch  1 taken 2626 (fallthrough)
+branch  2 taken 2626
+     2626:  184:                statistics->serialize(writer);
+call    0 returned 2626
+call    1 returned 2626
+        -:  185:            }
+        -:  186:        }
+     5309:  187:    }
+        -:  188:
+function _ZN10components5table7storage19pax_generic_slice_t11deserializeERNS1_17metadata_reader_tEt called 2364 returned 100% blocks executed 85%
+     2364:  189:    pax_generic_slice_t pax_generic_slice_t::deserialize(metadata_reader_t& reader, uint16_t version) {
+     2364:  190:        pax_generic_slice_t result;
+call    0 returned 2364
+     2364:  191:        result.column_index = reader.read<uint32_t>();
+call    0 returned 2364
+branch  1 taken 2364 (fallthrough)
+branch  2 taken 0 (throw)
+     2364:  192:        result.slice_kind = static_cast<pax_generic_slice_kind>(reader.read<uint8_t>());
+call    0 returned 2364
+branch  1 taken 2364 (fallthrough)
+branch  2 taken 0 (throw)
+     2364:  193:        result.codec_kind = static_cast<pax_generic_codec_kind>(reader.read<uint8_t>());
+call    0 returned 2364
+branch  1 taken 2364 (fallthrough)
+branch  2 taken 0 (throw)
+     2364:  194:        if (version >= 2) {
+branch  0 taken 2360 (fallthrough)
+branch  1 taken 4
+     2360:  195:            auto path_count = reader.read<uint16_t>();
+call    0 returned 2360
+branch  1 taken 2360 (fallthrough)
+branch  2 taken 0 (throw)
+     2360:  196:            result.field_path.resize(path_count);
+call    0 returned 2360
+branch  1 taken 2360 (fallthrough)
+branch  2 taken 0 (throw)
+     2452:  197:            for (uint16_t i = 0; i < path_count; i++) {
+branch  0 taken 92
+branch  1 taken 2360 (fallthrough)
+       92:  198:                result.field_path[i] = reader.read<uint16_t>();
+call    0 returned 92
+branch  1 taken 92 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 92
+        -:  199:            }
+     2360:  200:            if (result.slice_kind == pax_generic_slice_kind::FIXED_VALUES) {
+branch  0 taken 633 (fallthrough)
+branch  1 taken 1727
+      633:  201:                result.fixed_logical_type = static_cast<types::logical_type>(reader.read<uint8_t>());
+call    0 returned 633
+branch  1 taken 633 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  202:            }
+        -:  203:        }
+        -:  204:
+     2364:  205:        switch (result.codec_kind) {
+branch  0 taken 1580
+branch  1 taken 784
+branch  2 taken 0
+     1580:  206:            case pax_generic_codec_kind::STRING_SEGMENT:
+        -:  207:            case pax_generic_codec_kind::VALIDITY_BITMASK:
+        -:  208:            case pax_generic_codec_kind::FIXED_PLAIN:
+     1580:  209:                result.payload = pax_block_payload_t::deserialize(reader);
+call    0 returned 1580
+branch  1 taken 1580 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1580
+call    4 returned 1580
+     1580:  210:                break;
+      784:  211:            case pax_generic_codec_kind::VALIDITY_ALL_VALID:
+        -:  212:            case pax_generic_codec_kind::VALIDITY_ALL_INVALID:
+      784:  213:                result.payload.reset();
+call    0 returned 784
+      784:  214:                break;
+    #####:  215:            default:
+    #####:  216:                throw std::logic_error("unknown pax_generic codec kind");
+call    0 never executed
+call    1 never executed
+branch  2 never executed
+branch  3 never executed
+call    4 never executed
+call    5 never executed
+        -:  217:        }
+     2364:  218:        if (version >= 4) {
+branch  0 taken 2266 (fallthrough)
+branch  1 taken 98
+     2266:  219:            const bool has_statistics = reader.read<uint8_t>() != 0;
+call    0 returned 2266
+branch  1 taken 2266 (fallthrough)
+branch  2 taken 0 (throw)
+     2266:  220:            if (has_statistics) {
+branch  0 taken 1133 (fallthrough)
+branch  1 taken 1133
+     1133:  221:                result.statistics = base_statistics_t::deserialize(std::pmr::get_default_resource(), reader);
+call    0 returned 1133
+call    1 returned 1133
+branch  2 taken 1133 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 1133
+call    5 returned 1133
+        -:  222:            }
+        -:  223:        }
+     2364:  224:        return result;
+    =====:  225:    }
+call    0 never executed
+        -:  226:
+function _ZNK10components5table7storage18pax_generic_page_t9serializeERNS1_17metadata_writer_tEt called 821 returned 100% blocks executed 93%
+      821:  227:    void pax_generic_page_t::serialize(metadata_writer_t& writer, uint16_t version) const {
+      821:  228:        writer.write<uint32_t>(row_offset_in_group);
+call    0 returned 821
+      821:  229:        writer.write<uint32_t>(tuple_count);
+call    0 returned 821
+      821:  230:        writer.write<uint32_t>(static_cast<uint32_t>(slices.size()));
+call    0 returned 821
+call    1 returned 821
+branch  2 taken 821 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     6130:  231:        for (const auto& slice : slices) {
+call    0 returned 821
+call    1 returned 821
+call    2 returned 5309
+call    3 returned 5309
+call    4 returned 6130
+branch  5 taken 5309
+branch  6 taken 821 (fallthrough)
+     5309:  232:            slice.serialize(writer, version);
+call    0 returned 5309
+branch  1 taken 5309 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  233:        }
+      821:  234:    }
+        -:  235:
+function _ZN10components5table7storage18pax_generic_page_t11deserializeERNS1_17metadata_reader_tEt called 387 returned 100% blocks executed 94%
+      387:  236:    pax_generic_page_t pax_generic_page_t::deserialize(metadata_reader_t& reader, uint16_t version) {
+      387:  237:        pax_generic_page_t result;
+call    0 returned 387
+      387:  238:        result.row_offset_in_group = reader.read<uint32_t>();
+call    0 returned 387
+branch  1 taken 387 (fallthrough)
+branch  2 taken 0 (throw)
+      387:  239:        result.tuple_count = reader.read<uint32_t>();
+call    0 returned 387
+branch  1 taken 387 (fallthrough)
+branch  2 taken 0 (throw)
+      387:  240:        auto slice_count = reader.read<uint32_t>();
+call    0 returned 387
+branch  1 taken 387 (fallthrough)
+branch  2 taken 0 (throw)
+      387:  241:        result.slices.resize(slice_count);
+call    0 returned 387
+branch  1 taken 387 (fallthrough)
+branch  2 taken 0 (throw)
+     2751:  242:        for (uint32_t i = 0; i < slice_count; i++) {
+branch  0 taken 2364
+branch  1 taken 387 (fallthrough)
+     2364:  243:            result.slices[i] = pax_generic_slice_t::deserialize(reader, version);
+call    0 returned 2364
+branch  1 taken 2364 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 2364
+call    4 returned 2364
+call    5 returned 2364
+        -:  244:        }
+      387:  245:        return result;
+    =====:  246:    }
+call    0 never executed
+        -:  247:
+function _ZNK10components5table7storage30pax_generic_row_group_layout_t9serializeERNS1_17metadata_writer_tE called 670 returned 100% blocks executed 93%
+      670:  248:    void pax_generic_row_group_layout_t::serialize(metadata_writer_t& writer) const {
+      670:  249:        writer.write<uint16_t>(version);
+call    0 returned 670
+      670:  250:        writer.write<uint16_t>(rows_per_page);
+call    0 returned 670
+      670:  251:        writer.write<uint32_t>(static_cast<uint32_t>(pages.size()));
+call    0 returned 670
+call    1 returned 670
+branch  2 taken 670 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     1491:  252:        for (const auto& page : pages) {
+call    0 returned 670
+call    1 returned 670
+call    2 returned 821
+call    3 returned 821
+call    4 returned 1491
+branch  5 taken 821
+branch  6 taken 670 (fallthrough)
+      821:  253:            page.serialize(writer, version);
+call    0 returned 821
+branch  1 taken 821 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  254:        }
+      670:  255:    }
+        -:  256:
+function _ZN10components5table7storage30pax_generic_row_group_layout_t11deserializeERNS1_17metadata_reader_tE called 236 returned 100% blocks executed 94%
+      236:  257:    pax_generic_row_group_layout_t pax_generic_row_group_layout_t::deserialize(metadata_reader_t& reader) {
+      236:  258:        pax_generic_row_group_layout_t result;
+call    0 returned 236
+      236:  259:        result.version = reader.read<uint16_t>();
+call    0 returned 236
+branch  1 taken 236 (fallthrough)
+branch  2 taken 0 (throw)
+      236:  260:        result.rows_per_page = reader.read<uint16_t>();
+call    0 returned 236
+branch  1 taken 236 (fallthrough)
+branch  2 taken 0 (throw)
+      236:  261:        auto page_count = reader.read<uint32_t>();
+call    0 returned 236
+branch  1 taken 236 (fallthrough)
+branch  2 taken 0 (throw)
+      236:  262:        result.pages.resize(page_count);
+call    0 returned 236
+branch  1 taken 236 (fallthrough)
+branch  2 taken 0 (throw)
+      623:  263:        for (uint32_t i = 0; i < page_count; i++) {
+branch  0 taken 387
+branch  1 taken 236 (fallthrough)
+      387:  264:            result.pages[i] = pax_generic_page_t::deserialize(reader, result.version);
+call    0 returned 387
+branch  1 taken 387 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 387
+call    4 returned 387
+call    5 returned 387
+        -:  265:        }
+      236:  266:        return result;
+    =====:  267:    }
+call    0 never executed
+        -:  268:
+function _ZNK10components5table7storage19row_group_pointer_t9serializeERNS1_17metadata_writer_tE called 1255 returned 100% blocks executed 84%
+     1255:  269:    void row_group_pointer_t::serialize(metadata_writer_t& writer) const {
+     1255:  270:        writer.write<uint64_t>(row_start);
+call    0 returned 1255
+     1255:  271:        writer.write<uint64_t>(tuple_count);
+call    0 returned 1255
+        -:  272:
+        -:  273:        // column count
+     1255:  274:        writer.write<uint32_t>(static_cast<uint32_t>(columnar_data_pointers.size()));
+call    0 returned 1255
+call    1 returned 1255
+branch  2 taken 1255 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     5005:  275:        for (const auto& column_ptrs : columnar_data_pointers) {
+call    0 returned 1255
+call    1 returned 1255
+call    2 returned 3750
+call    3 returned 3750
+call    4 returned 5005
+branch  5 taken 3750
+branch  6 taken 1255 (fallthrough)
+        -:  276:            // segments per column
+     3750:  277:            writer.write<uint32_t>(static_cast<uint32_t>(column_ptrs.size()));
+call    0 returned 3750
+call    1 returned 3750
+branch  2 taken 3750 (fallthrough)
+branch  3 taken 0 (throw)
+     8913:  278:            for (const auto& dp : column_ptrs) {
+call    0 returned 3750
+call    1 returned 3750
+call    2 returned 5163
+call    3 returned 5163
+call    4 returned 8913
+branch  5 taken 5163
+branch  6 taken 3750 (fallthrough)
+     5163:  279:                dp.serialize(writer);
+call    0 returned 5163
+branch  1 taken 5163 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  280:            }
+        -:  281:        }
+        -:  282:
+        -:  283:        // per-column validity-child pointers; empty for PAX / columns without validity
+     1255:  284:        writer.write<uint32_t>(static_cast<uint32_t>(columnar_validity_pointers.size()));
+call    0 returned 1255
+call    1 returned 1255
+branch  2 taken 1255 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     5005:  285:        for (const auto& column_ptrs : columnar_validity_pointers) {
+call    0 returned 1255
+call    1 returned 1255
+call    2 returned 3750
+call    3 returned 3750
+call    4 returned 5005
+branch  5 taken 3750
+branch  6 taken 1255 (fallthrough)
+     3750:  286:            writer.write<uint32_t>(static_cast<uint32_t>(column_ptrs.size()));
+call    0 returned 3750
+call    1 returned 3750
+branch  2 taken 3750 (fallthrough)
+branch  3 taken 0 (throw)
+     4147:  287:            for (const auto& dp : column_ptrs) {
+call    0 returned 3750
+call    1 returned 3750
+call    2 returned 397
+call    3 returned 397
+call    4 returned 4147
+branch  5 taken 397
+branch  6 taken 3750 (fallthrough)
+      397:  288:                dp.serialize(writer);
+call    0 returned 397
+branch  1 taken 397 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  289:            }
+        -:  290:        }
+        -:  291:
+        -:  292:        // deletes
+     1255:  293:        writer.write<uint32_t>(static_cast<uint32_t>(deletes_pointers.size()));
+call    0 returned 1255
+call    1 returned 1255
+branch  2 taken 1255 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 never executed
+     1434:  294:        for (const auto& dp : deletes_pointers) {
+call    0 returned 1255
+call    1 returned 1255
+call    2 returned 179
+call    3 returned 179
+call    4 returned 1434
+branch  5 taken 179
+branch  6 taken 1255 (fallthrough)
+      179:  295:            dp.serialize(writer);
+call    0 returned 179
+branch  1 taken 179 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  296:        }
+     1255:  297:    }
+        -:  298:
+function _ZN10components5table7storage19row_group_pointer_t11deserializeERNS1_17metadata_reader_tE called 824 returned 100% blocks executed 98%
+      824:  299:    row_group_pointer_t row_group_pointer_t::deserialize(metadata_reader_t& reader) {
+      824:  300:        row_group_pointer_t result;
+call    0 returned 824
+      824:  301:        result.row_start = reader.read<uint64_t>();
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+      824:  302:        result.tuple_count = reader.read<uint64_t>();
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  303:
+      824:  304:        auto col_count = reader.read<uint32_t>();
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+      824:  305:        result.columnar_data_pointers.resize(col_count);
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+     3107:  306:        for (uint32_t i = 0; i < col_count; i++) {
+branch  0 taken 2283
+branch  1 taken 824 (fallthrough)
+     2283:  307:            auto seg_count = reader.read<uint32_t>();
+call    0 returned 2283
+branch  1 taken 2283 (fallthrough)
+branch  2 taken 0 (throw)
+     2283:  308:            result.columnar_data_pointers[i].resize(seg_count);
+call    0 returned 2283
+call    1 returned 2283
+branch  2 taken 2283 (fallthrough)
+branch  3 taken 0 (throw)
+     6706:  309:            for (uint32_t j = 0; j < seg_count; j++) {
+branch  0 taken 4423
+branch  1 taken 2283 (fallthrough)
+     4423:  310:                result.columnar_data_pointers[i][j] = data_pointer_t::deserialize(reader);
+call    0 returned 4423
+branch  1 taken 4423 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 4423
+call    4 returned 4423
+        -:  311:            }
+        -:  312:        }
+        -:  313:
+      824:  314:        auto vcol_count = reader.read<uint32_t>();
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+      824:  315:        result.columnar_validity_pointers.resize(vcol_count);
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+     3105:  316:        for (uint32_t i = 0; i < vcol_count; i++) {
+branch  0 taken 2281
+branch  1 taken 824 (fallthrough)
+     2281:  317:            auto seg_count = reader.read<uint32_t>();
+call    0 returned 2281
+branch  1 taken 2281 (fallthrough)
+branch  2 taken 0 (throw)
+     2281:  318:            result.columnar_validity_pointers[i].resize(seg_count);
+call    0 returned 2281
+call    1 returned 2281
+branch  2 taken 2281 (fallthrough)
+branch  3 taken 0 (throw)
+     2678:  319:            for (uint32_t j = 0; j < seg_count; j++) {
+branch  0 taken 397
+branch  1 taken 2281 (fallthrough)
+      397:  320:                result.columnar_validity_pointers[i][j] = data_pointer_t::deserialize(reader);
+call    0 returned 397
+branch  1 taken 397 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 397
+call    4 returned 397
+        -:  321:            }
+        -:  322:        }
+        -:  323:
+      824:  324:        auto del_count = reader.read<uint32_t>();
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+      824:  325:        result.deletes_pointers.resize(del_count);
+call    0 returned 824
+branch  1 taken 824 (fallthrough)
+branch  2 taken 0 (throw)
+     1003:  326:        for (uint32_t i = 0; i < del_count; i++) {
+branch  0 taken 179
+branch  1 taken 824 (fallthrough)
+      179:  327:            result.deletes_pointers[i] = data_pointer_t::deserialize(reader);
+call    0 returned 179
+branch  1 taken 179 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 179
+        -:  328:        }
+        -:  329:
+      824:  330:        return result;
+    =====:  331:    }
+call    0 never executed
+        -:  332:
+        -:  333:} // namespace components::table::storage

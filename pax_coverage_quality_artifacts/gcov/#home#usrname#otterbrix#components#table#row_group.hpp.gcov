@@ -1,0 +1,237 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/row_group.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/components/table/CMakeFiles/otterbrix_table.dir/data_table.cpp.gcda
+        -:    0:Runs:261
+        -:    1:#pragma once
+        -:    2:#include "column_data.hpp"
+        -:    3:#include "row_version_manager.hpp"
+        -:    4:#include "storage/block_manager.hpp"
+        -:    5:#include "storage/data_pointer.hpp"
+        -:    6:#include <components/vector/data_chunk.hpp>
+        -:    7:#include <atomic>
+        -:    8:#include <memory>
+        -:    9:#include <optional>
+        -:   10:#include <string>
+        -:   11:#include <unordered_set>
+        -:   12:
+        -:   13:namespace components::vector {
+        -:   14:    class data_chunk_t;
+        -:   15:}
+        -:   16:
+        -:   17:namespace components::table {
+        -:   18:    class row_version_manager_t;
+        -:   19:    struct row_group_test_access_t;
+        -:   20:    class column_definition_t;
+        -:   21:
+        -:   22:    namespace detail {
+        -:   23:        enum class explicit_pax_root_kind : uint8_t
+        -:   24:        {
+        -:   25:            FIXED = 0,
+        -:   26:            GENERIC = 1,
+        -:   27:            COLUMNAR_ONLY = 2,
+        -:   28:            UNSUPPORTED = 3
+        -:   29:        };
+        -:   30:
+        -:   31:        bool is_explicit_pax_columnar_only_root_type(const types::complex_logical_type& type);
+        -:   32:        explicit_pax_root_kind classify_explicit_pax_root_type(const types::complex_logical_type& type);
+        -:   33:        bool supports_explicit_pax_schema(const std::vector<column_definition_t>& columns,
+        -:   34:                                          std::string* error_message = nullptr);
+        -:   35:    } // namespace detail
+        -:   36:
+        -:   37:    constexpr static uint64_t MAX_ROW_GROUP_SIZE = uint64_t(1) << 30;
+        -:   38:
+        -:   39:    class data_table_t;
+        -:   40:    enum class table_scan_type : uint8_t;
+        -:   41:    class scan_filter_info;
+        -:   42:    class collection_scan_state;
+        -:   43:    class collection_t;
+        -:   44:
+        -:   45:    struct row_group_scan_path_counts_t {
+        -:   46:        uint64_t pax_generic_projected{0};
+        -:   47:        uint64_t pax_generic_pruned_pages{0};
+        -:   48:        uint64_t pax_generic_prefetched_blocks{0};
+        -:   49:        uint64_t pax_generic_skipped_payload_pages{0};
+        -:   50:        uint64_t pax_fixed_projected{0};
+        -:   51:        uint64_t pax_fixed_pruned_pages{0};
+        -:   52:        uint64_t pax_fixed_prefetched_blocks{0};
+        -:   53:        uint64_t pax_fixed_skipped_payload_pages{0};
+        -:   54:        uint64_t regular{0};
+        -:   55:    };
+        -:   56:
+        -:   57:    class row_group_t : public segment_base_t<row_group_t> {
+        -:   58:    public:
+        -:   59:        friend class column_data_t;
+        -:   60:        friend struct row_group_test_access_t;
+        -:   61:
+        -:   62:        row_group_t(collection_t* collection, int64_t start, uint64_t count);
+function _ZN10components5table11row_group_tD2Ev called 0 returned 0% blocks executed 0%
+    #####:   63:        ~row_group_t() = default;
+call    0 never executed
+call    1 never executed
+call    2 never executed
+call    3 never executed
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+        -:   64:
+        -:   65:    private:
+        -:   66:        collection_t* collection_;
+        -:   67:        std::atomic<row_version_manager_t*> version_info_ = nullptr;
+        -:   68:        std::shared_ptr<row_version_manager_t> owned_version_info_;
+        -:   69:        uint64_t current_version_ = 0;
+        -:   70:        std::vector<std::shared_ptr<column_data_t>> columns_;
+        -:   71:        storage::row_group_layout_kind layout_kind_ = storage::row_group_layout_kind::COLUMNAR;
+        -:   72:        std::optional<storage::pax_fixed_row_group_layout_t> pax_fixed_layout_;
+        -:   73:        std::optional<storage::pax_generic_row_group_layout_t> pax_generic_layout_;
+        -:   74:        std::optional<storage::row_group_pointer_t> persisted_pointer_;
+        -:   75:        storage::row_group_layout_policy persisted_layout_policy_{storage::row_group_layout_policy::AUTO};
+        -:   76:        bool is_dirty_{true};
+        -:   77:        std::atomic<bool> scan_path_counts_enabled_{false};
+        -:   78:        std::atomic<uint64_t> pax_generic_projected_scan_count_{0};
+        -:   79:        std::atomic<uint64_t> pax_generic_pruned_page_count_{0};
+        -:   80:        std::atomic<uint64_t> pax_generic_prefetched_block_count_{0};
+        -:   81:        std::atomic<uint64_t> pax_generic_skipped_payload_page_count_{0};
+        -:   82:        std::atomic<uint64_t> pax_fixed_projected_scan_count_{0};
+        -:   83:        std::atomic<uint64_t> pax_fixed_pruned_page_count_{0};
+        -:   84:        std::atomic<uint64_t> pax_fixed_prefetched_block_count_{0};
+        -:   85:        std::atomic<uint64_t> pax_fixed_skipped_payload_page_count_{0};
+        -:   86:        std::atomic<uint64_t> regular_scan_count_{0};
+        -:   87:
+        -:   88:    public:
+        -:   89:        void move_to_collection(collection_t* collection, int64_t new_start);
+        -:   90:        collection_t& collection() { return *collection_; }
+        -:   91:
+        -:   92:        storage::block_manager_t& block_manager();
+        -:   93:
+        -:   94:        // TODO: type casting
+        -:   95:        // std::unique_ptr<row_group_t> alter_type(collection_t* collection, const types::complex_logical_type &target_type, uint64_t changed_idx,
+        -:   96:        // collection_scan_state &scan_state, vector::data_chunk_t &scan_chunk);
+        -:   97:        std::unique_ptr<row_group_t> add_column(collection_t* collection,
+        -:   98:                                                column_definition_t& new_column,
+        -:   99:                                                const std::optional<types::logical_value_t>& default_value,
+        -:  100:                                                vector::vector_t& intermediate);
+        -:  101:        std::unique_ptr<row_group_t> remove_column(collection_t* collection, uint64_t removed_column);
+        -:  102:
+        -:  103:        void initialize_empty(const std::pmr::vector<types::complex_logical_type>& types);
+        -:  104:
+        -:  105:        bool initialize_scan(collection_scan_state& state);
+        -:  106:        bool initialize_scan_with_offset(collection_scan_state& state, uint64_t vector_offset);
+        -:  107:        bool check_zonemap_segments(collection_scan_state& state);
+        -:  108:        void scan(collection_scan_state& state, vector::data_chunk_t& result);
+        -:  109:        void scan_committed(collection_scan_state& state, vector::data_chunk_t& result, table_scan_type type);
+        -:  110:
+        -:  111:        bool check_predicate(int64_t row_id, const table_filter_t* filter);
+        -:  112:        bool row_visible(transaction_data txn, int64_t row_id);
+        -:  113:
+        -:  114:        void fetch_row(column_fetch_state& state,
+        -:  115:                       const std::vector<storage_index_t>& column_ids,
+        -:  116:                       int64_t row_id,
+        -:  117:                       vector::data_chunk_t& result,
+        -:  118:                       uint64_t result_idx);
+        -:  119:
+        -:  120:        void append_version_info(transaction_data txn, uint64_t count);
+        -:  121:
+        -:  122:        void commit_append(uint64_t commit_id, uint64_t row_group_start, uint64_t count);
+        -:  123:        void revert_append(uint64_t row_group_start);
+        -:  124:
+        -:  125:        uint64_t delete_rows(uint64_t vector_idx, int64_t rows[], uint64_t count);
+        -:  126:        uint64_t delete_rows(data_table_t& table, int64_t* row_ids, uint64_t count, uint64_t transaction_id);
+        -:  127:        void commit_delete(uint64_t commit_id, uint64_t vector_idx, const delete_info& info);
+        -:  128:        void commit_all_deletes(uint64_t txn_id, uint64_t commit_id);
+        -:  129:
+        -:  130:        uint64_t committed_row_count();
+        -:  131:        bool has_persisted_pax_layout() const;
+        -:  132:        bool can_append_mutable_tail() const;
+        -:  133:        bool supports_threaded_scan() const;
+        -:  134:
+        -:  135:        void initialize_append(row_group_append_state& append_state);
+        -:  136:        void append(row_group_append_state& append_state, vector::data_chunk_t& chunk, uint64_t append_count);
+        -:  137:
+        -:  138:        void update(vector::data_chunk_t& updates,
+        -:  139:                    int64_t* ids,
+        -:  140:                    uint64_t offset,
+        -:  141:                    uint64_t count,
+        -:  142:                    const std::vector<uint64_t>& column_ids);
+        -:  143:        void update_column(vector::data_chunk_t& updates,
+        -:  144:                           vector::vector_t& row_ids,
+        -:  145:                           const std::vector<uint64_t>& column_path);
+        -:  146:
+        -:  147:        void get_column_segment_info(uint64_t row_group_index, std::vector<column_segment_info>& result);
+        -:  148:
+        -:  149:        storage::row_group_pointer_t write_to_disk(storage::partial_block_manager_t& partial_block_manager);
+        -:  150:        void create_from_pointer(const storage::row_group_pointer_t& pointer);
+        -:  151:
+        -:  152:        uint64_t allocation_size() const { return allocation_size_; }
+        -:  153:
+        -:  154:        void next_vector(collection_scan_state& state);
+        -:  155:
+        -:  156:        uint64_t row_group_size() const;
+        -:  157:        row_version_manager_t& get_or_create_version_info();
+        -:  158:        std::shared_ptr<row_version_manager_t> get_or_create_version_info_ptr();
+        -:  159:
+        -:  160:        uint64_t calculate_size();
+        -:  161:
+        -:  162:#if defined(DEV_MODE)
+        -:  163:        void debug_set_unloaded_deletes_for_test(bool enabled);
+        -:  164:        storage::row_group_layout_kind debug_layout_kind_for_test() const { return layout_kind_; }
+        -:  165:        void debug_reset_scan_path_counts_for_test() { reset_scan_path_counts(); }
+        -:  166:        row_group_scan_path_counts_t debug_scan_path_counts_for_test() const { return scan_path_counts(); }
+        -:  167:#endif
+        -:  168:        void reset_scan_path_counts_for_benchmark() { reset_scan_path_counts(); }
+        -:  169:        void ensure_scan_path_counts_enabled_for_benchmark() {
+        -:  170:            if (!scan_path_counts_enabled_.load(std::memory_order_relaxed)) {
+        -:  171:                reset_scan_path_counts();
+        -:  172:            }
+        -:  173:        }
+        -:  174:        row_group_scan_path_counts_t scan_path_counts_for_benchmark() const { return scan_path_counts(); }
+        -:  175:
+        -:  176:    private:
+        -:  177:        uint64_t indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count);
+        -:  178:        uint64_t indexing_vector(transaction_data txn,
+        -:  179:                                 uint64_t vector_idx,
+        -:  180:                                 vector::indexing_vector_t& indexing_vector,
+        -:  181:                                 uint64_t max_count);
+        -:  182:	        uint64_t pax_visibility_indexing(const collection_scan_state& state,
+        -:  183:	                                         uint64_t row_offset_in_group,
+        -:  184:	                                         uint64_t max_count,
+        -:  185:	                                         vector::indexing_vector_t& result_indexing,
+        -:  186:	                                         bool transaction_scan);
+        -:  187:	        bool requires_pax_version_visibility(bool transaction_scan);
+        -:  188:        uint64_t
+        -:  189:        committed_indexing_vector(uint64_t vector_idx, vector::indexing_vector_t& indexing_vector, uint64_t max_count);
+        -:  190:        std::shared_ptr<row_version_manager_t> get_or_create_version_info_internal();
+        -:  191:        row_version_manager_t* version_info();
+        -:  192:        void set_version_info(std::shared_ptr<row_version_manager_t> version);
+        -:  193:        column_data_t& get_column(uint64_t c);
+        -:  194:        column_data_t& get_column(const storage_index_t& c);
+        -:  195:        uint64_t get_column_count() const;
+        -:  196:        std::vector<std::shared_ptr<column_data_t>>& columns();
+        -:  197:
+        -:  198:        void filter_indexing(std::pmr::memory_resource* resource,
+        -:  199:                             int64_t row_id_base,
+        -:  200:                             vector::indexing_vector_t& indexing,
+        -:  201:                             const table_filter_t* filter,
+        -:  202:                             uint64_t& approved_tuple_count);
+        -:  203:        bool try_scan_pax_generic_projected(collection_scan_state& state, vector::data_chunk_t& result);
+        -:  204:        bool try_scan_pax_fixed_projected(collection_scan_state& state, vector::data_chunk_t& result);
+        -:  205:        void reset_scan_path_counts();
+        -:  206:        row_group_scan_path_counts_t scan_path_counts() const;
+        -:  207:
+        -:  208:        template<table_scan_type TYPE>
+        -:  209:        void templated_scan(collection_scan_state& state, vector::data_chunk_t& result);
+        -:  210:
+        -:  211:        bool has_unloaded_deletes() const;
+        -:  212:        void mark_dirty();
+        -:  213:        bool can_reuse_persisted_pointer();
+        -:  214:        storage::row_group_pointer_t remember_persisted_pointer(storage::row_group_pointer_t pointer);
+        -:  215:
+        -:  216:        std::mutex row_group_lock_;
+        -:  217:        std::vector<storage::meta_block_pointer_t> column_pointers_;
+        -:  218:        std::unique_ptr<std::atomic<bool>[]> is_loaded_;
+        -:  219:        std::vector<storage::data_pointer_t> deletes_pointers_;
+        -:  220:        std::atomic<bool> deletes_is_loaded_;
+        -:  221:        uint64_t allocation_size_;
+        -:  222:
+        -:  223:    };
+        -:  224:} // namespace components::table

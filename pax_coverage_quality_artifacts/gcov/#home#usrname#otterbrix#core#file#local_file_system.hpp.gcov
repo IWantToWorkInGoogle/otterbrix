@@ -1,0 +1,116 @@
+        -:    0:Source:/home/usrname/otterbrix/core/file/local_file_system.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include "file_handle.hpp"
+        -:    4:#include <cstddef>
+        -:    5:#include <cstdint>
+        -:    6:#include <functional>
+        -:    7:#include <vector>
+        -:    8:
+        -:    9:namespace core::filesystem {
+        -:   10:
+        -:   11:    // TODO: find a better name for it
+        -:   12:    class local_file_system_t {
+        -:   13:    public:
+function _ZN4core10filesystem19local_file_system_tC2Ev called 1784 returned 100% blocks executed 100%
+     1784:   14:        local_file_system_t() = default;
+call    0 returned 1784
+call    1 returned 1784
+    #####:   15:        virtual ~local_file_system_t() = default;
+------------------
+_ZN4core10filesystem19local_file_system_tD0Ev:
+function _ZN4core10filesystem19local_file_system_tD0Ev called 0 returned 0% blocks executed 0%
+    #####:   15:        virtual ~local_file_system_t() = default;
+call    0 never executed
+call    1 never executed
+------------------
+_ZN4core10filesystem19local_file_system_tD2Ev:
+function _ZN4core10filesystem19local_file_system_tD2Ev called 0 returned 0% blocks executed 0%
+    #####:   15:        virtual ~local_file_system_t() = default;
+call    0 never executed
+call    1 never executed
+------------------
+        -:   16:
+        -:   17:        static bool set_working_directory(const path_t& path);
+        -:   18:        static path_t working_directory();
+        -:   19:        static uint64_t available_memory();
+        -:   20:        static std::string enviroment_variable(const std::string& name);
+        -:   21:        static bool has_glob(const std::string& str);
+        -:   22:
+        -:   23:        virtual void reset(file_handle_t& handle);
+        -:   24:
+        -:   25:        virtual path_t expand_path(const path_t& path);
+        -:   26:
+        -:   27:        virtual std::string name() const { return "local_file_system_t"; }
+        -:   28:        virtual bool can_handle_files(const path_t&) { return true; }
+        -:   29:        virtual bool can_seek() const { return true; }
+        -:   30:
+        -:   31:        path_t home_directory();
+        -:   32:        bool set_home_directory(path_t path);
+        -:   33:        path_t normalize_path_absolute(const path_t& path);
+        -:   34:        path_t extract_base_name(const path_t& path);
+        -:   35:        path_t extract_name(const path_t& path);
+        -:   36:
+        -:   37:        bool set_file_pointer(file_handle_t& handle, uint64_t location);
+        -:   38:        uint64_t file_pointer(file_handle_t& handle);
+        -:   39:
+        -:   40:        std::vector<path_t> fetch_file_without_glob(const path_t& path, bool absolute_path);
+        -:   41:        const path_t& file_search_path() const { return file_search_path_; }
+        -:   42:
+        -:   43:    protected:
+        -:   44:        path_t home_directory_;
+        -:   45:        path_t file_search_path_;
+        -:   46:    };
+        -:   47:
+        -:   48:    std::unique_ptr<file_handle_t> open_file(local_file_system_t&,
+        -:   49:                                             const path_t& path,
+        -:   50:                                             file_flags flags,
+        -:   51:                                             file_lock_type lock = file_lock_type::NO_LOCK);
+        -:   52:    bool read(local_file_system_t&, file_handle_t& handle, void* buffer, int64_t nr_bytes, uint64_t location);
+        -:   53:    int64_t read(local_file_system_t&, file_handle_t& handle, void* buffer, int64_t nr_bytes);
+        -:   54:    bool write(local_file_system_t&, file_handle_t& handle, void* buffer, int64_t nr_bytes, uint64_t location);
+        -:   55:    int64_t write(local_file_system_t&, file_handle_t& handle, void* buffer, int64_t nr_bytes);
+        -:   56:
+        -:   57:    int64_t file_size(local_file_system_t&, file_handle_t& handle);
+        -:   58:    time_t last_modified_time(local_file_system_t&, file_handle_t& handle);
+        -:   59:    file_type_t file_type(local_file_system_t&, file_handle_t& handle);
+        -:   60:    bool truncate(local_file_system_t&, file_handle_t& handle, int64_t new_size);
+        -:   61:    bool trim(local_file_system_t&, file_handle_t& handle, uint64_t offset_bytes, uint64_t length_bytes);
+        -:   62:
+        -:   63:    bool directory_exists(local_file_system_t&, const path_t& directory);
+        -:   64:    bool create_directory(local_file_system_t&, const path_t& directory);
+        -:   65:    bool remove_directory(local_file_system_t&, const path_t& directory);
+        -:   66:    bool list_files(local_file_system_t&, path_t directory, const std::function<void(const path_t&, bool)>& callback);
+        -:   67:    bool move_files(local_file_system_t&, const path_t& source, const path_t& target);
+        -:   68:    bool file_exists(local_file_system_t&, const path_t& filename);
+        -:   69:
+        -:   70:    bool is_pipe(local_file_system_t&, const path_t& filename);
+        -:   71:    bool remove_file(local_file_system_t&, const path_t& filename);
+        -:   72:    bool file_sync(local_file_system_t&, file_handle_t& handle);
+        -:   73:
+        -:   74:    std::vector<path_t> glob_files(local_file_system_t&, const std::string& path);
+        -:   75:
+        -:   76:    bool seek(local_file_system_t&, file_handle_t& handle, uint64_t location);
+        -:   77:    uint64_t seek_position(local_file_system_t&, file_handle_t& handle);
+        -:   78:
+        -:   79:#ifdef PLATFORM_WINDOWS
+        -:   80:    std::string last_error_as_string(local_file_system_t&);
+        -:   81:#endif
+        -:   82:
+        -:   83:#if defined(DEV_MODE) && defined(PLATFORM_POSIX)
+        -:   84:    namespace testing {
+        -:   85:        using posix_pread_hook_t = int64_t (*)(int fd, void* buffer, size_t nr_bytes, uint64_t location);
+        -:   86:        using posix_pwrite_hook_t = int64_t (*)(int fd, const void* buffer, size_t nr_bytes, uint64_t location);
+        -:   87:        using posix_fsync_hook_t = int (*)(int fd);
+        -:   88:
+        -:   89:        void set_posix_pread_hook(posix_pread_hook_t hook);
+        -:   90:        void set_posix_pwrite_hook(posix_pwrite_hook_t hook);
+        -:   91:        void set_posix_fsync_hook(posix_fsync_hook_t hook);
+        -:   92:        void reset_posix_positioned_io_hooks();
+        -:   93:    } // namespace testing
+        -:   94:#endif
+        -:   95:
+        -:   96:} // namespace core::filesystem

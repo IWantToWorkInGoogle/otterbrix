@@ -1,0 +1,9 @@
+name,group,layout,disk,warm_cache,warmup,trace,build_type,nruns,min_ms,max_ms,avg_ms,median_ms,stddev_ms,ci95_ms,rsd_pct,verified,row_count,column_count,result_hash,error_message
+pax/string_heavy/queries/q1,pax/string_heavy,auto,disk,warm,true,false,Release,30,16.338,29.448,19.755,18.585,3.351,1.199,16.964,OK,1,1,fnv64:553e5bcda042d5d2,""
+pax/string_heavy/queries/q2,pax/string_heavy,auto,disk,warm,true,false,Release,30,32.596,64.471,37.344,34.351,8.100,2.899,21.691,OK,1,1,fnv64:8b7d8fd6b9d6a424,""
+pax/string_heavy/queries/q3,pax/string_heavy,auto,disk,warm,true,false,Release,30,35.908,40.713,38.112,38.400,1.210,0.433,3.174,OK,16,2,fnv64:04b8f87b5136a661,""
+pax/string_heavy/queries/q4,pax/string_heavy,auto,disk,warm,true,false,Release,30,2.895,4.468,3.673,3.725,0.422,0.151,11.488,OK,1,2,fnv64:e6df6ff2923a76fc,""
+pax/string_heavy/queries/q5,pax/string_heavy,auto,disk,warm,true,false,Release,30,36.209,66.803,42.679,39.934,7.253,2.596,16.995,OK,1,2,fnv64:7654c3140ca542b3,""
+pax/string_heavy/queries/q6,pax/string_heavy,auto,disk,warm,true,false,Release,30,86.122,97.483,91.424,91.666,2.385,0.853,2.608,OK,31,1,fnv64:60998f30bfe9e37f,""
+pax/string_heavy/queries/q7,pax/string_heavy,auto,disk,warm,true,false,Release,30,2.955,6.801,4.227,3.775,1.041,0.372,24.620,OK,1,1,fnv64:2f9fd26d0448b8fc,""
+pax/string_heavy/queries/q8,pax/string_heavy,auto,disk,warm,true,false,Release,30,36.344,41.605,37.654,37.383,1.113,0.398,2.955,OK,1,2,fnv64:e85b93a95119e66e,""

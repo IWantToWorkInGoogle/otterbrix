@@ -1,0 +1,53 @@
+        -:    0:Source:/home/usrname/otterbrix/components/table/storage/metadata_writer.hpp
+        -:    0:Graph:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcno
+        -:    0:Data:/home/usrname/otterbrix/build-pax-coverage/services/CMakeFiles/otterbrix_services.dir/disk/manager_disk.cpp.gcda
+        -:    0:Runs:136
+        -:    1:#pragma once
+        -:    2:
+        -:    3:#include <cstdint>
+        -:    4:#include <cstring>
+        -:    5:#include <type_traits>
+        -:    6:#include <vector>
+        -:    7:
+        -:    8:#include "metadata_manager.hpp"
+        -:    9:
+        -:   10:namespace components::table::storage {
+        -:   11:
+        -:   12:    class metadata_writer_t {
+        -:   13:    public:
+        -:   14:        explicit metadata_writer_t(metadata_manager_t& manager);
+        -:   15:
+        -:   16:        void write_data(const std::byte* data, uint64_t size);
+        -:   17:
+        -:   18:        template<typename T>
+        -:   19:        requires std::is_trivially_copyable_v<T> void write(const T& value) {
+        -:   20:            write_data(reinterpret_cast<const std::byte*>(&value), sizeof(T));
+        -:   21:        }
+        -:   22:
+        -:   23:        void write_string(const std::string& str) {
+        -:   24:            write<uint32_t>(static_cast<uint32_t>(str.size()));
+        -:   25:            if (!str.empty()) {
+        -:   26:                write_data(reinterpret_cast<const std::byte*>(str.data()), str.size());
+        -:   27:            }
+        -:   28:        }
+        -:   29:
+function _ZNK10components5table7storage17metadata_writer_t17get_block_pointerEv called 1410 returned 100% blocks executed 100%
+     1410:   30:        meta_block_pointer_t get_block_pointer() const { return start_pointer_; }
+        -:   31:
+        -:   32:        void flush();
+        -:   33:
+        -:   34:    private:
+        -:   35:        void ensure_space(uint64_t needed);
+        -:   36:
+        -:   37:        metadata_manager_t& manager_;
+        -:   38:        meta_block_pointer_t start_pointer_;
+        -:   39:        meta_block_pointer_t current_pointer_;
+        -:   40:        std::byte* current_data_{nullptr};
+        -:   41:        uint64_t current_offset_{0};
+        -:   42:        uint64_t sub_block_size_{0};
+        -:   43:
+        -:   44:        // header at start of each sub-block: next_block_pointer (8 bytes) + next_offset (4 bytes)
+        -:   45:        static constexpr uint64_t SUB_BLOCK_HEADER_SIZE = sizeof(uint64_t) + sizeof(uint32_t);
+        -:   46:    };
+        -:   47:
+        -:   48:} // namespace components::table::storage
