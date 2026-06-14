@@ -115,7 +115,7 @@ namespace {
             }
             REQUIRE(pending_future_->valid());
             REQUIRE(pending_future_->is_ready());
-            auto result = std::move(*pending_future_).get();
+            auto result = std::move(*pending_future_).take_ready();
             pending_future_.reset();
             step();
             return result;

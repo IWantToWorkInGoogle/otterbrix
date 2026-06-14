@@ -111,7 +111,7 @@ struct test_dispatcher : actor_zeta::actor::actor_mixin<test_dispatcher> {
         }
         REQUIRE(pending_future_->valid());
         REQUIRE(pending_future_->is_ready());
-        auto result = std::move(*pending_future_).get();
+        auto result = std::move(*pending_future_).take_ready();
         pending_future_.reset();
         // Drain again so the executor's post-result DDL pipeline (catalog writes,
         // flush, commit_txn, storage_publish_commits) finishes before returning.

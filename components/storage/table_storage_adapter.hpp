@@ -14,6 +14,7 @@
 #include <components/vector/vector_operations.hpp>
 #include <memory_resource>
 #include <mutex>
+#include <thread>
 
 namespace components::storage {
 
@@ -428,9 +429,18 @@ namespace components::storage {
 
         template<typename T>
         T wait_future(actor_zeta::unique_future<T>&& future) const {
+            // 1.2.0 removed the blocking future::get() (which internally wait()ed),
+            // so we must drive the future to ready ourselves before take_ready().
+            // With a progress_fn the caller pumps a manually-driven scheduler; without
+            // one the worker runs on scheduler_'s own threads, so we just spin-yield
+            // until it resolves (mirrors the old get()/wait() semantics).
             if (progress_fn_ && *progress_fn_) {
                 while (!future.is_ready()) {
                     (*progress_fn_)();
+                }
+            } else {
+                while (!future.is_ready()) {
+                    std::this_thread::yield();
                 }
             }
             return std::move(future).take_ready();
